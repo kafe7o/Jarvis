@@ -301,6 +301,11 @@ EXTRA_SETTINGS = [
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
     ]),
+    ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
+        ("JARVIS_TTS_VOICE", "Безплатен глас на български (bg-BG-BorislavNeural)"),
+        ("ELEVENLABS_API_KEY", "ElevenLabs ключ, за глас като във филма или твой клониран глас (по желание)"),
+        ("ELEVENLABS_VOICE_ID", "ElevenLabs глас (празно = George, британски мъжки)"),
+    ]),
 ]
 
 
@@ -384,6 +389,17 @@ class Hub:
                 )
             finally:
                 self.busy -= 1
+
+    def job_conversation(self, title: str) -> str | None:
+        """The owner's chat named ``title`` (made if missing), where a routine writes its result."""
+        owner = self.accounts.owner()
+        if owner is None:
+            return None
+        chat = next((c for c in self.accounts.chats(owner.id) if c["title"] == title), None)
+        chat = chat or self.accounts.create_chat(owner.id, title)
+        self.accounts.touch_chat(chat["id"])
+        self.events.add("chats", to=owner.id)
+        return conversation_id(chat["id"])
 
     # updates
     def update_now(self, wait_idle: bool = False) -> bool:
@@ -571,6 +587,16 @@ class Hub:
                 self.accounts.touch_chat(chat_id)
                 return 200, {"answer": answer, "error": error, "chat": self.accounts.chat(user.id, chat_id)}
 
+        if p == "/api/tts" and m == "POST":
+            from .tts import synthesize
+
+            try:
+                return 200, (synthesize(str(b.get("text", "")), self.ctx.settings.tts_voice), "audio/mpeg")
+            except ValueError:
+                raise
+            except Exception as exc:  # no voice engine installed or offline: the app uses the browser's voice
+                raise HTTPError(503, f"Гласът не е наличен: {exc}")
+
         if not user.is_owner:
             raise HTTPError(403, "Само собственикът може да прави това.")
 
@@ -600,6 +626,30 @@ class Hub:
                 raise HTTPError(400, "Рестартирай Jarvis ръчно.")
             self.restart()
             return 200, {"ok": True}
+        if p == "/api/core":
+            from . import core_files
+
+            home = self.ctx.settings.home
+            if m == "POST":
+                for name in core_files.FILES:
+                    if isinstance(b.get(name), str):
+                        core_files.write(home, name, b[name])
+            return 200, {"files": [{"name": n, "title": t, "hint": h, "text": core_files.read(home, n)}
+                                   for n, (t, h) in core_files.FILES.items()]}
+        if p == "/api/routines":
+            from . import routines
+
+            if m == "POST":
+                if b.get("key") not in routines.ROUTINES:
+                    raise HTTPError(400, "Няма такава рутина.")
+                routines.set_routine(self.ctx.store, b["key"], bool(b.get("enabled")), b.get("time") or None)
+            return 200, {"routines": routines.status(self.ctx.store)}
+        if p == "/api/activity" and m == "GET":
+            names = {u.id: u.name for u in self.accounts.list()}
+            rows = self.ctx.store.query("SELECT * FROM activity ORDER BY id DESC LIMIT 300")
+            labels = self.ctx.jarvis.registry
+            return 200, {"activity": [{**r, "user": names.get(r["user_id"], "Jarvis"), "label": tool_label(labels, r["tool"])}
+                                      for r in rows]}
         if p == "/api/update" and m == "POST":
             if not self.restartable:
                 raise HTTPError(400, "Обнови с `jarvis update` и рестартирай Jarvis.")
@@ -673,7 +723,10 @@ class Hub:
                         body = json.loads(self.rfile.read(length) or b"{}")
                     req = Request(method, url.path, query, body, user, via, local)
                     status, payload = hub.handle(req)
-                    self._respond(status, payload, cookie=req.set_cookie)
+                    if isinstance(payload, tuple):  # (bytes, content type), e.g. speech audio
+                        self._respond(status, payload[0], payload[1], cookie=req.set_cookie)
+                    else:
+                        self._respond(status, payload, cookie=req.set_cookie)
                 except HTTPError as exc:
                     self._respond(exc.status, {"error": str(exc)})
                 except (ValueError, KeyError) as exc:

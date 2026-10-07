@@ -274,3 +274,11 @@ def test_update_installs_once_and_remembers_the_version(tmp_path, monkeypatch):
     assert (root / ".env").read_text() == "ANTHROPIC_API_KEY=keep\n"
     assert updater.installed_version(root) == "abc123"
     assert updater.newer(root) is None  # nothing new until GitHub has another commit
+
+
+def test_voice_picks_british_for_english_and_cleans_markdown():
+    from jarvis.tts import ENGLISH_VOICE, clean, pick_voice
+
+    assert pick_voice("Good evening, sir.", "bg-BG-BorislavNeural") == ENGLISH_VOICE
+    assert pick_voice("Добър вечер, сър.", "bg-BG-BorislavNeural") == "bg-BG-BorislavNeural"
+    assert clean("**Готово** виж [тук](https://x.y) ```код```") == "Готово виж тук"

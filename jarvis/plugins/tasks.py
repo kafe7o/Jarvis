@@ -157,19 +157,27 @@ class ReminderScheduler:
         if jarvis is None:
             return
 
+        from ..routines import routine_of, strip_marker
+
+        routine = routine_of(rem["text"])
+        title = routine["title"] if routine else strip_marker(rem["text"])[:60]
+
         def unattended(summary: str) -> bool:
-            self.ctx.notify(f"Задача „{rem['text']}“ иска одобрение за: {summary}. Не го направих; кажи ми, ако искаш.")
+            self.ctx.notify(f"„{title}“ иска одобрение за: {summary}. Не го направих; кажи ми, ако искаш.")
             return False
 
+        # In the app, the result lands in a chat named after the job; elsewhere it has its own history.
+        hub = getattr(self.ctx, "hub", None)
+        conversation = (hub.job_conversation(routine["title"] if routine else "Задачи по график") if hub else None)
         try:
             result = jarvis.ask(
-                f"(Scheduled job, the user is not watching; report the outcome briefly.) {rem['text']}",
-                conversation=f"job-{rem['id']}",
+                f"(Scheduled job, the user is not watching; report the outcome briefly.) {strip_marker(rem['text'])}",
+                conversation=conversation or f"job-{rem['id']}",
                 confirmer=unattended,
             )
-            self.ctx.notify(f"Задача „{rem['text']}“: {result}")
+            self.ctx.notify(f"{title}: {result}" if routine else f"Задача „{title}“: {result}")
         except Exception as exc:
-            self.ctx.notify(f"Задача „{rem['text']}“ се провали: {exc}")
+            self.ctx.notify(f"„{title}“ се провали: {exc}")
 
 
 def register(registry: ToolRegistry, ctx) -> None:

@@ -288,3 +288,46 @@ def test_always_allow_is_never_offered_for_calls(settings, ctx, registry, tmp_pa
     owner("/api/confirm", {"id": confirm["id"], "yes": True, "always": True})
     t.join(15)
     assert ctx.settings.trust_local_actions is False
+
+
+def test_routines_personality_and_activity_tabs(settings, ctx, registry, tmp_path):
+    hub, owner, _ = make(settings, ctx, registry, [])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    routines = owner("/api/routines")[1]["routines"]
+    assert [r["key"] for r in routines] == ["morning", "inbox", "week"] and not any(r["enabled"] for r in routines)
+    data = owner("/api/routines", {"key": "morning", "enabled": True, "time": "07:30"})[1]["routines"]
+    assert data[0]["enabled"] and data[0]["time"] == "07:30"
+    rows = ctx.store.query("SELECT * FROM reminders WHERE channels='agent'")
+    assert len(rows) == 1 and rows[0]["repeat"] == "daily" and rows[0]["at"].endswith("07:30:00")
+    owner("/api/routines", {"key": "morning", "enabled": False})
+    assert not ctx.store.query("SELECT * FROM reminders WHERE channels='agent'")
+    assert owner("/api/routines", {"key": "morning", "enabled": True, "time": "25:00"})[0] == 400
+
+    owner("/api/core", {"SOUL.md": "Говори като британски иконом.", "USER.md": "Казвам се Анастас."})
+    files = {f["name"]: f["text"] for f in owner("/api/core")[1]["files"]}
+    assert files == {"SOUL.md": "Говори като британски иконом.", "USER.md": "Казвам се Анастас."}
+
+    ctx.jarvis.log_activity(None, "Jarvis", "run_shell", {"command": "dir"}, False)
+    act = owner("/api/activity")[1]["activity"]
+    assert act[0]["tool"] == "run_shell" and "dir" in act[0]["summary"] and act[0]["ok"] == 1
+
+    owner("/api/users", {"name": "Мария", "email": "maria@example.com", "password": "123456"})
+    maria = Browser(owner.port)
+    maria("/api/login", {"email": "maria@example.com", "password": "123456"})
+    assert maria("/api/routines")[0] == 403 and maria("/api/core")[0] == 403 and maria("/api/activity")[0] == 403
+
+
+def test_routine_results_land_in_a_chat_named_after_it(settings, ctx, registry):
+    from jarvis.plugins.tasks import ReminderScheduler as Scheduler
+    from jarvis.routines import set_routine
+
+    hub, owner, client = make(settings, ctx, registry, [response(text_block("Добро утро, сър. Днес нямате срещи."))])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    set_routine(ctx.store, "morning", True, "08:00")
+    rem = ctx.store.query("SELECT * FROM reminders WHERE channels='agent'")[0]
+    Scheduler(ctx).run_job(rem)
+    chats = owner("/api/chats")[1]["chats"]
+    brief = next(c for c in chats if c["title"] == "Сутрешен брифинг")
+    messages = owner(f"/api/chats/{brief['id']}")[1]["messages"]
+    assert messages[-1]["content"] == "Добро утро, сър. Днес нямате срещи."
+    assert "[routine:" not in client.requests[0]["messages"][0]["content"]
