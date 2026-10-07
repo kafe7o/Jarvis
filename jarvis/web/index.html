@@ -409,7 +409,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 <div id="hud" class="hidden" data-state="idle" role="dialog" aria-label="Jarvis режим">
   <div class="grid"></div><div class="scan"></div>
   <div class="hud-top">
-    <div class="hud-brand">J.A.R.V.I.S.<small id="hudBrain">ONLINE</small></div>
+    <div class="hud-brand">J.A.R.V.I.S.<small id="hudBrain">НА ЛИНИЯ</small></div>
     <div class="hud-clock" id="hudClock"></div>
     <button class="icon-btn" id="hudClose" title="Затвори (Esc)"><svg class="i"><use href="#i-x"/></svg></button>
   </div>
@@ -953,7 +953,7 @@ function setBrain(key) {
   state.brain = key || "opus";
   if (BRAINS[state.brain]) document.documentElement.dataset.brain = state.brain;
   else delete document.documentElement.dataset.brain;
-  $("hudBrain").textContent = "ONLINE · " + (BRAINS[state.brain] || "CUSTOM");
+  $("hudBrain").textContent = "НА ЛИНИЯ · " + (BRAINS[state.brain] || "ДРУГ");
 }
 const words = (s) => s.trim().split(/\s+/).filter(Boolean).length;
 const stopTracks = (stream) => { if (stream) stream.getTracks().forEach((t) => t.stop()); };
@@ -1197,9 +1197,14 @@ async function openHud() {
     } catch (e) {}
   }
   if (!hud.open || hud.confirm) return;
-  const h = new Date().getHours();
+  // Like the film: the time, the weather outside and that everything works (the weather waits at most 4 s).
+  const now = new Date(), h = now.getHours();
   const hello = h < 5 || h >= 18 ? "Добър вечер" : h < 12 ? "Добро утро" : "Добър ден";
-  await hudSpeak(`${hello}, ${(state.me.name || "").split(" ")[0]}. На линия съм.`);
+  const time = now.toLocaleTimeString("bg-BG", { hour: "2-digit", minute: "2-digit", hour12: false }).replace(/\s*ч\.?$/, "");
+  const weather = await Promise.race([api("/api/weather").then((r) => r.text || "", () => ""),
+                                      new Promise((done) => setTimeout(() => done(""), 4000))]);
+  if (!hud.open || hud.confirm) return;
+  await hudSpeak(`${hello}, ${(state.me.name || "").split(" ")[0]}. Часът е ${time}. ${weather} Всички системи работят.`.replace(/\s+/g, " "));
   if (hud.open && !hud.busy) { hud.awake = true; hud.awakeUntil = Date.now() + 8000; hudIdle(); }
 }
 function closeHud() {

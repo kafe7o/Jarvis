@@ -276,11 +276,12 @@ def test_update_installs_once_and_remembers_the_version(tmp_path, monkeypatch):
     assert updater.newer(root) is None  # nothing new until GitHub has another commit
 
 
-def test_voice_picks_british_for_english_and_cleans_markdown():
+def test_bulgarian_voice_reads_every_answer_and_markdown_is_cleaned():
     from jarvis.tts import ENGLISH_VOICE, clean, pick_voice
 
-    assert pick_voice("Good evening, sir.", "bg-BG-BorislavNeural") == ENGLISH_VOICE
-    assert pick_voice("Добър вечер, сър.", "bg-BG-BorislavNeural") == "bg-BG-BorislavNeural"
+    assert pick_voice("Good evening, sir.", "bg-BG-BorislavNeural") == "bg-BG-BorislavNeural"  # always Bulgarian
+    assert pick_voice("Dobar vecher, sar.", "bg-BG-BorislavNeural") == "bg-BG-BorislavNeural"
+    assert pick_voice("Good evening, sir.", "de-DE-ConradNeural") == ENGLISH_VOICE
     assert clean("**Готово** виж [тук](https://x.y) ```код```") == "Готово виж тук"
 
 

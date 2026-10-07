@@ -329,6 +329,7 @@ EXTRA_SETTINGS = [
         ("JARVIS_MODEL", "Мозък: gemini-3.5-flash-lite (безплатно), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
+        ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
     ]),
     ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
         ("JARVIS_TTS_VOICE", "Безплатен глас на български (bg-BG-BorislavNeural)"),
@@ -581,6 +582,10 @@ class Hub:
             if after < 0:  # a client starting up only wants new events
                 return 200, {"events": [], "last": self.events.last_id()}
             return 200, {"events": self.events.after(after, user)}
+        if p == "/api/weather" and m == "GET":  # for the greeting in Jarvis mode
+            from .plugins.daily import short_weather
+
+            return 200, {"text": short_weather()}
         if p == "/api/confirm" and m == "POST":
             return 200, {"ok": self.confirmer.answer(int(b["id"]), bool(b["yes"]), user, bool(b.get("always")))}
         if p == "/api/ask" and m == "POST":

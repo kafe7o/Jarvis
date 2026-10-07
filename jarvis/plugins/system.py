@@ -11,7 +11,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
-from ..procs import run_text
+from ..procs import run_capture, run_text
 from ..tools import Image, ToolRegistry, obj
 
 MAX_OUTPUT = 20_000
@@ -30,14 +30,18 @@ def _open_with_os(target: str) -> None:
         subprocess.Popen(["xdg-open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def register(registry: ToolRegistry, ctx) -> None:
-    roots = [Path(r).expanduser().resolve() for r in ctx.settings.allowed_roots]
+def allowed_path(path: str, allowed: list[str]) -> Path:
+    """``path`` if it is inside one of the allowed folders (JARVIS_FILE_ROOTS)."""
+    p = Path(path).expanduser().resolve()
+    roots = [Path(r).expanduser().resolve() for r in allowed]
+    if roots and not any(p == r or r in p.parents for r in roots):
+        raise PermissionError(f"{p} is outside the allowed folders ({', '.join(map(str, roots))}). Set JARVIS_FILE_ROOTS.")
+    return p
 
-    def safe_path(path: str) -> Path:
-        p = Path(path).expanduser().resolve()
-        if roots and not any(p == r or r in p.parents for r in roots):
-            raise PermissionError(f"{p} is outside the allowed folders ({', '.join(map(str, roots))}). Set JARVIS_FILE_ROOTS.")
-        return p
+
+def register(registry: ToolRegistry, ctx) -> None:
+    def safe_path(path: str) -> Path:  # reads the setting each time, so a change in Settings applies at once
+        return allowed_path(path, ctx.settings.allowed_roots)
 
     @registry.tool(
         "Run a shell command on this computer and return its output. Use for anything the other tools "
@@ -317,3 +321,90 @@ def register(registry: ToolRegistry, ctx) -> None:
             if mute is not None:
                 subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1" if mute else "0"], check=True)
         return "Volume set."
+
+    @registry.tool(
+        "Media keys on this computer: play/pause, next, previous or stop whatever is playing (Spotify, YouTube "
+        "in the browser, any player), volume up/down, mute.",
+        obj({"key": ("string", "play_pause | next | previous | stop | volume_up | volume_down | mute"),
+             "times?": ("integer", "How many presses, e.g. volume steps (default 1)")}),
+    )
+    def media_control(key: str, times: int = 1):
+        if key not in MEDIA_KEYS:
+            raise ValueError(f"Unknown key {key}. Use one of: {', '.join(MEDIA_KEYS)}")
+        if sys.platform.startswith("linux") and shutil.which("playerctl") and key in PLAYERCTL:
+            subprocess.run(["playerctl", PLAYERCTL[key]], check=False)
+        else:
+            import pyautogui
+
+            for _ in range(max(1, min(int(times or 1), 50))):
+                pyautogui.press(MEDIA_KEYS[key])
+        return "Done."
+
+    @registry.tool("List the programs that have open windows on this computer.", obj({}))
+    def open_programs():
+        if sys.platform.startswith("win"):
+            script = ("Get-Process | Where-Object {$_.MainWindowTitle} | Sort-Object ProcessName | "
+                      "ForEach-Object { $_.ProcessName + ' | ' + $_.MainWindowTitle }")
+            return _clip(run_text(["powershell", "-NoProfile", "-Command", script], timeout=30))
+        if sys.platform == "darwin":
+            script = 'tell application "System Events" to get name of (processes where background only is false)'
+            return _clip(run_text(["osascript", "-e", script], timeout=30))
+        if shutil.which("wmctrl"):
+            return _clip(run_text(["wmctrl", "-l"], timeout=30))
+        return _clip(run_text(["ps", "-eo", "comm", "--sort=comm"], timeout=30))
+
+    @registry.tool(
+        "Close a program on this computer by its name (e.g. 'chrome', 'spotify', 'notepad'; see open_programs).",
+        obj({"name": ("string", "Program name"), "force?": ("boolean", "Kill it even if it does not want to close")}),
+        confirm=True,
+        local=True,
+        summarize=lambda a: f"Затвори програмата {a.get('name')}" + (" (насила)" if a.get("force") else ""),
+    )
+    def close_program(name: str, force: bool = False):
+        name = name.strip()
+        if sys.platform.startswith("win"):
+            exe = name if name.lower().endswith(".exe") else name + ".exe"
+            return run_text(["taskkill", "/IM", exe, "/T", *(["/F"] if force else [])], timeout=30)
+        if sys.platform == "darwin" and not force:
+            return run_text(["osascript", "-e", f'quit app "{name}"'], timeout=30)
+        return run_text(["pkill", *(["-9"] if force else []), "-i", "-f", name], timeout=30)
+
+    @registry.tool(
+        "Lock this computer's screen, or put it to sleep.",
+        obj({"action": ("string", "lock | sleep")}),
+    )
+    def lock_computer(action: str = "lock"):
+        run_capture(POWER[_platform()][action], timeout=30)
+        return "Locked." if action == "lock" else "Going to sleep."
+
+    @registry.tool(
+        "Restart or shut down this computer (in 10 seconds), or cancel a planned shutdown.",
+        obj({"action": ("string", "restart | shutdown | cancel")}),
+        confirm=True,
+        local=True,
+        summarize=lambda a: {"restart": "РЕСТАРТИРАЙ компютъра", "shutdown": "ИЗКЛЮЧИ компютъра"}.get(
+            a.get("action"), "Отмени изключването"),
+    )
+    def power_off(action: str):
+        run_capture(POWER[_platform()][action], timeout=30)
+        return {"restart": "Restarting in 10 seconds.", "shutdown": "Shutting down in 10 seconds."}.get(action, "Cancelled.")
+
+
+MEDIA_KEYS = {"play_pause": "playpause", "next": "nexttrack", "previous": "prevtrack", "stop": "stop",
+              "volume_up": "volumeup", "volume_down": "volumedown", "mute": "volumemute"}
+PLAYERCTL = {"play_pause": "play-pause", "next": "next", "previous": "previous", "stop": "stop"}
+POWER = {
+    "windows": {"lock": ["rundll32.exe", "user32.dll,LockWorkStation"],
+                "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
+                "restart": ["shutdown", "/r", "/t", "10"], "shutdown": ["shutdown", "/s", "/t", "10"],
+                "cancel": ["shutdown", "/a"]},
+    "mac": {"lock": ["pmset", "displaysleepnow"], "sleep": ["pmset", "sleepnow"],
+            "restart": ["osascript", "-e", 'tell app "System Events" to restart'],
+            "shutdown": ["osascript", "-e", 'tell app "System Events" to shut down'], "cancel": ["true"]},
+    "linux": {"lock": ["loginctl", "lock-session"], "sleep": ["systemctl", "suspend"],
+              "restart": ["shutdown", "-r", "+0"], "shutdown": ["shutdown", "-h", "+0"], "cancel": ["shutdown", "-c"]},
+}
+
+
+def _platform() -> str:
+    return "windows" if sys.platform.startswith("win") else "mac" if sys.platform == "darwin" else "linux"

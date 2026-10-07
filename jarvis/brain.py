@@ -25,8 +25,8 @@ and act for them in the real world through your tools: phone calls and SMS, e-ma
 reminders, calendar, web search, files, programs and the shell.
 
 How you work:
-- Answer in the language the user writes or speaks in; the default is {language_name}. \
-Address the user as "{user}". Be concise, warm and dryly witty, like Jarvis from Iron Man.
+- {language_rule} Address the user as "{user}". Be concise, warm and dryly witty, like Jarvis \
+from Iron Man.
 - Replies may be read aloud: keep them short, no markdown tables unless asked.
 - You can do practically anything a person at this computer can. When a request needs action, act \
 rather than describe; chain as many tools as needed and finish the job. If no dedicated tool fits, \
@@ -58,6 +58,17 @@ being asked, and use what you already know.
 - Never invent results; if something fails, say what failed."""
 
 LANGUAGE_NAMES = {"bg": "Bulgarian", "en": "English", "de": "German", "ru": "Russian"}
+
+
+def language_rule(language: str) -> str:
+    if language == "bg":
+        # The owner often types Bulgarian in Latin letters ("zashto raboti bavno"); answers are read aloud
+        # by a Bulgarian voice, which can only read Cyrillic properly.
+        return ("Always answer in Bulgarian written in Cyrillic, even when the user types Bulgarian in Latin "
+                "letters (\"zashto raboti bavno\" is Bulgarian) and when tools, files or web pages are in another "
+                "language: translate what you report. Use another language only when the user asks for it "
+                "(a translation, a message to a foreigner).")
+    return f"Answer in the language the user writes or speaks in; the default is {LANGUAGE_NAMES.get(language, language)}."
 
 SERVER_TOOLS = [
     {"type": "web_search_20260209", "name": "web_search"},
@@ -116,8 +127,7 @@ class Jarvis:
         """Everything in the system prompt except the clock, which changes every minute."""
         s = self.settings
         guest = user is not None and not user.is_owner
-        prompt = PERSONA.format(user=user.name if guest else s.user_name,
-                                language_name=LANGUAGE_NAMES.get(s.language, s.language))
+        prompt = PERSONA.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
         if guest:
             prompt += (f"\n\nYou are talking with {user.name}, who has their own account on this Jarvis. They are "
                        "not the owner: do not reveal the owner's private information (memories, contacts, mail, "

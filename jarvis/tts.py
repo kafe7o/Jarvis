@@ -23,6 +23,10 @@ def clean(text: str) -> str:
 
 
 def pick_voice(text: str, configured: str) -> str:
+    """The configured voice. Only a non-Bulgarian voice switches to the British one for English answers:
+    a Bulgarian voice reads everything, so Jarvis never changes voice in the middle of a conversation."""
+    if configured.lower().startswith("bg-"):
+        return configured
     cyrillic = len(re.findall(r"[А-Яа-я]", text))
     latin = len(re.findall(r"[A-Za-z]", text))
     return ENGLISH_VOICE if latin > cyrillic else configured

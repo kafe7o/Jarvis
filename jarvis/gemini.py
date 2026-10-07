@@ -265,3 +265,48 @@ def search(query: str, model: str | None = None, client=None) -> str:
     meta = response.candidates[0].grounding_metadata if response.candidates else None
     sources = [f"- {c.web.title}: {c.web.uri}" for c in (getattr(meta, "grounding_chunks", None) or []) if c.web]
     return text + ("\n\nSources:\n" + "\n".join(sources[:8]) if sources else "")
+
+
+WATCH_PROMPT = ("Watch the whole video, including the sound, and answer in Bulgarian. {question}\n"
+                "Give timestamps (mm:ss), quote what is said and the text on screen, and say where you are not sure.")
+
+
+def watch(source: str, question: str = "", client=None, wait=time.sleep) -> str:
+    """Gemini watches a video (a file on this computer or a YouTube link) and answers about it."""
+    from google.genai import errors, types
+
+    client = client or make_client()
+    question = question or "Describe in detail everything that happens in it."
+    uploaded = None
+    if re.match(r"https?://(www\.|m\.)?(youtube\.com|youtu\.be)/", source):
+        video = types.Part(file_data=types.FileData(file_uri=source, mime_type="video/*"))
+    else:
+        uploaded = client.files.upload(file=source)
+        while uploaded.state and uploaded.state.name == "PROCESSING":
+            wait(5)
+            uploaded = client.files.get(name=uploaded.name)
+        if uploaded.state and uploaded.state.name != "ACTIVE":
+            raise RuntimeError(f"Google could not process the video: {uploaded.error or uploaded.state}")
+        video = uploaded
+    try:
+        last = None
+        # the best free models first; a long video may only fit at low detail
+        for model in ["gemini-3.8-flash", "gemini-3.5-flash", *FREE_MODELS]:
+            for detail in (None, types.MediaResolution.MEDIA_RESOLUTION_LOW):
+                try:
+                    answer = client.models.generate_content(
+                        model=model, contents=[video, WATCH_PROMPT.format(question=question)],
+                        config=types.GenerateContentConfig(media_resolution=detail, max_output_tokens=16000))
+                    if answer.text:
+                        return answer.text
+                except errors.APIError as exc:
+                    last = exc
+                    if exc.code == 429 and daily_limit(exc):
+                        break  # this model is used up for today; the next one
+        raise last or RuntimeError("Gemini gave no answer about the video.")
+    finally:
+        if uploaded is not None:
+            try:
+                client.files.delete(name=uploaded.name)
+            except Exception:
+                pass
