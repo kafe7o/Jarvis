@@ -70,6 +70,8 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .btn.ghost:hover { background: var(--raise); }
 .btn.danger { background: transparent; border-color: rgba(255,93,108,.4); color: var(--danger); }
 .btn.danger:hover { background: rgba(255,93,108,.1); }
+.btn.warn { background: rgba(255,181,71,.14); border-color: rgba(255,181,71,.5); color: var(--warn); }
+.btn.warn:hover { background: rgba(255,181,71,.22); }
 .btn.small { padding: 6px 11px; font-size: 13px; border-radius: 8px; }
 .btn.block { width: 100%; padding: 12px; }
 .btn:disabled { opacity: .55; cursor: default; }
@@ -142,6 +144,7 @@ header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-spa
 .confirm-card .head { display: flex; align-items: center; gap: 8px; color: var(--warn); font-weight: 600; font-size: 14px; margin-bottom: 6px; }
 .confirm-card .what { white-space: pre-wrap; word-wrap: break-word; font-family: var(--mono); font-size: 13px; color: #ffe2b0; margin-bottom: 12px; }
 .confirm-card .row { display: flex; gap: 10px; flex-wrap: wrap; }
+.confirm-card .hint { margin-top: 8px; font-size: 12px; }
 .confirm-card .done { color: var(--muted); font-size: 14px; }
 
 #empty { max-width: 720px; margin: 0 auto; padding: 9vh 20px 20px; text-align: center; }
@@ -686,13 +689,17 @@ function showConfirm(ev) {
   holder.innerHTML = `<div class="reactor"></div><div class="body"><div class="confirm-card">
       <div class="head">${icon("shield")} Jarvis иска разрешение</div>
       <div class="what">${esc(ev.text)}</div>
-      <div class="row"><button class="btn primary small" data-yes="1">Разреши</button><button class="btn ghost small" data-yes="0">Откажи</button></div>
+      <div class="row"><button class="btn primary small" data-yes="1">Разреши</button>${ev.always ? `<button class="btn warn small" data-yes="1" data-always="1">Винаги разрешавай</button>` : ""}<button class="btn ghost small" data-yes="0">Откажи</button></div>
+      ${ev.always ? `<div class="hint">„Винаги“ спира въпросите за команди, код, файлове, мишка и клавиатура. Обаждания, съобщения и плащания пак ще питат.</div>` : ""}
     </div></div>`;
   holder.addEventListener("click", async (e) => {
     const b = e.target.closest("button[data-yes]"); if (!b || holder.dataset.answered) return;
-    const yes = b.dataset.yes === "1";
+    const yes = b.dataset.yes === "1", always = b.dataset.always === "1";
     holder.dataset.answered = "1";
-    try { await api("/api/confirm", { id: ev.id, yes }); finishConfirm(holder, yes ? "Разрешено." : "Отказано."); }
+    try {
+      await api("/api/confirm", { id: ev.id, yes, always });
+      finishConfirm(holder, always ? "Разрешено. Повече няма да питам за компютъра." : yes ? "Разрешено." : "Отказано.");
+    }
     catch (err) { delete holder.dataset.answered; toast(err.message, "Грешка", "err"); }
   });
   state.confirms.push(holder);

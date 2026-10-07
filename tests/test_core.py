@@ -233,3 +233,13 @@ def test_system_prompt_is_fixed_for_a_turn_and_bad_thinking_is_dropped(settings,
     first, second = client.requests
     assert first["system"] == second["system"]  # the new fact did not change the prompt mid-turn
     assert all(getattr(b, "type", None) != "thinking" for b in second["messages"][-2]["content"])
+
+
+def test_phone_is_found_over_usb_without_settings(monkeypatch):
+    from jarvis.plugins import android
+
+    monkeypatch.delenv("JARVIS_ADB_DEVICES", raising=False)
+    monkeypatch.setattr(android.shutil, "which", lambda _name: "adb")
+    monkeypatch.setattr(android, "run_capture", lambda *a, **k: (
+        0, b"List of devices attached\n9H9DS4PNZ9S8HM6H\tdevice\nemulator-5554\toffline\n\n", b""))
+    assert android.devices_from_env() == {"phone": "9H9DS4PNZ9S8HM6H"}

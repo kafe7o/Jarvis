@@ -7,6 +7,7 @@ JARVIS_TRUST_LOCAL is on; calls, messages and payments can never skip it.
 
 from __future__ import annotations
 
+import contextvars
 import inspect
 import json
 from dataclasses import dataclass, field
@@ -35,6 +36,11 @@ class Image:
 
 class Confirmer(Protocol):
     def __call__(self, summary: str) -> bool: ...
+
+
+# Set while a confirmation is being asked: which tool, and whether "always allow" may be offered for it
+# (only computer actions that JARVIS_TRUST_LOCAL covers; never calls, messages or payments).
+asking: contextvars.ContextVar[dict | None] = contextvars.ContextVar("asking", default=None)
 
 
 @dataclass
@@ -117,8 +123,14 @@ class ToolRegistry:
         if allowed is not None and group not in allowed:
             return "This account is not allowed to use this ability. Tell the user the owner can enable it in Settings > Permissions.", True
         needs_ok = (tool.confirm and not (tool.local and trust_local)) or group in (ask_groups or ())
-        if needs_ok and not confirmer(tool.describe_call(args)):
-            return "The user declined this action. Do not retry it unless they ask again.", True
+        if needs_ok:
+            mark = asking.set({"tool": name, "can_always": tool.local and group not in (ask_groups or ())})
+            try:
+                ok = confirmer(tool.describe_call(args))
+            finally:
+                asking.reset(mark)
+            if not ok:
+                return "The user declined this action. Do not retry it unless they ask again.", True
         try:
             result = tool.func(**args)
         except Exception as exc:  # report every failure back to the model

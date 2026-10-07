@@ -229,7 +229,7 @@ def test_set_owner_creates_then_resets(ctx):
 
 def test_saved_settings_apply_without_restart(settings, ctx, registry, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("JARVIS_EFFORT", raising=False)
+    monkeypatch.setenv("JARVIS_EFFORT", "xhigh")  # restored after the test
     (tmp_path / ".env").write_text("JARVIS_EFFORT=xhigh\n", encoding="utf-8")
     hub, owner, _ = make(settings, ctx, registry, [])
     owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
@@ -237,3 +237,54 @@ def test_saved_settings_apply_without_restart(settings, ctx, registry, tmp_path,
     owner("/api/settings", {"values": {"JARVIS_EFFORT": "low"}})
     assert ctx.settings.effort == "low" and ctx.jarvis.settings.effort == "low"
     assert ctx.settings.db_path == db_path  # untouched fields stay as they were
+
+
+def wait_for_confirms(hub, n=1):
+    for _ in range(100):
+        events = [e for e in hub.events.events if e["kind"] == "confirm"]
+        if len(events) >= n:
+            return events
+        threading.Event().wait(0.05)
+    return [e for e in hub.events.events if e["kind"] == "confirm"]
+
+
+def test_always_allow_stops_asking_for_computer_actions(settings, ctx, registry, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JARVIS_TRUST_LOCAL", "0")  # restored after the test
+    (tmp_path / ".env").write_text("JARVIS_TRUST_LOCAL=0\n", encoding="utf-8")
+    hub, owner, client = make(settings, ctx, registry, [
+        response(tool_block("run_shell", {"command": "echo one"}), stop="tool_use"),
+        response(tool_block("run_shell", {"command": "echo two"}), stop="tool_use"),
+        response(text_block("Готово.")),
+    ])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    chat = owner("/api/chats", {})[1]["chat"]
+    answers = {}
+    t = threading.Thread(target=lambda: answers.update(owner(f"/api/chats/{chat['id']}/ask", {"text": "пусни"})[1]))
+    t.start()
+    first = wait_for_confirms(hub)[0]
+    assert first["always"] is True
+    assert owner("/api/confirm", {"id": first["id"], "yes": True, "always": True})[1]["ok"] is True
+    t.join(15)
+    assert answers["answer"] == "Готово."
+    assert len([e for e in hub.events.events if e["kind"] == "confirm"]) == 1  # the second command ran without asking
+    assert ctx.settings.trust_local_actions is True
+    assert "JARVIS_TRUST_LOCAL=1" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_always_allow_is_never_offered_for_calls(settings, ctx, registry, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JARVIS_TRUST_LOCAL", "0")
+    hub, owner, client = make(settings, ctx, registry, [
+        response(tool_block("request_approval", {"action": "Обади се на Краси"}), stop="tool_use"),
+        response(text_block("Добре.")),
+    ])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    chat = owner("/api/chats", {})[1]["chat"]
+    t = threading.Thread(target=lambda: owner(f"/api/chats/{chat['id']}/ask", {"text": "звънни"}))
+    t.start()
+    confirm = wait_for_confirms(hub)[0]
+    assert confirm["always"] is False
+    owner("/api/confirm", {"id": confirm["id"], "yes": True, "always": True})
+    t.join(15)
+    assert ctx.settings.trust_local_actions is False

@@ -33,7 +33,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .accounts import GROUPS, SESSION_DAYS, TOKEN_USER, Accounts, User, check_password, conversation_id
-from .tools import Tool
+from .tools import Tool, asking
 
 log = logging.getLogger("jarvis.hub")
 
@@ -142,17 +142,20 @@ class EventLog:
 class WebConfirmer:
     """Asks for confirmation in the requesting user's open app windows; the first answer wins."""
 
-    def __init__(self, events: EventLog, timeout: float = 600, on_request=None):
+    def __init__(self, events: EventLog, timeout: float = 600, on_request=None, on_always=None):
         self.events = events
         self.timeout = timeout
         self.on_request = on_request or (lambda _summary: None)
-        self.pending: dict[int, tuple[Future, int | None]] = {}
+        self.on_always = on_always or (lambda: None)
+        self.pending: dict[int, tuple[Future, int | None, bool]] = {}
 
     def __call__(self, summary: str, user: User | None = None, chat_id: int | None = None) -> bool:
         fut: Future = Future()
         to = user.id if user is not None and user.id else None
-        cid = self.events.add("confirm", to=to, text=summary, chat=chat_id)
-        self.pending[cid] = (fut, to)
+        info = asking.get() or {}
+        can_always = bool(info.get("can_always")) and (user is None or user.is_owner)
+        cid = self.events.add("confirm", to=to, text=summary, chat=chat_id, always=can_always)
+        self.pending[cid] = (fut, to, can_always)
         if user is None or user.is_owner:
             try:
                 self.on_request(summary)
@@ -166,12 +169,14 @@ class WebConfirmer:
             self.pending.pop(cid, None)
             self.events.add("confirm_closed", to=to, confirm_id=cid)
 
-    def answer(self, confirm_id: int, yes: bool, user: User | None = None) -> bool:
-        fut, to = self.pending.get(confirm_id, (None, None))
+    def answer(self, confirm_id: int, yes: bool, user: User | None = None, always: bool = False) -> bool:
+        fut, to, can_always = self.pending.get(confirm_id, (None, None, False))
         if fut is None or fut.done():
             return False
         if user is not None and not (to == user.id or (to is None and user.is_owner)):
             return False
+        if yes and always and can_always:
+            self.on_always()  # stop asking for computer actions from now on
         fut.set_result(yes)
         return True
 
@@ -323,7 +328,8 @@ class Hub:
         from .plugins.messaging import push_notify
 
         # With the phone in a pocket, a push says a confirmation is waiting in the app.
-        self.confirmer = WebConfirmer(self.events, on_request=lambda s: push_notify(f"Чака потвърждение: {s}", "Jarvis"))
+        self.confirmer = WebConfirmer(self.events, on_request=lambda s: push_notify(f"Чака потвърждение: {s}", "Jarvis"),
+                                      on_always=lambda: self.save_settings({"JARVIS_TRUST_LOCAL": "1"}))
         self.devices = DeviceHub(ctx.jarvis.registry)
         self.chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         self.failures: dict[str, list[float]] = defaultdict(list)
@@ -480,7 +486,7 @@ class Hub:
                 return 200, {"events": [], "last": self.events.last_id()}
             return 200, {"events": self.events.after(after, user)}
         if p == "/api/confirm" and m == "POST":
-            return 200, {"ok": self.confirmer.answer(int(b["id"]), bool(b["yes"]), user)}
+            return 200, {"ok": self.confirmer.answer(int(b["id"]), bool(b["yes"]), user, bool(b.get("always")))}
         if p == "/api/ask" and m == "POST":
             try:
                 return 200, {"answer": self.ask(b["text"], user)}

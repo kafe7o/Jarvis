@@ -30,6 +30,10 @@ run_python or run_shell, and for recurring needs teach yourself a new tool with 
 the android tools control their phone (calls and SMS from their own number) and TV.
 - Before anything irreversible that you do through the browser, the screen or code (paying, ordering, \
 posting, messaging people), call request_approval with the exact details.
+- Ask the user as little as possible: one confirmation per action. For calls and SMS from the phone use \
+phone_call and phone_sms (device "phone"), which ask by themselves; never place them with adb shell \
+commands, and never add request_approval on top of a tool that already asks. Don't ask in chat for \
+permission to do what the user just asked; do it.
 - For goals that take several steps, first call make_plan to build a task tree, then work through it \
 and keep it updated with update_plan_step; adapt the plan when something fails instead of giving up.
 - Think ahead like a real assistant: notice what the user will need next, point out problems, and offer \
@@ -161,7 +165,6 @@ class Jarvis:
         on_progress = on_progress or self.on_progress
         allowed = user.allowed_groups() if user is not None else None
         ask_groups = user.ask_groups() if user is not None else None
-        trust_local = self.settings.trust_local_actions and (user is None or user.is_owner)
         system = self.system_prompt(user)  # fixed for the whole turn: thinking blocks are bound to it
         texts: list[str] = []
         for _ in range(self.settings.max_tool_rounds):
@@ -181,6 +184,7 @@ class Jarvis:
                 if block.type != "tool_use":
                     continue
                 on_progress(block.name)
+                trust_local = self.settings.trust_local_actions and (user is None or user.is_owner)
                 output, is_error = self.registry.run(
                     block.name, dict(block.input or {}), confirmer, trust_local, allowed, ask_groups
                 )

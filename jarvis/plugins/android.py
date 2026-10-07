@@ -40,7 +40,17 @@ def devices_from_env() -> dict[str, str]:
     for item in filter(None, (p.strip() for p in spec.split(","))):
         name, _, serial = item.partition("=")
         out[name.strip()] = serial.strip()
-    return out
+    return out or detected_devices()
+
+
+def detected_devices() -> dict[str, str]:
+    """Without JARVIS_ADB_DEVICES, use the phones plugged in over USB: the first is "phone"."""
+    if not shutil.which("adb"):
+        return {}
+    code, out, _ = run_capture(["adb", "devices"], timeout=15)
+    serials = [line.split()[0] for line in out.decode(errors="replace").splitlines()[1:]
+               if line.strip().endswith("device")]
+    return {("phone" if i == 0 else f"phone{i + 1}"): serial for i, serial in enumerate(serials)} if code == 0 else {}
 
 
 def adb(serial: str, *args: str, timeout: float = 30, binary: bool = False):
