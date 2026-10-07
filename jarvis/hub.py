@@ -61,6 +61,7 @@ TOOL_LABELS = {
     "send_sms": "Праща SMS", "send_email": "Праща имейл", "read_email": "Чете пощата", "gmail_search": "Търси в Gmail",
     "whatsapp_send": "Праща WhatsApp", "viber_send": "Праща Viber", "android": "Работи с телефона",
     "home_control": "Управлява дома", "home_devices": "Преглежда дома", "home_camera": "Гледа камерата",
+    "switch_brain": "Сменя мозъка", "delegate": "Разпределя работата на екипа", "gmail_draft": "Пише чернова в Gmail",
 }
 GROUP_LABELS = {key: label for key, label, _desc, _sensitive in GROUPS}
 
@@ -287,6 +288,23 @@ class DeviceHub:
         ]
 
 
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_BODY = 12_000_000  # two camera/screen frames fit with room to spare
+
+
+def parse_images(items) -> list[tuple[str, str]] | None:
+    """Data URLs from the app (a frame of the shared screen or the camera) -> (media type, base64)."""
+    out = []
+    for item in (items or [])[:2]:
+        match = re.fullmatch(r"data:(image/[a-z]+);base64,([A-Za-z0-9+/=]+)", str(item or ""))
+        if not match or match[1] not in IMAGE_TYPES:
+            raise HTTPError(400, "Снимката не е във формат JPEG, PNG или WebP.")
+        if len(match[2]) > 5_500_000:
+            raise HTTPError(413, "Снимката е твърде голяма.")
+        out.append((match[1], match[2]))
+    return out or None
+
+
 class HTTPError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -298,6 +316,7 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
+        ("JARVIS_MODEL", "Мозък: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
     ]),
@@ -372,7 +391,7 @@ class Hub:
             raise HTTPError(429, "Твърде много грешни опити. Опитай пак след 15 минути.")
 
     # actions
-    def ask(self, text: str, user: User | None = None, chat_id: int | None = None) -> str:
+    def ask(self, text: str, user: User | None = None, chat_id: int | None = None, images=None) -> str:
         user = user or self.token_user()
         conversation = conversation_id(chat_id) if chat_id else ("web" if user.is_owner else f"web:{user.id}")
         to = user.id or None
@@ -385,7 +404,7 @@ class Hub:
             try:
                 return self.ctx.jarvis.ask(
                     text, conversation=conversation, user=user, on_progress=progress,
-                    confirmer=lambda summary: self.confirmer(summary, user, chat_id),
+                    confirmer=lambda summary: self.confirmer(summary, user, chat_id), images=images,
                 )
             finally:
                 self.busy -= 1
@@ -498,7 +517,10 @@ class Hub:
         m, p, b, user = req.method, req.path, req.body, req.user
 
         if p == "/api/me" and m == "GET":
+            from .plugins.brain_switch import brain_key
+
             return 200, {"user": user.public() if user else None, "needs_setup": self.accounts.count() == 0,
+                         "brain": brain_key(self.ctx.settings.model),
                          "can_setup": req.local or req.via == "token", "restartable": self.restartable,
                          "groups": [{"key": k, "label": l, "desc": d, "sensitive": s} for k, l, d, s in GROUPS]}
         if p == "/api/setup" and m == "POST":
@@ -576,11 +598,12 @@ class Hub:
                 text = (b.get("text") or "").strip()
                 if not text:
                     raise HTTPError(400, "Празно съобщение.")
+                images = parse_images(b.get("images"))
                 if chat["title"] == "Нов разговор":
                     title = re.sub(r"\s+", " ", text)
                     self.accounts.rename_chat(user.id, chat_id, title[:48] + ("…" if len(title) > 48 else ""))
                 try:
-                    answer, error = self.ask(text, user, chat_id), False
+                    answer, error = self.ask(text, user, chat_id, images), False
                 except Exception as exc:
                     log.exception("ask failed")
                     answer, error = friendly_error(exc), True
@@ -720,6 +743,9 @@ class Hub:
                     body = {}
                     if method == "POST":
                         length = int(self.headers.get("Content-Length", 0))
+                        if length > MAX_BODY:
+                            self.close_connection = True  # the unread body must not be parsed as a request
+                            raise HTTPError(413, "Заявката е твърде голяма.")
                         body = json.loads(self.rfile.read(length) or b"{}")
                     req = Request(method, url.path, query, body, user, via, local)
                     status, payload = hub.handle(req)

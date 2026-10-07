@@ -14,7 +14,7 @@ from ..tools import ToolRegistry
 log = logging.getLogger("jarvis.plugins")
 
 BUILTIN = ["memory", "tasks", "system", "browser", "android", "home", "comms", "messaging", "google",
-           "payments", "sendmoney", "team", "agent"]  # agent last: loads skills
+           "payments", "sendmoney", "team", "brain_switch", "agent"]  # agent last: loads skills
 
 
 @dataclass
@@ -34,7 +34,7 @@ class Context:
 # Tools that belong to a different permission group than the plugin that defines them.
 # "core" tools are always available: they only plan and ask the user for approval.
 GROUP_OVERRIDES = {"request_approval": "core", "make_plan": "core", "update_plan_step": "core",
-                   "show_plan": "core", "search_history": "memory"}
+                   "show_plan": "core", "search_history": "memory", "switch_brain": "core"}
 
 
 def load_all(registry: ToolRegistry, ctx: Context, names: list[str] | None = None) -> None:

@@ -135,7 +135,7 @@ class Jarvis:
             tools=tools,
             output_config={"effort": s.effort},
         )
-        if s.refusal_fallback:
+        if s.refusal_fallback and not s.model.startswith("claude-haiku"):  # Haiku has no server-side fallback
             kwargs["betas"] = ["server-side-fallback-2026-07-01"]
             kwargs["fallbacks"] = "default"
         try:
@@ -155,10 +155,12 @@ class Jarvis:
         confirmer: Confirmer | None = None,
         user=None,
         on_progress: Callable[[str], None] | None = None,
+        images: list[tuple[str, str]] | None = None,
     ) -> str:
         """Handle one user message end to end and return Jarvis's final answer.
 
-        ``user`` (an accounts.User) limits the tools to that account's permissions.
+        ``user`` (an accounts.User) limits the tools to that account's permissions. ``images`` are
+        (media type, base64) pairs, e.g. a frame of the screen or the camera the user is sharing.
         """
         messages: list = []
         for row in self.store.history(conversation):
@@ -170,6 +172,10 @@ class Jarvis:
             messages[-1]["content"] += "\n\n" + text
         else:
             messages.append({"role": "user", "content": text})
+        if images:
+            blocks = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": data}} for mt, data in images]
+            note = "(Live frames of what I am sharing right now: my screen and/or my camera.)\n\n"
+            messages[-1]["content"] = blocks + [{"type": "text", "text": note + messages[-1]["content"]}]
 
         answer = self._loop(messages, confirmer or self.confirmer, user, on_progress or self.on_progress)
         self.store.add_message(conversation, "user", text)

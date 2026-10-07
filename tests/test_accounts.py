@@ -7,7 +7,7 @@ import urllib.request
 
 from conftest import Approver, FakeClient, response, text_block, tool_block
 
-from jarvis.accounts import Accounts, User, check_password, hash_password
+from jarvis.accounts import Accounts, User, check_password, conversation_id, hash_password
 from jarvis.brain import Jarvis
 from jarvis.hub import Hub
 
@@ -331,3 +331,44 @@ def test_routine_results_land_in_a_chat_named_after_it(settings, ctx, registry):
     messages = owner(f"/api/chats/{brief['id']}")[1]["messages"]
     assert messages[-1]["content"] == "Добро утро, сър. Днес нямате срещи."
     assert "[routine:" not in client.requests[0]["messages"][0]["content"]
+
+
+def test_switch_brain_by_voice_saves_and_tells_the_app(settings, ctx, registry, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JARVIS_MODEL", "claude-opus-5-5")
+    hub, owner, client = make(settings, ctx, registry, [
+        response(tool_block("switch_brain", {"brain": "fable"}), stop="tool_use"),
+        response(text_block("Fable 5.1 на ваше разположение, сър.")),
+    ])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    chat = owner("/api/chats", {})[1]["chat"]
+    assert owner(f"/api/chats/{chat['id']}/ask", {"text": "смени мозъка на Fable"})[1]["answer"].startswith("Fable")
+    assert ctx.settings.model == "claude-fable-5-1" and owner("/api/me")[1]["brain"] == "fable"
+    assert "JARVIS_MODEL=claude-fable-5-1" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert any(e["kind"] == "brain" and e["brain"] == "fable" for e in hub.events.events)
+
+
+def test_screen_and_camera_frames_reach_claude(settings, ctx, registry):
+    hub, owner, client = make(settings, ctx, registry, [response(text_block("Виждам YouTube."))])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    chat = owner("/api/chats", {})[1]["chat"]
+    frame = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w=="
+    data = owner(f"/api/chats/{chat['id']}/ask", {"text": "какво виждаш", "images": [frame]})[1]
+    assert data["answer"] == "Виждам YouTube."
+    content = client.requests[0]["messages"][-1]["content"]
+    assert content[0]["type"] == "image" and content[0]["source"]["media_type"] == "image/jpeg"
+    assert content[-1]["type"] == "text" and content[-1]["text"].endswith("какво виждаш")
+    assert "screen" in content[-1]["text"]  # Claude is told what the pictures are
+    assert ctx.store.history(conversation_id(chat["id"]))[0]["content"] == "какво виждаш"  # frames are not kept
+    assert owner(f"/api/chats/{chat['id']}/ask", {"text": "x", "images": ["data:text/html;base64,AAAA"]})[0] == 400
+
+
+def test_oversized_requests_are_refused(settings, ctx, registry, monkeypatch):
+    import jarvis.hub
+
+    monkeypatch.setattr(jarvis.hub, "MAX_BODY", 1000)
+    hub, owner, _ = make(settings, ctx, registry, [])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    chat = owner("/api/chats", {})[1]["chat"]
+    assert owner(f"/api/chats/{chat['id']}/ask", {"text": "x" * 2000})[0] == 413
+    assert owner("/api/me")[0] == 200
