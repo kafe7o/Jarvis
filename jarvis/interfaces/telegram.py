@@ -56,7 +56,8 @@ class Bot:
         return path
 
 
-def run() -> None:
+def run(shared=None) -> None:
+    """shared: (jarvis, ctx) when several interfaces run in one process (jarvis serve)."""
     if not (settings.telegram_token and settings.telegram_owner_id):
         raise NotConfigured("Telegram", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_OWNER_ID"])
     bot = Bot(settings.telegram_token, settings.telegram_owner_id)
@@ -78,14 +79,18 @@ def run() -> None:
         finally:
             waiting.clear()
 
-    jarvis, ctx = build(confirm, [lambda t: bot.send(f"🔔 {t}")])
-    start_background(ctx)
+    if shared:
+        jarvis, ctx = shared
+        ctx.notifiers.append(lambda t: bot.send(f"🔔 {t}"))
+    else:
+        jarvis, ctx = build(confirm, [lambda t: bot.send(f"🔔 {t}")])
+        start_background(ctx)
     bot.send("J.A.R.V.I.S. е на линия.", reply_markup={"remove_keyboard": True})
 
     def handle(text: str) -> None:
         with busy:
             try:
-                bot.send(jarvis.ask(text, conversation="telegram"), reply_markup={"remove_keyboard": True})
+                bot.send(jarvis.ask(text, conversation="telegram", confirmer=confirm), reply_markup={"remove_keyboard": True})
             except Exception as exc:
                 log.exception("request failed")
                 bot.send(f"Грешка: {exc}")

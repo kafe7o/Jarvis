@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>J.A.R.V.I.S.</title>
+<style>
+  :root { --bg:#0b1220; --panel:#121b2e; --text:#e6edf7; --muted:#8a9bb8; --accent:#4fc3f7; --me:#1e3a5f; --warn:#ffb74d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         display:flex; flex-direction:column; height:100dvh; }
+  header { padding:12px 16px; display:flex; align-items:center; gap:10px; border-bottom:1px solid #1d2a44; }
+  header h1 { font-size:18px; margin:0; letter-spacing:.2em; color:var(--accent); flex:1; }
+  header label { color:var(--muted); font-size:14px; display:flex; gap:6px; align-items:center; }
+  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:min(80ch, 88%); padding:10px 14px; border-radius:14px; background:var(--panel); white-space:pre-wrap; word-wrap:break-word; }
+  .me { align-self:flex-end; background:var(--me); }
+  .note { align-self:center; background:transparent; border:1px solid #2a3a5c; color:var(--muted); font-size:14px; }
+  .confirm { align-self:stretch; max-width:none; border:1px solid var(--warn); }
+  .confirm .buttons { margin-top:10px; display:flex; gap:10px; }
+  button { font:inherit; border:0; border-radius:12px; padding:10px 18px; cursor:pointer; background:var(--accent); color:#04121c; }
+  button.no { background:#3a4660; color:var(--text); }
+  form { display:flex; gap:8px; padding:12px 16px calc(12px + env(safe-area-inset-bottom)); border-top:1px solid #1d2a44; }
+  #text { flex:1; min-width:0; font:inherit; padding:12px 14px; border-radius:12px; border:1px solid #2a3a5c; background:var(--panel); color:var(--text); }
+  #mic { width:48px; padding:0; font-size:20px; }
+  #mic.on { background:#ef5350; }
+  .thinking { color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>J.A.R.V.I.S.</h1>
+  <label><input type="checkbox" id="speak" checked> Говори</label>
+</header>
+<div id="log"></div>
+<form id="form">
+  <button type="button" id="mic" title="Говори">🎙</button>
+  <input id="text" autocomplete="off" placeholder="Кажи на Jarvis…">
+  <button>➤</button>
+</form>
+<script>
+const params = new URLSearchParams(location.search);
+let token = params.get("token") || "";
+try { if (token) localStorage.setItem("jarvisToken", token); else token = localStorage.getItem("jarvisToken") || ""; } catch (e) {}
+if (params.has("token")) history.replaceState(null, "", location.pathname);
+
+const log = document.getElementById("log");
+const input = document.getElementById("text");
+const speakBox = document.getElementById("speak");
+
+function add(text, cls) {
+  const div = document.createElement("div");
+  div.className = "msg " + (cls || "");
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+function say(text) {
+  if (!speakBox.checked || !("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text.replace(/https?:\/\/\S+/g, "линк"));
+  u.lang = "bg-BG";
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body ? "POST" : "GET",
+    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) throw new Error("Грешен или липсващ токен. Отвори адреса с ?token=…");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+async function ask(text) {
+  add(text, "me");
+  const wait = add("мисля…", "note thinking");
+  try {
+    const { answer } = await api("/api/ask", { text });
+    wait.remove();
+    add(answer);
+    say(answer);
+  } catch (e) {
+    wait.remove();
+    add("Грешка: " + e.message, "note");
+  }
+}
+
+document.getElementById("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (text) { input.value = ""; ask(text); }
+});
+
+// Live events: reminders, Jarvis speaking up on its own, confirmation requests.
+const confirmBoxes = {};
+async function events() {
+  let last = 0;
+  try { last = (await api("/api/events?after=-1")).last; } catch (e) {}
+  for (;;) {
+    try {
+      const { events } = await api("/api/events?after=" + last);
+      for (const ev of events) {
+        last = Math.max(last, ev.id);
+        if (ev.kind === "notify") { add("🔔 " + ev.text, "note"); say(ev.text); }
+        if (ev.kind === "confirm") showConfirm(ev);
+        if (ev.kind === "confirm_closed" && confirmBoxes[ev.confirm_id]) {
+          confirmBoxes[ev.confirm_id].querySelector(".buttons")?.remove();
+        }
+      }
+    } catch (e) {
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+}
+
+function showConfirm(ev) {
+  const box = add("⚠ Да направя ли това?\n" + ev.text, "confirm");
+  const buttons = document.createElement("div");
+  buttons.className = "buttons";
+  for (const [label, yes] of [["Да", true], ["Не", false]]) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (!yes) b.className = "no";
+    b.onclick = async () => { buttons.remove(); add(label, "me"); await api("/api/confirm", { id: ev.id, yes }); };
+    buttons.appendChild(b);
+  }
+  box.appendChild(buttons);
+  confirmBoxes[ev.id] = box;
+  say("Да направя ли това? " + ev.text);
+}
+
+// Push-to-talk with the browser's speech recognition (Chrome, Edge, Safari, Android).
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const mic = document.getElementById("mic");
+if (!Recognition) mic.style.display = "none";
+mic.addEventListener("click", () => {
+  const rec = new Recognition();
+  rec.lang = "bg-BG";
+  rec.interimResults = false;
+  mic.classList.add("on");
+  rec.onresult = (e) => {
+    const text = e.results[0][0].transcript;
+    const pending = Object.values(confirmBoxes).find((b) => b.querySelector(".buttons"));
+    if (pending && /^(да|не)\b/i.test(text.trim())) {
+      pending.querySelector(/^да/i.test(text.trim()) ? "button" : "button.no").click();
+    } else {
+      ask(text);
+    }
+  };
+  rec.onend = () => mic.classList.remove("on");
+  rec.start();
+});
+
+add("J.A.R.V.I.S. е на линия.", "note");
+events();
+</script>
+</body>
+</html>

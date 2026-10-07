@@ -11,7 +11,8 @@ from ..confirm import is_yes
 log = logging.getLogger("jarvis.voice")
 
 
-def run() -> None:
+def run(shared=None) -> None:
+    """shared: (jarvis, ctx) when several interfaces run in one process (jarvis serve)."""
     from ..voice.audio import Microphone
     from ..voice.speech import Speaker, Transcriber
     from ..voice.wake import WakeWord
@@ -38,8 +39,12 @@ def run() -> None:
         say(f"Преди да продължа: {summary}. Потвърждаваш ли?")
         return is_yes(listen(8.0))
 
-    jarvis, ctx = build(voice_confirm, [say])
-    start_background(ctx)
+    if shared:
+        jarvis, ctx = shared
+        ctx.notifiers.append(say)
+    else:
+        jarvis, ctx = build(voice_confirm, [say])
+        start_background(ctx)
     wake = WakeWord(mic, transcribe)
     say(f"На линия съм, {settings.user_name}.")
 
@@ -52,7 +57,7 @@ def run() -> None:
             # Keep the conversation going without the wake word while the user keeps talking.
             while command:
                 try:
-                    say(jarvis.ask(command))
+                    say(jarvis.ask(command, confirmer=voice_confirm))
                 except Exception as exc:
                     log.exception("request failed")
                     say(f"Нещо се обърка: {exc}")

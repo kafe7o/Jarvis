@@ -26,9 +26,12 @@ def progress(tool: str) -> None:
     print(f"   … {TOOL_LABELS.get(tool, tool)}", flush=True)
 
 
-def chat() -> None:
-    jarvis, ctx = build(console_confirm, [notify], on_progress=progress)
-    start_background(ctx)
+def chat(shared=None) -> None:
+    if shared:
+        jarvis, ctx = shared
+    else:
+        jarvis, ctx = build(console_confirm, [notify], on_progress=progress)
+        start_background(ctx)
     print(f"J.A.R.V.I.S. е на линия, {jarvis.settings.user_name}. (/нов – нов разговор, /изход – край)")
     while True:
         try:
