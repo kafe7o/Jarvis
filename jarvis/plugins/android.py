@@ -11,8 +11,8 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
-import subprocess
 
+from ..procs import run_capture
 from ..tools import Image, ToolRegistry, obj
 from . import NotConfigured
 
@@ -47,11 +47,13 @@ def adb(serial: str, *args: str, timeout: float = 30, binary: bool = False):
     if not shutil.which("adb"):
         raise NotConfigured("Android control", ["install Android platform-tools (adb)"])
     if ":" in serial:
-        subprocess.run(["adb", "connect", serial], capture_output=True, timeout=15)
-    proc = subprocess.run(["adb", "-s", serial, *args], capture_output=True, timeout=timeout)
-    if proc.returncode:
-        raise RuntimeError(proc.stderr.decode(errors="replace").strip() or "adb failed")
-    return proc.stdout if binary else proc.stdout.decode(errors="replace")
+        run_capture(["adb", "connect", serial], timeout=15)
+    code, out, err = run_capture(["adb", "-s", serial, *args], timeout=timeout, merge=False)
+    if code is None:
+        raise RuntimeError(f"adb did not answer in {timeout:g} seconds. Is the device on and allowed?")
+    if code:
+        raise RuntimeError(err.decode(errors="replace").strip() or "adb failed")
+    return out if binary else out.decode(errors="replace")
 
 
 def register(registry: ToolRegistry, ctx) -> None:

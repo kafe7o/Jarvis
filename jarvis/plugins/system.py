@@ -11,6 +11,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+from ..procs import run_text
 from ..tools import Image, ToolRegistry, obj
 
 MAX_OUTPUT = 20_000
@@ -51,10 +52,7 @@ def register(registry: ToolRegistry, ctx) -> None:
         summarize=lambda a: f"Изпълни команда: {a.get('command')}",
     )
     def run_shell(command: str, cwd: str | None = None, timeout: int = 120):
-        proc = subprocess.run(
-            command, shell=True, cwd=cwd and str(Path(cwd).expanduser()), capture_output=True, text=True, timeout=timeout
-        )
-        return _clip(f"exit code {proc.returncode}\n{proc.stdout}{proc.stderr}")
+        return _clip(run_text(command, shell=True, cwd=cwd and str(Path(cwd).expanduser()), timeout=timeout))
 
     @registry.tool(
         "Open a website, file, folder or program with the system default handler "
@@ -289,8 +287,7 @@ def register(registry: ToolRegistry, ctx) -> None:
         summarize=lambda a: f"Изпълни Python код:\n{a.get('code')}",
     )
     def run_python(code: str, timeout: int = 300):
-        proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=timeout)
-        return _clip(f"exit code {proc.returncode}\n{proc.stdout}{proc.stderr}")
+        return _clip(run_text([sys.executable, "-c", code], timeout=timeout))
 
     @registry.tool(
         "Set the system volume (0-100) or mute. Works on Windows, macOS and Linux (PulseAudio/PipeWire).",
