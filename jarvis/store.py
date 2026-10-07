@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY, title TEXT NOT NULL, start TEXT NOT NULL, end TEXT,
     location TEXT, notes TEXT, created TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS plans (
+    id INTEGER PRIMARY KEY, goal TEXT NOT NULL, steps TEXT NOT NULL, status TEXT DEFAULT 'active',
+    created TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS contacts (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, phone TEXT, email TEXT,
     notes TEXT, created TEXT NOT NULL

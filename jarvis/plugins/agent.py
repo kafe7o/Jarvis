@@ -8,6 +8,7 @@ built-in plugin. Jarvis can create one when you ask for something no tool covers
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import re
 from pathlib import Path
@@ -118,5 +119,96 @@ def register(registry: ToolRegistry, ctx) -> None:
     def delete_skill(name: str):
         (skills_dir(ctx) / f"{name}.py").unlink()
         return "Deleted."
+
+    # Planning: a task tree Jarvis builds for multi-step goals and ticks off as it works.
+    STATUSES = {"todo": "○", "doing": "✱", "done": "✓", "failed": "✗", "skipped": "–"}
+
+    def parse_steps(lines: list) -> list[dict]:
+        steps = []
+        for line in lines:
+            sid, _, title = str(line).strip().partition(" ")
+            if not re.fullmatch(r"\d+(\.\d+)*", sid) or not title.strip():
+                raise ValueError(f"Step '{line}' must look like '1.2 Do something'")
+            steps.append({"id": sid, "title": title.strip(), "status": "todo", "note": ""})
+        return steps
+
+    def render(plan: dict) -> str:
+        steps = json.loads(plan["steps"])
+        lines = [f"План {plan['id']}: {plan['goal']} [{plan['status']}]"]
+        for st in sorted(steps, key=lambda x: [int(n) for n in x["id"].split(".")]):
+            indent = "  " * st["id"].count(".")
+            note = f" — {st['note']}" if st["note"] else ""
+            lines.append(f"{indent}{STATUSES.get(st['status'], '?')} {st['id']} {st['title']}{note}")
+        return "\n".join(lines)
+
+    def get_plan(plan_id: int) -> dict:
+        rows = ctx.store.query("SELECT * FROM plans WHERE id=?", (plan_id,))
+        if not rows:
+            raise ValueError(f"No plan {plan_id}")
+        return rows[0]
+
+    @registry.tool(
+        "Break a multi-step goal into a task tree before working on it. Steps are numbered hierarchically, "
+        "e.g. ['1 Find options', '1.1 Search the web', '1.2 Compare prices', '2 Book the best one']. "
+        "Then work through it, marking steps with update_plan_step. Returns the plan id and tree.",
+        obj({"goal": ("string", "The overall goal"), "steps": ("array", "Numbered steps, e.g. '2.1 Do X'")}),
+    )
+    def make_plan(goal: str, steps: list):
+        pid = ctx.store.insert("plans", goal=goal, steps=json.dumps(parse_steps(steps), ensure_ascii=False))
+        return render(get_plan(pid))
+
+    @registry.tool(
+        "Update a step of a plan (status todo | doing | done | failed | skipped, with an optional note), "
+        "or add new steps when you learn more. Marks the plan done when every step is finished.",
+        obj({
+            "plan_id": ("integer", "Plan id"),
+            "step_id?": ("string", "Step number, e.g. '1.2'"),
+            "status?": ("string", "todo | doing | done | failed | skipped"),
+            "note?": ("string", "Result or reason"),
+            "add_steps?": ("array", "New numbered steps to add"),
+        }),
+    )
+    def update_plan_step(plan_id: int, step_id: str | None = None, status: str | None = None,
+                         note: str | None = None, add_steps: list | None = None):
+        plan = get_plan(plan_id)
+        steps = json.loads(plan["steps"])
+        if step_id:
+            step = next((st for st in steps if st["id"] == step_id), None)
+            if step is None:
+                raise ValueError(f"No step {step_id}")
+            if status:
+                if status not in STATUSES:
+                    raise ValueError(f"status must be one of {list(STATUSES)}")
+                step["status"] = status
+            if note:
+                step["note"] = note
+        known = {st["id"] for st in steps}
+        steps += [st for st in parse_steps(add_steps or []) if st["id"] not in known]
+        finished = all(st["status"] in ("done", "skipped", "failed") for st in steps)
+        ctx.store.execute(
+            "UPDATE plans SET steps=?, status=? WHERE id=?",
+            (json.dumps(steps, ensure_ascii=False), "done" if finished else "active", plan_id),
+        )
+        return render(get_plan(plan_id))
+
+    @registry.tool("Show a plan's task tree, or list active plans when no id is given.", obj({"plan_id?": ("integer", "Plan id")}))
+    def show_plan(plan_id: int | None = None):
+        if plan_id:
+            return render(get_plan(plan_id))
+        plans = ctx.store.query("SELECT * FROM plans WHERE status='active' ORDER BY id DESC LIMIT 10")
+        return "\n\n".join(render(p) for p in plans) or "No active plans."
+
+    # Total recall: search everything ever said in any conversation.
+    @registry.tool(
+        "Search everything the user and you have ever said, in every conversation (text, voice, Telegram), "
+        "by keyword. Use it when the user refers to something from the past.",
+        obj({"query": ("string", "Keyword or phrase"), "limit?": ("integer", "Max results (default 20)")}),
+    )
+    def search_history(query: str, limit: int = 20):
+        return ctx.store.query(
+            "SELECT created, conversation, role, substr(content, 1, 500) AS content FROM messages "
+            "WHERE casefold(content) LIKE casefold(?) ORDER BY id DESC LIMIT ?",
+            (f"%{query}%", limit),
+        )
 
     load_skills(registry, ctx)

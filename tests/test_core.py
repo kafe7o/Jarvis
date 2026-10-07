@@ -167,3 +167,35 @@ def test_create_skill_adds_tools_now_and_after_restart(settings, ctx, registry):
     out, err = registry.run("create_skill", {"name": "broken", "code": "def register(r, c): raise RuntimeError('x')"}, Approver())
     assert "failed to load" in out
     assert not (settings.home / "skills" / "broken.py").exists()
+
+
+def test_plan_tree_tracks_progress(registry):
+    out, err = registry.run("make_plan", {"goal": "Почивка", "steps": ["1 Избери дестинация", "1.1 Сравни цени", "2 Резервирай"]}, Approver())
+    assert not err and "○ 1 Избери дестинация" in out and "  ○ 1.1 Сравни цени" in out
+    plan_id = int(out.split(":")[0].split()[-1])
+    out, _ = registry.run("update_plan_step", {"plan_id": plan_id, "step_id": "1.1", "status": "done", "note": "Гърция е най-евтина"}, Approver())
+    assert "✓ 1.1 Сравни цени — Гърция е най-евтина" in out
+    for sid in ["1", "2"]:
+        out, _ = registry.run("update_plan_step", {"plan_id": plan_id, "step_id": sid, "status": "done"}, Approver())
+    assert "[done]" in out
+
+
+def test_search_history_finds_old_conversations(ctx, registry):
+    ctx.store.add_message("telegram", "user", "Паролата за WiFi в офиса е на стикера")
+    out, _ = registry.run("search_history", {"query": "wifi"}, Approver())
+    assert "стикера" in out
+
+
+def test_heartbeat_notifies_only_when_useful(settings, ctx, registry):
+    from jarvis.plugins.tasks import in_quiet_hours
+
+    reports = []
+    ctx.notifiers.append(reports.append)
+    client = FakeClient([
+        response(text_block("NOTHING"), stop="end_turn"),
+        response(text_block("NOTIFY: Срещата ти е след 30 минути."), stop="end_turn"),
+    ])
+    ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(True), client=client)
+    assert ctx.scheduler.heartbeat() is None and reports == []
+    assert ctx.scheduler.heartbeat() == "Срещата ти е след 30 минути." and reports == ["Срещата ти е след 30 минути."]
+    assert in_quiet_hours("23-7", datetime(2026, 1, 1, 2)) and not in_quiet_hours("23-7", datetime(2026, 1, 1, 12))

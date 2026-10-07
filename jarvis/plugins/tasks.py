@@ -48,6 +48,24 @@ def next_occurrence(at: datetime, repeat: str) -> datetime:
     raise ValueError(f"Unknown repeat '{repeat}'. Use one of: {', '.join(sorted(REPEATS))}")
 
 
+HEARTBEAT_PROMPT = (
+    "(Background check-in; the owner is not talking to you.) Think about what the owner might need right "
+    "now. Look at open tasks, overdue items, upcoming reminders and today's and tomorrow's calendar, active "
+    "plans, and unread e-mail if e-mail is configured. You may research or prepare things with read-only "
+    "tools. If something deserves the owner's attention now (an overdue task, a meeting soon, an important "
+    "e-mail, a useful suggestion you haven't already made in this conversation), reply with 'NOTIFY: ' "
+    "followed by one or two short sentences in the owner's language. Otherwise reply exactly 'NOTHING'."
+)
+
+
+def in_quiet_hours(spec: str, now: datetime) -> bool:
+    """spec like '23-7' (from 23:00 to 07:00). Empty means never quiet."""
+    if not spec or "-" not in spec:
+        return False
+    start, end = (int(x) for x in spec.split("-", 1))
+    return start <= now.hour or now.hour < end if start > end else start <= now.hour < end
+
+
 class ReminderScheduler:
     """Background thread that fires due reminders through the requested channels."""
 
@@ -67,11 +85,33 @@ class ReminderScheduler:
         self._stop.set()
 
     def _run(self) -> None:
+        last_heartbeat = datetime.now()
         while not self._stop.wait(self.interval):
             try:
                 self.tick()
             except Exception:
                 log.exception("reminder tick failed")
+            minutes = self.ctx.settings.heartbeat_minutes
+            if minutes > 0 and datetime.now() - last_heartbeat >= timedelta(minutes=minutes):
+                last_heartbeat = datetime.now()
+                if not in_quiet_hours(self.ctx.settings.quiet_hours, last_heartbeat):
+                    threading.Thread(target=self.heartbeat, name="jarvis-heartbeat", daemon=True).start()
+
+    def heartbeat(self) -> str | None:
+        """Jarvis thinks on its own: reviews the owner's situation and speaks up only when useful."""
+        jarvis = getattr(self.ctx, "jarvis", None)
+        if jarvis is None:
+            return None
+        answer = jarvis.ask(
+            HEARTBEAT_PROMPT, conversation="heartbeat",
+            confirmer=lambda summary: False,  # never act in the outside world unattended
+        )
+        message = answer.strip()
+        if message.upper().startswith("NOTIFY:"):
+            message = message[len("NOTIFY:"):].strip()
+            self.ctx.notify(message)
+            return message
+        return None
 
     def tick(self, now: datetime | None = None) -> list[dict]:
         now = now or datetime.now()

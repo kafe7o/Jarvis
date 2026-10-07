@@ -30,9 +30,11 @@ def _flag(name: str, default: bool = False) -> bool:
 class Settings:
     # Brain
     model: str = field(default_factory=lambda: _env("JARVIS_MODEL", "claude-opus-5-5"))
-    effort: str = field(default_factory=lambda: _env("JARVIS_EFFORT", "medium"))
+    effort: str = field(default_factory=lambda: _env("JARVIS_EFFORT", "xhigh"))
     max_tokens: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOKENS", "16000")))
     refusal_fallback: bool = field(default_factory=lambda: _flag("JARVIS_REFUSAL_FALLBACK", True))
+    heartbeat_minutes: int = field(default_factory=lambda: int(_env("JARVIS_HEARTBEAT_MINUTES", "60")))
+    quiet_hours: str = field(default_factory=lambda: _env("JARVIS_QUIET_HOURS", "23-7"))
     max_tool_rounds: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOOL_ROUNDS", "80")))
 
     # Identity
