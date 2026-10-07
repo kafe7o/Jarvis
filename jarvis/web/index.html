@@ -886,7 +886,7 @@ async function tabConnections() {
               value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + ") — пиши, за да смениш" : "Не е въведено") : ""}"></div>`).join("")}
         <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>
       </div>`).join("")}
-    ${state.restartable ? `<div class="row-end"><button class="btn ghost" id="restart">Рестартирай Jarvis</button></div>` : ""}`;
+    ${state.restartable ? `<div class="row-end"><span class="hint" id="updMsg"></span><button class="btn ghost" id="update">Обнови сега</button><button class="btn ghost" id="restart">Рестартирай Jarvis</button></div>` : ""}`;
   $("tabBody").querySelectorAll("button[data-save]").forEach((b) => b.addEventListener("click", async () => {
     const sec = b.closest(".section"), s = sections[Number(b.dataset.save)];
     const values = {};
@@ -895,14 +895,26 @@ async function tabConnections() {
       if (f.secret ? inp.value !== "" : inp.value !== f.value) values[f.key] = inp.value;
     });
     if (!Object.keys(values).length) { sec.querySelector(".msg").textContent = "Няма промени."; return; }
-    try { await api("/api/settings", { values }); toast("Запазено. Рестартирай Jarvis, за да важи навсякъде."); tabConnections(); }
+    try { await api("/api/settings", { values }); toast("Запазено. Важи веднага; нови ключове за услуги искат рестарт."); tabConnections(); }
     catch (err) { sec.querySelector(".msg").textContent = err.message; }
   }));
+  const waitBack = async () => {
+    for (let i = 0; i < 80; i++) { await sleep(750); try { await fetch("/api/me"); location.reload(); return; } catch (e) {} }
+  };
   const r = $("restart");
   if (r) r.onclick = async () => {
     r.disabled = true; r.textContent = "Рестартирам…";
     try { await api("/api/restart", {}); } catch (e) {}
-    for (let i = 0; i < 40; i++) { await sleep(750); try { await fetch("/api/me"); location.reload(); return; } catch (e) {} }
+    waitBack();
+  };
+  const u = $("update");
+  if (u) u.onclick = async () => {
+    u.disabled = true; u.textContent = "Проверявам…";
+    try {
+      const res = await api("/api/update", {});
+      if (!res.updated) { $("updMsg").textContent = "Jarvis е с последната версия."; u.textContent = "Обнови сега"; u.disabled = false; return; }
+      u.textContent = "Обновявам…"; await sleep(1500); waitBack();
+    } catch (err) { $("updMsg").textContent = err.message; u.textContent = "Обнови сега"; u.disabled = false; }
   };
 }
 

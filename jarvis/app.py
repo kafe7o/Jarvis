@@ -43,5 +43,8 @@ def start_background(ctx: Context, restartable: bool = False) -> None:
     if os.environ.get("JARVIS_WEB_TOKEN") and not getattr(ctx, "hub", None):
         from .hub import Hub
 
-        Hub(ctx, os.environ["JARVIS_WEB_TOKEN"], int(os.environ.get("JARVIS_WEB_PORT", "8770")),
-            restartable=restartable).serve()
+        hub = Hub(ctx, os.environ["JARVIS_WEB_TOKEN"], int(os.environ.get("JARVIS_WEB_PORT", "8770")),
+                  restartable=restartable)
+        hub.serve()
+        if restartable:
+            hub.auto_update()

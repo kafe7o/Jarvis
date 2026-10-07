@@ -243,3 +243,34 @@ def test_phone_is_found_over_usb_without_settings(monkeypatch):
     monkeypatch.setattr(android, "run_capture", lambda *a, **k: (
         0, b"List of devices attached\n9H9DS4PNZ9S8HM6H\tdevice\nemulator-5554\toffline\n\n", b""))
     assert android.devices_from_env() == {"phone": "9H9DS4PNZ9S8HM6H"}
+
+
+def _archive(version: str, files: dict) -> "zipfile.ZipFile":
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, text in files.items():
+            z.writestr(f"Jarvis-x/{name}", text)
+        z.comment = version.encode()
+    return zipfile.ZipFile(io.BytesIO(buf.getvalue()))
+
+
+def test_update_installs_once_and_remembers_the_version(tmp_path, monkeypatch):
+    from jarvis import updater
+
+    root = tmp_path
+    (root / "jarvis").mkdir()
+    (root / "jarvis" / "old.py").write_text("x")
+    (root / "pyproject.toml").write_text("[project]\nname='jarvis'\n")
+    (root / ".env").write_text("ANTHROPIC_API_KEY=keep\n")
+    archive = _archive("abc123", {"pyproject.toml": "[project]\nname='jarvis'\n", "jarvis/__main__.py": "print(1)",
+                                  ".env": "ANTHROPIC_API_KEY=lost\n"})
+    monkeypatch.setattr(updater, "download", lambda: archive)
+    assert updater.newer(root) is archive
+    updater.install(root, archive, say=lambda _m: None)
+    assert (root / "jarvis" / "__main__.py").exists() and not (root / "jarvis" / "old.py").exists()
+    assert (root / ".env").read_text() == "ANTHROPIC_API_KEY=keep\n"
+    assert updater.installed_version(root) == "abc123"
+    assert updater.newer(root) is None  # nothing new until GitHub has another commit

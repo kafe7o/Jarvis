@@ -299,6 +299,7 @@ EXTRA_SETTINGS = [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
+        ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
     ]),
 ]
 
@@ -332,6 +333,8 @@ class Hub:
                                       on_always=lambda: self.save_settings({"JARVIS_TRUST_LOCAL": "1"}))
         self.devices = DeviceHub(ctx.jarvis.registry)
         self.chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
+        self.busy = 0  # requests being answered right now; updates wait for 0
+        self.updating = threading.Lock()
         self.failures: dict[str, list[float]] = defaultdict(list)
         ctx.hub = self
         ctx.notifiers.append(lambda text: self.events.add("notify", text=text))
@@ -373,10 +376,51 @@ class Hub:
             self.events.add("progress", to=to, chat=chat_id, tool=name, label=tool_label(self.ctx.jarvis.registry, name))
 
         with self.chat_locks[chat_id or 0]:
-            return self.ctx.jarvis.ask(
-                text, conversation=conversation, user=user, on_progress=progress,
-                confirmer=lambda summary: self.confirmer(summary, user, chat_id),
-            )
+            self.busy += 1
+            try:
+                return self.ctx.jarvis.ask(
+                    text, conversation=conversation, user=user, on_progress=progress,
+                    confirmer=lambda summary: self.confirmer(summary, user, chat_id),
+                )
+            finally:
+                self.busy -= 1
+
+    # updates
+    def update_now(self, wait_idle: bool = False) -> bool:
+        """Install a newer Jarvis from GitHub and restart. Returns False when already up to date."""
+        from . import updater
+
+        if not self.updating.acquire(blocking=False):
+            return True  # an update is already running
+        try:
+            archive = updater.newer(updater.project_root())
+            if archive is None:
+                return False
+            while wait_idle and self.busy:
+                time.sleep(30)
+            self.events.add("notify", text="Инсталирам новата версия на Jarvis и се рестартирам…")
+            updater.install(updater.project_root(), archive, say=log.info)
+        except BaseException as exc:  # SystemExit from the updater, network errors
+            log.warning("update failed: %s", exc)
+            raise RuntimeError(str(exc) or "Обновяването не стана.") from None
+        finally:
+            self.updating.release()
+        self.restart()
+        return True
+
+    def auto_update(self, first_wait: float = 120, every: float = 6 * 3600) -> None:
+        """Check GitHub now and then; install a new version by itself while nobody is waiting on Jarvis."""
+        def loop():
+            time.sleep(first_wait)
+            while True:
+                if os.environ.get("JARVIS_AUTO_UPDATE", "1").strip() not in ("0", "false", "no", "не"):
+                    try:
+                        self.update_now(wait_idle=True)
+                    except Exception as exc:
+                        log.info("auto update skipped: %s", exc)
+                time.sleep(every)
+
+        threading.Thread(target=loop, name="jarvis-auto-update", daemon=True).start()
 
     def settings_view(self) -> list[dict]:
         from .setup_wizard import STEPS, env_path, read_env
@@ -556,6 +600,14 @@ class Hub:
                 raise HTTPError(400, "Рестартирай Jarvis ръчно.")
             self.restart()
             return 200, {"ok": True}
+        if p == "/api/update" and m == "POST":
+            if not self.restartable:
+                raise HTTPError(400, "Обнови с `jarvis update` и рестартирай Jarvis.")
+            try:
+                done = self.update_now()
+            except RuntimeError as exc:
+                raise HTTPError(502, f"Не успях да обновя: {exc}")
+            return 200, {"updated": done}
         if p == "/api/devices" and m == "GET":
             return 200, {"devices": self.devices.status(), "lan_url": f"http://{lan_ip()}:{self.port}/"}
         raise HTTPError(404, "not found")
