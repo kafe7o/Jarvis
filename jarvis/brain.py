@@ -9,7 +9,7 @@ from typing import Callable
 
 import anthropic
 
-from . import core_files, gemini
+from . import core_files, gemini, usage
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -152,13 +152,17 @@ class Jarvis:
         tools = self.registry.definitions(allowed)
         system = system if system is not None else self.system_prompt(user)
         if s.model.startswith("gemini"):
-            return self.gemini.create(model=s.model, system=system, messages=messages, tools=tools,
-                                      max_tokens=s.max_tokens, effort=s.effort)
+            answer = self.gemini.create(model=s.model, system=system, messages=messages, tools=tools,
+                                        max_tokens=s.max_tokens, effort=s.effort)
+            usage.record(self.store, answer, s.model)
+            return answer
         tools = [t for t in tools if t["name"] not in gemini.ONLY_FOR_GEMINI]
         if allowed is None or "web" in allowed:
             tools += SERVER_TOOLS
         try:
-            return self._ask_claude(messages, system, tools)
+            answer = self._ask_claude(messages, system, tools)
+            usage.record(self.store, answer, s.model)
+            return answer
         except Exception as exc:
             if not gemini.available() or not claude_unusable(exc):
                 raise

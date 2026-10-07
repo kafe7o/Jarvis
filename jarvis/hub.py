@@ -369,6 +369,8 @@ class Hub:
         self.devices = DeviceHub(ctx.jarvis.registry)
         self.chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         self.busy = 0  # requests being answered right now; updates wait for 0
+        self.running: dict[int, dict] = {}  # what Jarvis is doing right now, for Settings > Activity
+        self.run_ids = itertools.count(1)
         self.updating = threading.Lock()
         self.failures: dict[str, list[float]] = defaultdict(list)
         ctx.hub = self
@@ -408,10 +410,12 @@ class Hub:
         to = user.id or None
 
         def progress(name: str) -> None:
-            self.events.add("progress", to=to, chat=chat_id, tool=name, label=tool_label(self.ctx.jarvis.registry, name))
+            run["step"] = tool_label(self.ctx.jarvis.registry, name)
+            self.events.add("progress", to=to, chat=chat_id, tool=name, label=run["step"])
 
         with self.chat_locks[chat_id or 0]:
             self.busy += 1
+            run_id, run = self.track(user.name, text)
             model = self.ctx.settings.model
             try:
                 return self.ctx.jarvis.ask(
@@ -420,9 +424,16 @@ class Hub:
                 )
             finally:
                 self.busy -= 1
+                self.running.pop(run_id, None)
                 if self.ctx.settings.model != model and self.ctx.settings.model.startswith("gemini"):
                     # Claude ran out of credit and Gemini took over: tell the app (colour, toast).
                     self.events.add("brain", brain="gemini", name="Gemini (безплатно)")
+
+    def track(self, who: str, text: str) -> tuple[int, dict]:
+        """Note a piece of work in progress (shown in Settings > Activity until it is done)."""
+        run_id = next(self.run_ids)
+        self.running[run_id] = {"who": who, "text": text[:200], "since": time.time(), "step": ""}
+        return run_id, self.running[run_id]
 
     def job_conversation(self, title: str) -> str | None:
         """The owner's chat named ``title`` (made if missing), where a routine writes its result."""
@@ -687,6 +698,23 @@ class Hub:
                     raise HTTPError(400, "Няма такава рутина.")
                 routines.set_routine(self.ctx.store, b["key"], bool(b.get("enabled")), b.get("time") or None)
             return 200, {"routines": routines.status(self.ctx.store)}
+        if p == "/api/usage" and m == "GET":
+            from .usage import summary
+
+            return 200, summary(self.ctx.store, getattr(getattr(self.ctx.jarvis, "gemini", None), "spent", None))
+        if p == "/api/now" and m == "GET":  # what Jarvis is doing now and what it will do on its own
+            from .plugins.tasks import JOB
+            from .routines import routine_of, strip_marker
+
+            upcoming = []
+            for r in self.ctx.store.query("SELECT * FROM reminders WHERE fired=0 ORDER BY at LIMIT 30"):
+                routine = routine_of(r["text"])
+                kind = "routine" if routine else "job" if r["channels"] == JOB else "reminder"
+                upcoming.append({"at": r["at"], "repeat": r["repeat"], "kind": kind,
+                                 "text": routine["title"] if routine else strip_marker(r["text"])})
+            now = time.time()
+            return 200, {"running": [{**r, "seconds": int(now - r["since"])} for r in list(self.running.values())],
+                         "upcoming": upcoming}
         if p == "/api/activity" and m == "GET":
             names = {u.id: u.name for u in self.accounts.list()}
             rows = self.ctx.store.query("SELECT * FROM activity ORDER BY id DESC LIMIT 300")

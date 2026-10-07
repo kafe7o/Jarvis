@@ -65,6 +65,8 @@ class Reply(list):
 class Answer:
     content: Reply
     stop_reason: str
+    model: str | None = None
+    usage: dict | None = None  # tokens, for the app's "Разход" tab (see usage.py)
 
 
 def _get(block, key, default=None):
@@ -153,11 +155,19 @@ def to_declarations(tools: list) -> list:
             for t in tools if "input_schema" in t]  # server tools (Claude's web search) have no schema
 
 
+def usage_of(response) -> dict:
+    meta = getattr(response, "usage_metadata", None)
+    get = (lambda k: int(getattr(meta, k, 0) or 0)) if meta is not None else (lambda k: 0)
+    cached = get("cached_content_token_count")
+    return {"input": get("prompt_token_count") - cached, "cache_read": cached, "cache_write": 0,
+            "output": get("candidates_token_count") + get("thoughts_token_count")}
+
+
 def from_response(response, model: str | None = None) -> Answer:
     candidate = (response.candidates or [None])[0]
     if candidate is None or candidate.content is None:
         blocked = getattr(getattr(response, "prompt_feedback", None), "block_reason", None)
-        return Answer(Reply(), "refusal" if blocked else "end_turn")
+        return Answer(Reply(), "refusal" if blocked else "end_turn", model, usage_of(response))
     blocks = Reply()
     blocks.raw, blocks.model = candidate.content, model
     for part in candidate.content.parts or []:
@@ -178,7 +188,7 @@ def from_response(response, model: str | None = None) -> Answer:
         stop = "max_tokens"
     else:
         stop = "end_turn"
-    return Answer(blocks, stop)
+    return Answer(blocks, stop, model, usage_of(response))
 
 
 class GeminiBrain:

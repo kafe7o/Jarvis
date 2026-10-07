@@ -78,3 +78,21 @@ def test_remote_device_tools(settings, ctx, registry, tmp_path, monkeypatch):
     out, err = registry.run("laptop__run_shell", {"command": "echo hi"}, Approver(False))
     assert err and "declined" in out
     assert json.loads(call(port, "/api/devices")[1])["devices"][0]["online"]
+
+
+def test_tasks_tab_shows_what_runs_now_and_what_comes_next(settings, ctx, registry):
+    from jarvis import routines
+
+    hub, port = make_hub(settings, ctx, registry, [])
+    routines.set_routine(ctx.store, "morning", True, "08:00")
+    ctx.store.insert("reminders", text="Провери цената на тока", at="2099-01-01T09:00:00", channels="agent")
+    run_id, run = hub.track("По график", "Сутрешен брифинг")
+    run["step"] = "Чете календара"
+    now = json.loads(call(port, "/api/now")[1])
+    assert now["running"][0]["text"] == "Сутрешен брифинг" and now["running"][0]["step"] == "Чете календара"
+    kinds = {r["text"]: r["kind"] for r in now["upcoming"]}
+    assert kinds == {"Сутрешен брифинг": "routine", "Провери цената на тока": "job"}
+    hub.running.pop(run_id)
+    assert json.loads(call(port, "/api/now")[1])["running"] == []
+    usage = json.loads(call(port, "/api/usage")[1])
+    assert usage["today"] == {"cost": 0, "requests": 0} and len(usage["days"]) == 14

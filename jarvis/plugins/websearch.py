@@ -13,7 +13,10 @@ def register(registry: ToolRegistry, ctx) -> None:
         obj({"query": ("string", "What to search for, in any language")}),
     )
     def google_search(query: str):
-        return gemini.search(query, ctx.settings.model)
+        model = ctx.settings.model if ctx.settings.model.startswith("gemini") else gemini.DEFAULT_MODEL
+        answer = gemini.search(query, model)
+        ctx.store.insert("usage", model=model)  # one free request, for the "Разход" tab
+        return answer
 
     @registry.tool(
         "Watch a video and answer about it: a video file on this computer or a YouTube link. Uses Google "
