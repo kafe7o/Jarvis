@@ -26,6 +26,7 @@ class WakeWord:
         self.mic = mic
         self.transcribe = transcribe
         self.threshold = threshold
+        self.last_audio = None  # audio of a command spoken together with the wake word
         try:
             import openwakeword
             from openwakeword.model import Model
@@ -37,6 +38,7 @@ class WakeWord:
 
     def wait(self) -> str:
         """Block until the wake word is heard. Returns any command spoken in the same breath."""
+        self.last_audio = None
         if self.model is not None:
             self.model.reset()
             for frame in self.mic.frames():
@@ -49,5 +51,6 @@ class WakeWord:
                 continue
             command = strip_wake_word(self.transcribe(audio))
             if command is not None:
+                self.last_audio = audio
                 return command
 

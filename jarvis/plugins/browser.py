@@ -78,6 +78,8 @@ def register(registry: ToolRegistry, ctx) -> None:
             worker["w"] = BrowserWorker(str(ctx.settings.home / "browser"))
         return worker["w"]
 
+    ctx.browser = browser  # other plugins (e.g. WhatsApp) run page scripts through the same browser
+
     @registry.tool(
         "Drive a real web browser (stays logged in between sessions). Actions:\n"
         "goto(url) · read (visible text of the page) · elements (clickable things with selectors) · "

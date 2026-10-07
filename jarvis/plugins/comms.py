@@ -34,7 +34,11 @@ def voice_attrs() -> str:
 
 
 def say_twiml(message: str, repeat: int = 1) -> str:
-    says = "".join(f"<Say {voice_attrs()}>{escape(message)}</Say><Pause length=\"1\"/>" for _ in range(max(1, repeat)))
+    from ..phone_agent import neural_audio
+
+    url = neural_audio(message, os.environ.get("TWILIO_LANGUAGE", "bg-BG"))  # Jarvis's own voice when possible
+    speech = f"<Play>{escape(url)}</Play>" if url else f"<Say {voice_attrs()}>{escape(message)}</Say>"
+    says = "".join(f'{speech}<Pause length="1"/>' for _ in range(max(1, repeat)))
     return f"<Response>{says}</Response>"
 
 

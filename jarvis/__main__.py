@@ -21,6 +21,11 @@ def check() -> None:
         "Telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_OWNER_ID"],
         "Уеб приложение и други устройства": ["JARVIS_WEB_TOKEN"],
         "Android телефон / TV": ["JARVIS_ADB_DEVICES"],
+        "Умен дом (Home Assistant)": ["HOME_ASSISTANT_URL", "HOME_ASSISTANT_TOKEN"],
+        "Google Calendar и Gmail": ["GOOGLE_CLIENT_SECRET"],
+        "Плащания към други (PayPal)": ["PAYPAL_CLIENT_ID", "PAYPAL_SECRET"],
+        "Банкови преводи (Wise)": ["WISE_API_TOKEN"],
+        "Известия на телефона (ntfy)": ["NTFY_TOPIC"],
     }
     for name, keys in groups.items():
         missing = [k for k in keys if not os.environ.get(k)]
@@ -35,7 +40,7 @@ def check() -> None:
     print(f"Данни: {settings.home}")
 
 
-def serve() -> None:
+def serve(headless: bool = False) -> None:
     """Everything in one process sharing one Jarvis: reminders, heartbeat, phone, web hub,
     Telegram (if configured) and voice (if installed; otherwise the terminal chat)."""
     import threading
@@ -53,6 +58,8 @@ def serve() -> None:
         import faster_whisper  # noqa: F401
         import sounddevice  # noqa: F401
     except ImportError:
+        if headless:  # autostart service: no terminal, keep the background services alive
+            threading.Event().wait()
         cli.chat(shared)
         return
     from .interfaces import voice
@@ -77,7 +84,8 @@ def web() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
-    parser.add_argument("mode", nargs="?", default="chat", choices=["chat", "voice", "telegram", "web", "node", "ask", "serve", "check"])
+    parser.add_argument("mode", nargs="?", default="chat", choices=["chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
+                                 "enroll-voice", "google-login"])
     parser.add_argument("text", nargs="*", help="Въпрос за режим ask")
     parser.add_argument("--hub", help="node: адрес на главния Jarvis, напр. http://192.168.1.10:8770")
     parser.add_argument("--name", help="node: име на това устройство, напр. laptop")
@@ -109,6 +117,20 @@ def main(argv: list[str] | None = None) -> None:
         run_node(args.hub or os.environ.get("JARVIS_HUB_URL", ""), args.name or platform.node())
     elif args.mode == "serve":
         serve()
+    elif args.mode == "daemon":
+        serve(headless=True)
+    elif args.mode == "setup":
+        from .setup_wizard import run as run_setup
+
+        run_setup()
+    elif args.mode == "enroll-voice":
+        from .voice.speaker import enroll
+
+        enroll(settings)
+    elif args.mode == "google-login":
+        from .plugins.google import login
+
+        login(settings)
     else:
         from .interfaces import cli
 

@@ -22,22 +22,35 @@ def run(shared=None) -> None:
     speak = Speaker(settings.tts_voice)
     mic = Microphone()
     mic.calibrate()
+    lock = None
+    if (settings.home / "voiceprint.npy").exists():
+        from ..voice.speaker import VoiceLock
+
+        lock = VoiceLock(settings.home / "voiceprint.npy")
+        print("Гласова защита: слушам само собственика.")
+
+    def owner(audio) -> bool:
+        return lock is None or lock.is_owner(audio)
 
     def say(text: str) -> None:
         print(f"Jarvis: {text}")
         speak(text)
         mic.drain()
 
-    def listen(wait: float = 6.0) -> str:
+    def listen(wait: float = 6.0) -> tuple[str, object]:
         audio = mic.record_utterance(wait_seconds=wait)
         text = transcribe(audio) if audio is not None else ""
         if text:
             print(f"Ти: {text}")
-        return text
+        return text, audio
 
     def voice_confirm(summary: str) -> bool:
         say(f"Преди да продължа: {summary}. Потвърждаваш ли?")
-        return is_yes(listen(8.0))
+        text, audio = listen(8.0)
+        if text and not owner(audio):
+            say("Това не беше твоят глас. Отказвам.")
+            return False
+        return is_yes(text)
 
     if shared:
         jarvis, ctx = shared
@@ -51,17 +64,21 @@ def run(shared=None) -> None:
     while True:
         try:
             command = wake.wait()
+            audio = wake.last_audio
             if not command:
                 say("Да?")
-                command = listen()
+                command, audio = listen()
             # Keep the conversation going without the wake word while the user keeps talking.
             while command:
+                if not owner(audio):
+                    say("Не разпознавам гласа ти.")
+                    break
                 try:
                     say(jarvis.ask(command, confirmer=voice_confirm))
                 except Exception as exc:
                     log.exception("request failed")
                     say(f"Нещо се обърка: {exc}")
-                command = listen(5.0)
+                command, audio = listen(5.0)
         except KeyboardInterrupt:
             say("Изключвам се.")
             mic.close()

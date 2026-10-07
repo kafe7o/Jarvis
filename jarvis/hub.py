@@ -61,15 +61,20 @@ class EventLog:
 class WebConfirmer:
     """Asks for confirmation in every open web client; the first answer wins."""
 
-    def __init__(self, events: EventLog, timeout: float = 600):
+    def __init__(self, events: EventLog, timeout: float = 600, on_request=None):
         self.events = events
         self.timeout = timeout
+        self.on_request = on_request or (lambda _summary: None)
         self.pending: dict[int, Future] = {}
 
     def __call__(self, summary: str) -> bool:
         fut: Future = Future()
         cid = self.events.add("confirm", text=summary)
         self.pending[cid] = fut
+        try:
+            self.on_request(summary)
+        except Exception:
+            log.exception("confirmation push failed")
         try:
             return bool(fut.result(timeout=self.timeout))
         except Exception:
@@ -199,7 +204,10 @@ class Hub:
         self.token = token
         self.port = port
         self.events = EventLog()
-        self.confirmer = WebConfirmer(self.events)
+        from .plugins.messaging import push_notify
+
+        # With the phone in a pocket (Siri, iPhone), a push says a confirmation is waiting in the web app.
+        self.confirmer = WebConfirmer(self.events, on_request=lambda s: push_notify(f"Чака потвърждение: {s}", "Jarvis"))
         self.devices = DeviceHub(ctx.jarvis.registry)
         self.busy = threading.Lock()
         ctx.hub = self

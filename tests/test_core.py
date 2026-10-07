@@ -20,7 +20,9 @@ def test_every_tool_has_a_valid_schema(registry):
 
 def test_people_and_money_tools_always_need_confirmation(registry):
     for name in ["make_call", "connect_call", "agent_call", "send_sms", "send_email",
-                 "create_payment_link", "send_invoice", "refund_payment", "payout", "request_approval"]:
+                 "create_payment_link", "send_invoice", "refund_payment", "payout", "request_approval",
+                 "whatsapp_send", "viber_send", "gmail_send", "google_calendar_invite", "paypal_send",
+                 "bank_transfer", "home_security", "phone_call", "phone_answer", "phone_sms"]:
         tool = registry.tools[name]
         assert tool.confirm and not tool.local, name
 

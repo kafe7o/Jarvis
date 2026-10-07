@@ -135,9 +135,53 @@ class PhoneBrain:
         return json.loads(text)
 
 
+AUDIO: dict[str, bytes] = {}
+NEURAL_VOICES = {"bg": "bg-BG-BorislavNeural", "en": "en-GB-RyanNeural", "de": "de-DE-ConradNeural",
+                 "ru": "ru-RU-DmitryNeural", "fr": "fr-FR-HenriNeural", "es": "es-ES-AlvaroNeural",
+                 "it": "it-IT-DiegoNeural", "tr": "tr-TR-AhmetNeural", "el": "el-GR-NestorasNeural"}
+
+
+def neural_audio(text: str, language: str) -> str | None:
+    """Render text with Jarvis's neural voice and return a public URL Twilio can <Play>, or None."""
+    base = os.environ.get("JARVIS_PUBLIC_URL", "").rstrip("/")
+    lang = language.split("-")[0].lower()
+    voice = os.environ.get("JARVIS_TTS_VOICE") if lang == "bg" else None
+    voice = voice or NEURAL_VOICES.get(lang)
+    if not base or not voice or os.environ.get("JARVIS_PHONE_NEURAL", "1") != "1":
+        return None
+    try:
+        import asyncio
+
+        import edge_tts
+
+        async def render() -> bytes:
+            chunks = []
+            async for part in edge_tts.Communicate(text, voice).stream():
+                if part["type"] == "audio":
+                    chunks.append(part["data"])
+            return b"".join(chunks)
+
+        data = asyncio.run(render())
+    except Exception as exc:
+        log.warning("neural phone voice unavailable (%s); using Twilio's voice", exc)
+        return None
+    key = secrets.token_urlsafe(16)
+    AUDIO[key] = data
+    while len(AUDIO) > 200:
+        AUDIO.pop(next(iter(AUDIO)))
+    return f"{base}/audio/{key}.mp3"
+
+
+def speech_twiml(text: str, language: str) -> str:
+    url = neural_audio(text, language)
+    if url:
+        return f"<Play>{escape(url)}</Play>"
+    voice = os.environ.get("TWILIO_VOICE", "Google.bg-BG-Standard-A") if language.startswith("bg") else "Polly.Brian"
+    return f'<Say voice="{escape(voice)}" language="{escape(language)}">{escape(text)}</Say>'
+
+
 def _twiml_turn(sess: CallSession, reply: dict, action: str) -> str:
-    voice = os.environ.get("TWILIO_VOICE", "Google.bg-BG-Standard-A") if sess.language.startswith("bg") else "Polly.Joanna"
-    say = f'<Say voice="{escape(voice)}" language="{escape(sess.language)}">{escape(reply["say"])}</Say>'
+    say = speech_twiml(reply["say"], sess.language)
     if reply["done"]:
         return f"<Response>{say}<Hangup/></Response>"
     gather = (
@@ -211,6 +255,15 @@ def ensure_server(ctx, port: int | None = None) -> ThreadingHTTPServer:
         validator = RequestValidator(ctx.settings.twilio_token)
 
     class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            key = self.path.removeprefix("/audio/").removesuffix(".mp3")
+            data = AUDIO.get(key) if self.path.startswith("/audio/") else None
+            self.send_response(200 if data else 404)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(data or b"")))
+            self.end_headers()
+            self.wfile.write(data or b"")
+
         def do_POST(self):  # noqa: N802
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length).decode()

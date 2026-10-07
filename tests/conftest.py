@@ -40,6 +40,7 @@ class FakeClient:
 def settings(tmp_path, monkeypatch):
     for var in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "STRIPE_API_KEY", "JARVIS_PUBLIC_URL"]:
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("JARVIS_PHONE_NEURAL", "0")
     s = Settings()
     s.home = tmp_path / "home"
     s.allowed_roots = [str(tmp_path)]
