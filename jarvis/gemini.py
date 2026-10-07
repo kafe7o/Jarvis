@@ -11,13 +11,18 @@ import base64
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger("jarvis.gemini")
 
-DEFAULT_MODEL = "gemini-3.8-flash"
+# Free models, most free requests a day first. Each has its own daily allowance (3.8 Flash only about
+# 20 a day, the Flash-Lite models hundreds), so when one runs out Jarvis moves on to the next.
+FREE_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
+DEFAULT_MODEL = FREE_MODELS[0]
 THINKING = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
 REFUSED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
 ONLY_FOR_GEMINI = {"google_search"}  # Claude searches with its own server tools
@@ -49,9 +54,11 @@ class Block:
 
 
 class Reply(list):
-    """The blocks of one answer, plus Gemini's original content to send back next time."""
+    """The blocks of one answer, plus Gemini's original content (and the model that wrote it) to send
+    back next time."""
 
     raw = None
+    model = None
 
 
 @dataclass
@@ -81,8 +88,9 @@ def _images_of(content) -> list[tuple[str, bytes]]:
     return out
 
 
-def to_contents(messages: list) -> list:
-    """Claude-format messages -> Gemini contents."""
+def to_contents(messages: list, model: str | None = None) -> list:
+    """Claude-format messages -> Gemini contents. Gemini's own replies go back as they came, unless
+    another model wrote them (signed thoughts only work with the model that made them)."""
     from google.genai import types
 
     calls: dict[str, tuple[str, str | None]] = {}  # tool_use id -> (name, Gemini's call id)
@@ -91,14 +99,16 @@ def to_contents(messages: list) -> list:
         content = message["content"]
         if message["role"] == "assistant":
             raw = getattr(content, "raw", None)
+            if raw is not None and model not in (None, getattr(content, "model", model)):
+                raw = None
             if raw is not None:
                 out.append(raw)
                 for b in content:
                     if b.type == "tool_use":
                         calls[b.id] = (b.name, b.call_id)
                 continue
-            # Text from history, or Claude's blocks if the brain changed in the middle of a task:
-            # its tool calls are written out as text, since only Gemini's own calls can be sent back.
+            # Text from history, or another model's blocks if the brain changed in the middle of a task:
+            # its tool calls are written out as text, since only a model's own calls can be sent back to it.
             lines = []
             for b in [content] if isinstance(content, str) else content:
                 kind = "text" if isinstance(b, str) else _get(b, "type")
@@ -143,13 +153,13 @@ def to_declarations(tools: list) -> list:
             for t in tools if "input_schema" in t]  # server tools (Claude's web search) have no schema
 
 
-def from_response(response) -> Answer:
+def from_response(response, model: str | None = None) -> Answer:
     candidate = (response.candidates or [None])[0]
     if candidate is None or candidate.content is None:
         blocked = getattr(getattr(response, "prompt_feedback", None), "block_reason", None)
         return Answer(Reply(), "refusal" if blocked else "end_turn")
     blocks = Reply()
-    blocks.raw = candidate.content
+    blocks.raw, blocks.model = candidate.content, model
     for part in candidate.content.parts or []:
         if part.thought:
             continue
@@ -177,6 +187,7 @@ class GeminiBrain:
     def __init__(self, client=None, wait=time.sleep):
         self._client = client
         self._wait = wait
+        self.spent: dict[str, float] = {}  # model -> when its free daily requests come back
 
     @property
     def client(self):
@@ -196,16 +207,47 @@ class GeminiBrain:
             thinking_config=types.ThinkingConfig(thinking_level=THINKING.get(effort, "medium")),
             max_output_tokens=max_tokens,
         )
-        contents = to_contents(messages)
-        for attempt in range(4):
-            try:
-                return from_response(self.client.models.generate_content(model=model, contents=contents, config=config))
-            except errors.APIError as exc:
-                # The free tier allows a few requests a minute: wait and try again before giving up.
-                if exc.code not in (429, 500, 503) or attempt == 3:
-                    raise
-                log.warning("Gemini %s, retrying: %s", exc.code, exc)
-                self._wait(5 * 2 ** attempt)
+        last = None
+        for current in self.models(model):
+            contents = to_contents(messages, current)
+            for attempt in range(3):
+                try:
+                    response = self.client.models.generate_content(model=current, contents=contents, config=config)
+                    return from_response(response, current)
+                except errors.APIError as exc:
+                    last = exc
+                    if exc.code == 429 and daily_limit(exc):
+                        log.warning("free requests for today are used up on %s; trying the next model", current)
+                        self.spent[current] = next_reset()
+                        break
+                    # A few requests a minute are allowed: wait as long as Google says, then try again.
+                    if exc.code not in (429, 500, 503) or attempt == 2:
+                        raise
+                    log.warning("Gemini %s, retrying: %s", exc.code, exc)
+                    self._wait(retry_after(exc, 5 * 2 ** attempt))
+        raise last or RuntimeError("No Gemini model left for today.")
+
+    def models(self, model: str) -> list[str]:
+        """The model to use and the free ones to fall back to, minus those used up for today."""
+        now = time.time()
+        return [m for m in dict.fromkeys([model, *FREE_MODELS]) if self.spent.get(m, 0) <= now]
+
+
+def daily_limit(exc) -> bool:
+    """True when the free requests for the whole day are gone (not just for this minute)."""
+    return "perday" in str(exc).lower().replace(" ", "").replace("_", "")
+
+
+def retry_after(exc, default: float) -> float:
+    found = re.search(r"retry(?:Delay)?\D{0,6}(\d+(?:\.\d+)?)s", str(exc), re.I)
+    return min(60.0, float(found[1])) if found else default
+
+
+def next_reset() -> float:
+    """Google renews free requests at midnight Pacific time (about 07:00 UTC)."""
+    now = datetime.now(timezone.utc)
+    reset = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    return (reset if reset > now else reset + timedelta(days=1)).timestamp()
 
 
 def search(query: str, model: str | None = None, client=None) -> str:

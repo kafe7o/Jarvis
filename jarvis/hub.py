@@ -91,6 +91,9 @@ def friendly_error(exc: Exception) -> str:
     text = f"{type(exc).__name__}: {exc}"
     low = text.lower()
     if type(exc).__module__.startswith("google."):
+        if "perday" in low.replace(" ", "").replace("_", ""):
+            return ("Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. "
+                    "Подновяват се утре около 10:00.")
         if "resource_exhausted" in low or "429" in low:
             return "Безплатният лимит на Gemini е изчерпан за момента. Опитай пак след минута."
         if "api key" in low or "api_key" in low or "permission_denied" in low:
@@ -323,7 +326,7 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_MODEL", "Мозък: gemini-3.8-flash (безплатно), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
+        ("JARVIS_MODEL", "Мозък: gemini-3.5-flash-lite (безплатно), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
     ]),

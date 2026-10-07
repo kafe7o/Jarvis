@@ -131,3 +131,40 @@ def test_switch_to_gemini_needs_its_key(settings, ctx, registry, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY")
     output, is_error = registry.run("switch_brain", {"brain": "gemini"}, lambda s: True, True, None, None)
     assert is_error and "aistudio.google.com" in output
+
+
+def daily(model):
+    return errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": f"Quota exceeded, model: {model}",
+                                              "details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}})
+
+
+def test_when_a_free_model_is_used_up_for_the_day_the_next_one_answers(settings, ctx, registry):
+    settings.model = gemini.DEFAULT_MODEL
+    jarvis, fake = make(settings, ctx, registry, [
+        daily(gemini.FREE_MODELS[0]), reply(types.Part(text="Тук съм.")), reply(types.Part(text="Пак съм тук.")),
+    ])
+    assert jarvis.ask("здравей") == "Тук съм."
+    assert [r["model"] for r in fake.requests] == gemini.FREE_MODELS[:2]  # no waiting on a daily limit
+    assert jarvis.ask("още ли си там") == "Пак съм тук."
+    assert fake.requests[-1]["model"] == gemini.FREE_MODELS[1]  # the used-up model is skipped until tomorrow
+
+
+def test_minute_limit_waits_as_long_as_google_says(settings, ctx, registry):
+    settings.model = gemini.DEFAULT_MODEL
+    waits = []
+    busy = errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "per minute",
+                                              "details": [{"retryDelay": "12s"}]}})
+    fake = FakeGemini([busy, reply(types.Part(text="Готово."))])
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]),
+                    gemini_brain=gemini.GeminiBrain(fake, wait=waits.append))
+    assert jarvis.ask("здравей") == "Готово." and waits == [12.0]
+
+
+def test_all_free_models_used_up_says_when_they_come_back(settings, ctx, registry):
+    from jarvis.hub import friendly_error
+
+    settings.model = gemini.DEFAULT_MODEL
+    jarvis, _ = make(settings, ctx, registry, [daily(m) for m in gemini.FREE_MODELS])
+    with pytest.raises(errors.ClientError) as caught:
+        jarvis.ask("здравей")
+    assert "утре" in friendly_error(caught.value)
