@@ -244,18 +244,19 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
       <p id="authLead">Влез в акаунта си</p>
     </div>
     <form id="loginForm">
-      <div class="field"><label for="lu">Потребителско име</label><input class="input" id="lu" autocomplete="username" required></div>
+      <div class="field"><label for="lu">Имейл</label><input class="input" id="lu" type="text" inputmode="email" autocomplete="username" required></div>
       <div class="field"><label for="lp">Парола</label><input class="input" id="lp" type="password" autocomplete="current-password" required></div>
       <div class="err" id="loginErr"></div>
       <button class="btn primary block">Вход</button>
+      <p class="hint" style="text-align:center;margin:14px 0 0">Акаунти се създават само от собственика.</p>
     </form>
     <form id="setupForm" class="hidden">
       <div class="field"><label for="sn">Как да се обръщам към теб</label><input class="input" id="sn" placeholder="напр. Анастас или сър" required></div>
-      <div class="field"><label for="su">Потребителско име</label><input class="input" id="su" autocomplete="username" required></div>
+      <div class="field"><label for="su">Твоят имейл</label><input class="input" id="su" type="email" autocomplete="username" required></div>
       <div class="field"><label for="sp">Парола (поне 6 знака)</label><input class="input" id="sp" type="password" autocomplete="new-password" minlength="6" required></div>
       <div class="field"><label for="sp2">Парола отново</label><input class="input" id="sp2" type="password" autocomplete="new-password" minlength="6" required></div>
       <div class="err" id="setupErr"></div>
-      <button class="btn primary block">Създай акаунта</button>
+      <button class="btn primary block">Влез като собственик</button>
     </form>
     <p id="setupBlocked" class="hint hidden">Първият акаунт се създава от компютъра, на който работи Jarvis. Отвори приложението там.</p>
   </div>
@@ -430,21 +431,21 @@ function showAuth(me) {
   $("loginForm").classList.toggle("hidden", !!setup);
   $("setupForm").classList.toggle("hidden", !setup || !me.can_setup);
   $("setupBlocked").classList.toggle("hidden", !setup || me.can_setup);
-  $("authLead").textContent = setup ? "Добре дошъл. Създай своя акаунт — ти ще си собственикът." : "Влез в акаунта си";
+  $("authLead").textContent = setup ? "Първо пускане. Въведи своя имейл и избери парола — това е акаунтът на собственика. После вход ще има само с имейл и парола." : "Влез с имейл и парола";
   setTimeout(() => (setup ? $("sn") : $("lu")).focus(), 50);
 }
 
 $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("loginErr").textContent = "";
-  try { await api("/api/login", { username: $("lu").value, password: $("lp").value }); $("lp").value = ""; start(); }
+  try { await api("/api/login", { email: $("lu").value, password: $("lp").value }); $("lp").value = ""; start(); }
   catch (err) { $("loginErr").textContent = err.message; }
 });
 $("setupForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("setupErr").textContent = "";
   if ($("sp").value !== $("sp2").value) { $("setupErr").textContent = "Паролите не съвпадат."; return; }
-  try { await api("/api/setup", { name: $("sn").value, username: $("su").value, password: $("sp").value }); start(); }
+  try { await api("/api/setup", { name: $("sn").value, email: $("su").value, password: $("sp").value }); start(); }
   catch (err) { $("setupErr").textContent = err.message; }
 });
 $("logout").addEventListener("click", async () => {
@@ -756,27 +757,32 @@ async function showTab(id) {
 }
 
 function tabProfile() {
-  const me = state.me;
+  const me = state.me, owner = me.role === "owner";
   $("tabBody").innerHTML = `
     <div class="section">
-      <h5>Твоят профил</h5><p class="sub">@${esc(me.username)} · ${me.role === "owner" ? "Собственик" : "Акаунт"}</p>
+      <h5>Твоят профил</h5><p class="sub">${esc(me.email)} · ${owner ? "Собственик" : "Акаунт"}</p>
       <div class="field"><label>Как да се обръща към теб Jarvis</label><input class="input" id="pfName" value="${esc(me.name)}"></div>
       <div class="row-end"><span class="hint" id="pfMsg"></span><button class="btn primary small" id="pfSave">Запази</button></div>
     </div>
+    ${owner ? `
     <div class="section">
-      <h5>Смяна на паролата</h5><p class="sub">След смяната другите ти устройства ще трябва да влязат отново.</p>
+      <h5>Имейл и парола за вход</h5><p class="sub">За смяна въведи сегашната си парола. Остави „Нова парола“ празно, ако сменяш само имейла.</p>
+      <div class="field"><label>Имейл</label><input class="input" type="email" id="pfEmail" value="${esc(me.email)}" autocomplete="username"></div>
       <div class="grid2">
         <div class="field"><label>Сегашна парола</label><input class="input" type="password" id="pfOld" autocomplete="current-password"></div>
         <div class="field"><label>Нова парола</label><input class="input" type="password" id="pfNew" autocomplete="new-password"></div>
       </div>
-      <div class="row-end"><span class="hint" id="pwMsg"></span><button class="btn primary small" id="pwSave">Смени паролата</button></div>
-    </div>`;
+      <div class="row-end"><span class="hint" id="pwMsg"></span><button class="btn primary small" id="pwSave">Запази</button></div>
+    </div>` : `<div class="note">${icon("info")}<div>Имейла и паролата ти ги управлява собственикът на Jarvis.</div></div>`}`;
   $("pfSave").onclick = async () => {
     try { state.me = (await api("/api/me", { name: $("pfName").value })).user; $("meName").textContent = state.me.name; $("meAvatar").textContent = state.me.name.charAt(0).toUpperCase(); $("pfMsg").textContent = "Запазено."; greet(); }
     catch (err) { $("pfMsg").textContent = err.message; }
   };
+  if (!owner) return;
   $("pwSave").onclick = async () => {
-    try { await api("/api/me", { old_password: $("pfOld").value, password: $("pfNew").value }); $("pwMsg").textContent = "Паролата е сменена."; $("pfOld").value = $("pfNew").value = ""; }
+    const body = { old_password: $("pfOld").value, email: $("pfEmail").value };
+    if ($("pfNew").value) body.password = $("pfNew").value;
+    try { state.me = (await api("/api/me", body)).user; $("pwMsg").textContent = "Запазено."; $("pfOld").value = $("pfNew").value = ""; }
     catch (err) { $("pwMsg").textContent = err.message; }
   };
 }
@@ -785,21 +791,21 @@ async function tabAccounts() {
   const users = (await api("/api/users")).users;
   $("tabBody").innerHTML = `
     <div class="section">
-      <h5>Акаунти</h5><p class="sub">Всеки има свои разговори. Ти решаваш какво може да прави Jarvis за всеки от тях.</p>
+      <h5>Акаунти</h5><p class="sub">Само ти създаваш акаунти и даваш имейла и паролата за вход. Всеки има свои разговори, а ти решаваш какво може да прави Jarvis за него. Своя имейл и парола сменяш от „Профил“.</p>
       ${users.map((u) => `
         <div class="user-row" data-id="${u.id}">
           <div class="avatar">${esc(u.name.charAt(0).toUpperCase())}</div>
-          <div class="who"><b>${esc(u.name)}</b> <span class="badge ${u.role === "owner" ? "owner" : ""}">${u.role === "owner" ? "Собственик" : "Акаунт"}</span><br><small>@${esc(u.username)}</small></div>
+          <div class="who"><b>${esc(u.name)}</b> <span class="badge ${u.role === "owner" ? "owner" : ""}">${u.role === "owner" ? "Собственик" : "Акаунт"}</span><br><small>${esc(u.email)}</small></div>
           <button class="btn ghost small" data-a="perms">Разрешения</button>
-          <button class="btn ghost small" data-a="pw">Парола</button>
+          ${u.id === state.me.id ? "" : `<button class="btn ghost small" data-a="email">Имейл</button><button class="btn ghost small" data-a="pw">Парола</button>`}
           ${u.id === state.me.id ? "" : `<button class="btn danger small" data-a="del" title="Изтрий">${icon("trash")}</button>`}
         </div>`).join("")}
     </div>
     <div class="section">
-      <h5>Нов акаунт</h5><p class="sub">Например за някого вкъщи. Новите акаунти могат само да говорят и да търсят в интернет, докато не им разрешиш още.</p>
+      <h5>Нов акаунт</h5><p class="sub">Новите акаунти могат само да говорят и да търсят в интернет, докато не им разрешиш още в „Разрешения“.</p>
       <div class="grid2">
         <div class="field"><label>Име</label><input class="input" id="nuName"></div>
-        <div class="field"><label>Потребителско име</label><input class="input" id="nuUser" autocomplete="off"></div>
+        <div class="field"><label>Имейл (за вход)</label><input class="input" id="nuUser" type="email" autocomplete="off"></div>
         <div class="field"><label>Парола</label><input class="input" id="nuPass" type="password" autocomplete="new-password"></div>
         <div class="field"><label>Роля</label><select class="input" id="nuRole"><option value="member">Акаунт</option><option value="owner">Собственик (пълен достъп)</option></select></div>
       </div>
@@ -809,6 +815,10 @@ async function tabAccounts() {
     const b = e.target.closest("button"); if (!b) return;
     const id = Number(row.dataset.id), u = users.find((x) => x.id === id);
     if (b.dataset.a === "perms") { permsFor = id; showTab("perms"); }
+    if (b.dataset.a === "email") {
+      const email = prompt(`Нов имейл за вход на ${u.name}:`, u.email);
+      if (email && email.trim() !== u.email) { try { await api(`/api/users/${id}`, { email }); toast("Имейлът е сменен."); showTab("accounts"); } catch (err) { toast(err.message, "Грешка", "err"); } }
+    }
     if (b.dataset.a === "pw") {
       const pw = prompt(`Нова парола за ${u.name} (поне 6 знака):`);
       if (pw) { try { await api(`/api/users/${id}`, { password: pw }); toast("Паролата е сменена."); } catch (err) { toast(err.message, "Грешка", "err"); } }
@@ -820,8 +830,8 @@ async function tabAccounts() {
   }));
   $("nuAdd").onclick = async () => {
     try {
-      await api("/api/users", { name: $("nuName").value, username: $("nuUser").value, password: $("nuPass").value, role: $("nuRole").value });
-      toast("Акаунтът е създаден."); showTab("accounts");
+      await api("/api/users", { name: $("nuName").value, email: $("nuUser").value, password: $("nuPass").value, role: $("nuRole").value });
+      toast("Акаунтът е създаден. Дай на човека имейла и паролата."); showTab("accounts");
     } catch (err) { $("nuMsg").textContent = err.message; }
   };
 }
@@ -834,7 +844,7 @@ async function tabPerms() {
   const modes = [["on", "Вкл"], ["ask", "Питай"], ["off", "Изкл"]];
   $("tabBody").innerHTML = `
     <div class="note">${icon("info")}<div>Обажданията, съобщенията, имейлите и плащанията <b>винаги</b> чакат „Разреши“ преди всяко действие, каквото и да е избрано тук. „Питай“ кара Jarvis да пита и за всичко останало в групата.</div></div>
-    ${owner ? `<div class="field"><label>Разрешения за</label><select class="input" id="permUser">${users.map((u) => `<option value="${u.id}" ${u.id === target.id ? "selected" : ""}>${esc(u.name)} (@${esc(u.username)})</option>`).join("")}</select></div>` : ""}
+    ${owner ? `<div class="field"><label>Разрешения за</label><select class="input" id="permUser">${users.map((u) => `<option value="${u.id}" ${u.id === target.id ? "selected" : ""}>${esc(u.name)} (${esc(u.email)})</option>`).join("")}</select></div>` : ""}
     <div class="section">
       ${state.groups.map((g) => `
         <div class="perm">

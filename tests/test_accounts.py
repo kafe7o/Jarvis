@@ -55,28 +55,28 @@ def test_first_run_creates_owner_then_login(settings, ctx, registry):
     hub, web, _ = make(settings, ctx, registry, [])
     status, me = web("/api/me")
     assert me["user"] is None and me["needs_setup"] and me["can_setup"]
-    status, data = web("/api/setup", {"name": "Анастас", "username": "kafe7o", "password": "секрет1"})
+    status, data = web("/api/setup", {"name": "Анастас", "email": "owner@example.com", "password": "секрет1"})
     assert status == 200 and data["user"]["role"] == "owner"
     assert web("/api/me")[1]["user"]["name"] == "Анастас"
     # nobody can become owner a second time
-    assert web("/api/setup", {"name": "x", "username": "x", "password": "123456"})[0] == 409
+    assert web("/api/setup", {"name": "x", "email": "x@example.com", "password": "123456"})[0] == 409
     web("/api/logout", {})
     assert web("/api/chats")[0] == 401
-    assert web("/api/login", {"username": "kafe7o", "password": "грешна"})[0] == 401
-    assert web("/api/login", {"username": "KAFE7O", "password": "секрет1"})[0] == 200
+    assert web("/api/login", {"email": "owner@example.com", "password": "грешна"})[0] == 401
+    assert web("/api/login", {"email": "OWNER@example.com", "password": "секрет1"})[0] == 200
     assert web("/api/chats")[0] == 200
 
 
 def test_posts_need_the_app_header(settings, ctx, registry):
     hub, web, _ = make(settings, ctx, registry, [])
-    web("/api/setup", {"name": "A", "username": "owner", "password": "123456"})
+    web("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     status, _ = web("/api/chats", {}, headers={"X-Jarvis": "0"})
     assert status == 403
 
 
 def test_chat_flow_and_titles(settings, ctx, registry):
     hub, web, client = make(settings, ctx, registry, [response(text_block("Здравейте, сър."))])
-    web("/api/setup", {"name": "A", "username": "owner", "password": "123456"})
+    web("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     chat = web("/api/chats", {})[1]["chat"]
     status, data = web(f"/api/chats/{chat['id']}/ask", {"text": "Здрасти, Джарвис"})
     assert data["answer"] == "Здравейте, сър." and data["chat"]["title"] == "Здрасти, Джарвис"
@@ -93,13 +93,13 @@ def test_member_permissions_limit_tools_and_privacy(settings, ctx, registry):
         response(text_block("Не мога.")),
     ])
     ctx.store.insert("facts", topic="owner", fact="Тайният код на сейфа е 1234")
-    owner("/api/setup", {"name": "Анастас", "username": "owner", "password": "123456"})
-    status, data = owner("/api/users", {"name": "Мария", "username": "maria", "password": "123456"})
+    owner("/api/setup", {"name": "Анастас", "email": "owner@example.com", "password": "123456"})
+    status, data = owner("/api/users", {"name": "Мария", "email": "maria@example.com", "password": "123456"})
     maria_id = data["user"]["id"]
     assert data["user"]["perms"]["web"] == "on" and data["user"]["perms"]["system"] == "off"
 
     maria = Browser(owner.port)
-    assert maria("/api/login", {"username": "maria", "password": "123456"})[0] == 200
+    assert maria("/api/login", {"email": "maria@example.com", "password": "123456"})[0] == 200
     assert maria("/api/users")[0] == 403  # members cannot manage accounts
     chat = maria("/api/chats", {})[1]["chat"]
     maria(f"/api/chats/{chat['id']}/ask", {"text": "Здрасти"})
@@ -140,10 +140,10 @@ def test_confirmations_only_reach_the_right_account(settings, ctx, registry, tmp
         response(tool_block("write_file", {"path": str(target), "content": "да"}), stop="tool_use"),
         response(text_block("Готово.")),
     ])
-    owner("/api/setup", {"name": "A", "username": "owner", "password": "123456"})
-    owner("/api/users", {"name": "Мария", "username": "maria", "password": "123456"})
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    owner("/api/users", {"name": "Мария", "email": "maria@example.com", "password": "123456"})
     maria = Browser(owner.port)
-    maria("/api/login", {"username": "maria", "password": "123456"})
+    maria("/api/login", {"email": "maria@example.com", "password": "123456"})
     chat = owner("/api/chats", {})[1]["chat"]
     answers = {}
     t = threading.Thread(target=lambda: answers.update(owner(f"/api/chats/{chat['id']}/ask", {"text": "запиши"})[1]))
@@ -166,7 +166,7 @@ def test_connections_settings_mask_secrets(settings, ctx, registry, tmp_path, mo
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-123456\nJARVIS_USER_NAME=сър\n", encoding="utf-8")
     hub, owner, _ = make(settings, ctx, registry, [])
-    owner("/api/setup", {"name": "A", "username": "owner", "password": "123456"})
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     sections = owner("/api/settings")[1]["sections"]
     brain = sections[0]["fields"][0]
     assert brain["set"] and brain["value"] == "" and "sk-ant-123456" not in json.dumps(sections)
@@ -187,7 +187,7 @@ def test_friendly_error_when_claude_key_is_missing(settings, ctx, registry):
     ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(False), client=Broken())
     hub = Hub(ctx, "secret", port=0, host="127.0.0.1")
     web = Browser(hub.serve().server_address[1])
-    web("/api/setup", {"name": "A", "username": "owner", "password": "123456"})
+    web("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     chat = web("/api/chats", {})[1]["chat"]
     data = web(f"/api/chats/{chat['id']}/ask", {"text": "здрасти"})[1]
     assert data["error"] and "Claude ключът" in data["answer"]
@@ -195,9 +195,33 @@ def test_friendly_error_when_claude_key_is_missing(settings, ctx, registry):
 
 def test_last_owner_cannot_be_removed(ctx):
     accounts = Accounts(ctx.store)
-    owner = accounts.create("owner", "O", "123456", role="owner")
+    owner = accounts.create("owner@example.com", "O", "123456", role="owner")
     try:
         accounts.delete(owner.id)
         raise AssertionError("expected ValueError")
     except ValueError:
         pass
+
+
+def test_owner_manages_logins_members_cannot(settings, ctx, registry):
+    hub, owner, _ = make(settings, ctx, registry, [])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    assert owner("/api/users", {"name": "Иван", "email": "не-е-имейл", "password": "123456"})[0] == 400
+    uid = owner("/api/users", {"name": "Иван", "email": "ivan@example.com", "password": "123456"})[1]["user"]["id"]
+    ivan = Browser(owner.port)
+    ivan("/api/login", {"email": "ivan@example.com", "password": "123456"})
+    assert ivan("/api/me", {"old_password": "123456", "password": "новапарола"})[0] == 403
+    assert ivan("/api/me", {"name": "Ванко"})[1]["user"]["name"] == "Ванко"
+    owner(f"/api/users/{uid}", {"email": "vanko@example.com", "password": "друга123"})
+    assert Browser(owner.port)("/api/login", {"email": "vanko@example.com", "password": "друга123"})[0] == 200
+    # owner changes own e-mail only with the current password
+    assert owner("/api/me", {"old_password": "грешна", "email": "new@example.com"})[0] == 400
+    assert owner("/api/me", {"old_password": "123456", "email": "new@example.com"})[1]["user"]["email"] == "new@example.com"
+
+
+def test_set_owner_creates_then_resets(ctx):
+    accounts = Accounts(ctx.store)
+    accounts.set_owner("a@example.com", "123456", "А")
+    accounts.set_owner("b@example.com", "654321")
+    assert [u.username for u in accounts.list()] == ["b@example.com"]
+    assert accounts.login("b@example.com", "654321") and not accounts.login("a@example.com", "123456")

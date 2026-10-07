@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .accounts import GROUPS, SESSION_DAYS, TOKEN_USER, Accounts, User, conversation_id
+from .accounts import GROUPS, SESSION_DAYS, TOKEN_USER, Accounts, User, check_password, conversation_id
 from .tools import Tool
 
 log = logging.getLogger("jarvis.hub")
@@ -431,10 +431,10 @@ class Hub:
                 raise HTTPError(409, "Вече има собственик. Влез с акаунта си.")
             if not (req.local or req.via == "token"):
                 raise HTTPError(403, "Първия акаунт може да се създаде само от компютъра, на който е Jarvis.")
-            self.accounts.create(b.get("username", ""), b.get("name", ""), b.get("password", ""), role="owner")
-            return self._login(req, b.get("username", ""), b.get("password", ""))
+            self.accounts.create(b.get("email", ""), b.get("name", ""), b.get("password", ""), role="owner")
+            return self._login(req, b.get("email", ""), b.get("password", ""))
         if p == "/api/login" and m == "POST":
-            return self._login(req, b.get("username", ""), b.get("password", ""))
+            return self._login(req, b.get("email", ""), b.get("password", ""))
 
         if user is None:
             raise HTTPError(401, "Влез в акаунта си.")
@@ -454,14 +454,17 @@ class Hub:
             req.set_cookie = self.session_cookie("", 0)
             return 200, {"ok": True}
         if p == "/api/me" and m == "POST":
+            if not user.is_owner and (b.get("password") or b.get("email")):
+                raise HTTPError(403, "Имейла и паролата ти ги сменя собственикът.")
+            if b.get("password") or b.get("email"):
+                if user.id == 0 or not check_password(b.get("old_password", ""), self.accounts.pw_hash(user.id)):
+                    raise HTTPError(400, "Сегашната парола не е вярна.")
+            updated = self.accounts.update(user.id, name=b.get("name"), email=b.get("email"),
+                                           password=b.get("password") or None)
             if b.get("password"):
-                if user.id == 0 or not self.accounts.login(user.username, b.get("old_password", "")):
-                    raise HTTPError(400, "Старата парола не е вярна.")
-            self.accounts.update(user.id, name=b.get("name"), password=b.get("password") or None)
-            if b.get("password"):
-                _u, token = self.accounts.login(user.username, b["password"])
+                _u, token = self.accounts.login(updated.username, b["password"])
                 req.set_cookie = self.session_cookie(token)
-            return 200, {"user": self.accounts.get(user.id).public()}
+            return 200, {"user": updated.public()}
         if p == "/api/events" and m == "GET":
             after = int((req.query.get("after") or ["0"])[0])
             if after < 0:  # a client starting up only wants new events
@@ -515,7 +518,7 @@ class Hub:
         if p == "/api/users":
             if m == "GET":
                 return 200, {"users": [u.public() for u in self.accounts.list()]}
-            created = self.accounts.create(b.get("username", ""), b.get("name", ""), b.get("password", ""),
+            created = self.accounts.create(b.get("email", ""), b.get("name", ""), b.get("password", ""),
                                            b.get("role", "member"))
             return 200, {"user": created.public()}
         match = re.fullmatch(r"/api/users/(\d+)(/delete)?", p)
@@ -527,7 +530,7 @@ class Hub:
                 self.accounts.delete(uid)
                 return 200, {"ok": True}
             updated = self.accounts.update(uid, name=b.get("name"), password=b.get("password") or None,
-                                           role=b.get("role"), perms=b.get("perms"))
+                                           role=b.get("role"), perms=b.get("perms"), email=b.get("email"))
             return 200, {"user": updated.public()}
         if p == "/api/settings":
             if m == "POST":
@@ -542,14 +545,14 @@ class Hub:
             return 200, {"devices": self.devices.status(), "lan_url": f"http://{lan_ip()}:{self.port}/"}
         raise HTTPError(404, "not found")
 
-    def _login(self, req: Request, username: str, password: str):
+    def _login(self, req: Request, email: str, password: str):
         ip = req.query.get("_ip", ["?"])[0]
         self.throttle(ip)
-        result = self.accounts.login(username, password)
+        result = self.accounts.login(email, password)
         if not result:
             self.failures[ip].append(time.time())
             time.sleep(0.5)
-            raise HTTPError(401, "Грешно име или парола.")
+            raise HTTPError(401, "Грешен имейл или парола.")
         user, token = result
         req.set_cookie = self.session_cookie(token)
         return 200, {"user": user.public()}

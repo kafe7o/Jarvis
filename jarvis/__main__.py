@@ -168,9 +168,33 @@ def app(window: bool = True) -> None:
     threading.Event().wait()
 
 
+def owner() -> None:
+    """Create the owner account, or reset its e-mail and password (forgotten password)."""
+    from getpass import getpass
+
+    from .accounts import Accounts
+    from .store import Store
+
+    accounts = Accounts(Store(settings.db_path))
+    current = accounts.owner()
+    print("Акаунт на собственика (вход в приложението Jarvis).")
+    email = input("Имейл" + (f" [{current.username}]" if current else "") + ": ").strip() or (current.username if current else "")
+    name = input("Как да се обръщам към теб" + (f" [{current.name}]" if current else "") + ": ").strip()
+    while True:
+        password = getpass("Парола (поне 6 знака, не се вижда докато пишеш): ")
+        if password == getpass("Паролата отново: "):
+            break
+        print("Паролите не съвпадат, опитай пак.")
+    try:
+        user = accounts.set_owner(email, password, name)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    print(f"Готово. Влизаш с {user.username} и тази парола.")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
-    parser.add_argument("mode", nargs="?", default="chat", choices=["app", "shortcut", "update", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
+    parser.add_argument("mode", nargs="?", default="chat", choices=["app", "owner", "shortcut", "update", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
                                  "enroll-voice", "google-login"])
     parser.add_argument("text", nargs="*", help="Въпрос за режим ask")
     parser.add_argument("--hub", help="node: адрес на главния Jarvis, напр. http://192.168.1.10:8770")
@@ -187,6 +211,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.mode == "app":
         app(window=not args.no_window)
+    elif args.mode == "owner":
+        owner()
     elif args.mode == "update":
         from pathlib import Path
 

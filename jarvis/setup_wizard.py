@@ -105,6 +105,8 @@ def run() -> None:
     from .autostart import shortcut
 
     print(shortcut(Path.cwd()))
+    if input("Да създам ли сега твоя акаунт за приложението (имейл и парола)? [да/не]: ").strip().lower().startswith("д"):
+        subprocess.run([sys.executable, "-m", "jarvis", "owner"], check=False)
     print("\nГотово. Отвори Jarvis от иконата на работния плот или с `jarvis app`.")
 
 

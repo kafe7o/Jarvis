@@ -1,6 +1,8 @@
 """Accounts for the Jarvis app: logins, sessions and what each account may let Jarvis do.
 
-The first account is the owner. The owner adds other accounts (family, colleagues) and decides, per
+People sign in with e-mail and password; nobody can sign up. The first account is the owner, made
+on this computer the first time the app opens (or with `jarvis owner`). Only the owner creates
+accounts, sets their e-mails and passwords and decides, per
 group of abilities, whether Jarvis may use it for them: "on", "ask" (confirm every action) or "off".
 Calls, messages and payments still ask before every action, whatever the setting.
 """
@@ -55,7 +57,14 @@ OWNER_DEFAULT = {key: "on" for key in GROUP_KEYS}
 MEMBER_DEFAULT = {key: ("on" if key == "web" else "off") for key in GROUP_KEYS}
 
 SESSION_DAYS = 30
-USERNAME_RE = re.compile(r"^[\w.\-@]{2,40}$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def clean_email(email: str) -> str:
+    email = (email or "").strip().lower()
+    if not EMAIL_RE.match(email) or len(email) > 120:
+        raise ValueError("Въведи истински имейл адрес.")
+    return email
 
 
 def hash_password(password: str, salt: bytes | None = None) -> str:
@@ -100,7 +109,7 @@ class User:
         return {g for g in GROUP_KEYS if self.mode(g) == "ask"}
 
     def public(self) -> dict:
-        return {"id": self.id, "username": self.username, "name": self.name, "role": self.role,
+        return {"id": self.id, "email": self.username, "username": self.username, "name": self.name, "role": self.role,
                 "perms": {g: self.mode(g) for g in GROUP_KEYS}}
 
 
@@ -131,30 +140,38 @@ class Accounts:
     def get(self, user_id: int) -> User | None:
         return self._user(next(iter(self.store.query("SELECT * FROM users WHERE id=?", (user_id,))), None))
 
+    def pw_hash(self, user_id: int) -> str:
+        rows = self.store.query("SELECT pw_hash FROM users WHERE id=?", (user_id,))
+        return rows[0]["pw_hash"] if rows else ""
+
     def list(self) -> list[User]:
         return [self._user(r) for r in self.store.query("SELECT * FROM users ORDER BY id")]
 
     def owner(self) -> User | None:
         return self._user(next(iter(self.store.query("SELECT * FROM users WHERE role='owner' ORDER BY id")), None))
 
-    def create(self, username: str, name: str, password: str, role: str = "member") -> User:
-        username = username.strip()
-        if not USERNAME_RE.match(username):
-            raise ValueError("Потребителското име трябва да е 2–40 знака: букви, цифри, точка, тире.")
+    def create(self, email: str, name: str, password: str, role: str = "member") -> User:
+        """``email`` is the login (stored in the ``username`` column)."""
+        email = clean_email(email)
         if len(password) < 6:
             raise PasswordError("Паролата трябва да е поне 6 знака.")
-        if self.store.query("SELECT 1 FROM users WHERE username=?", (username,)):
-            raise ValueError("Това потребителско име е заето.")
+        if self.store.query("SELECT 1 FROM users WHERE username=?", (email,)):
+            raise ValueError("Вече има акаунт с този имейл.")
         role = "owner" if role == "owner" else "member"
-        uid = self.store.insert("users", username=username, name=name.strip() or username,
+        uid = self.store.insert("users", username=email, name=name.strip() or email.split("@")[0],
                                 pw_hash=hash_password(password), role=role, perms="{}")
         return self.get(uid)
 
     def update(self, user_id: int, *, name: str | None = None, password: str | None = None,
-               role: str | None = None, perms: dict | None = None) -> User:
+               role: str | None = None, perms: dict | None = None, email: str | None = None) -> User:
         user = self.get(user_id)
         if user is None:
             raise KeyError("Няма такъв акаунт.")
+        if email is not None and email.strip() and email.strip().lower() != user.username:
+            email = clean_email(email)
+            if self.store.query("SELECT 1 FROM users WHERE username=? AND id<>?", (email, user_id)):
+                raise ValueError("Вече има акаунт с този имейл.")
+            self.store.execute("UPDATE users SET username=? WHERE id=?", (email, user_id))
         if name is not None and name.strip():
             self.store.execute("UPDATE users SET name=? WHERE id=?", (name.strip(), user_id))
         if password is not None:
@@ -172,6 +189,13 @@ class Accounts:
             self.store.execute("UPDATE users SET perms=? WHERE id=?", (json.dumps(merged), user_id))
         return self.get(user_id)
 
+    def set_owner(self, email: str, password: str, name: str = "") -> User:
+        """Create the owner, or reset the first owner's e-mail and password (`jarvis owner`)."""
+        owner = self.owner()
+        if owner is None:
+            return self.create(email, name, password, role="owner")
+        return self.update(owner.id, email=email, password=password, name=name or None)
+
     def delete(self, user_id: int) -> None:
         user = self.get(user_id)
         if user is None:
@@ -184,8 +208,8 @@ class Accounts:
         self.store.execute("DELETE FROM users WHERE id=?", (user_id,))
 
     # sessions
-    def login(self, username: str, password: str) -> tuple[User, str] | None:
-        row = next(iter(self.store.query("SELECT * FROM users WHERE username=?", (username.strip(),))), None)
+    def login(self, email: str, password: str) -> tuple[User, str] | None:
+        row = next(iter(self.store.query("SELECT * FROM users WHERE username=?", ((email or "").strip(),))), None)
         if not row or not check_password(password, row["pw_hash"]):
             return None
         token = secrets.token_urlsafe(32)
