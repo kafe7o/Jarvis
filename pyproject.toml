@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-assistant"
+version = "0.1.0"
+description = "J.A.R.V.I.S. — a personal AI assistant: voice, calls, SMS, e-mail, payments, tasks, reminders, calendar, web and PC control"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=1.11",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+phone = ["twilio>=9"]
+payments = ["stripe>=10"]
+voice = ["faster-whisper>=1.0", "sounddevice>=0.4", "numpy>=1.24", "edge-tts>=6.1", "pyttsx3>=2.90", "openwakeword>=0.6"]
+desktop = ["psutil>=5.9", "pyperclip>=1.8", "pyautogui>=0.9", "pycaw>=20230407; sys_platform == 'win32'"]
+all = ["jarvis-assistant[phone,payments,voice,desktop]"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+jarvis = "jarvis.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
