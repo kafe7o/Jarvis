@@ -37,6 +37,15 @@ python -m jarvis
 
 По подразбиране се използва модел `claude-opus-5-5`. Друг модел може да се зададе с променливата `JARVIS_MODEL`.
 
+## Гласов режим
+
+```bash
+pip install -r requirements-voice.txt
+python -m jarvis.voice
+```
+
+Jarvis разбира говор на български с Whisper и отговаря на глас. Подробности: [docs/voice.md](docs/voice.md).
+
 ## Структура
 
 ```
@@ -44,6 +53,7 @@ jarvis/
   __main__.py   конзолният чат (python -m jarvis)
   assistant.py  разговорът с Claude, историята и цикълът с инструменти
   tools.py      описанията и изпълнението на инструментите
+  voice/        гласът: микрофон, Whisper, синтез на реч
 tests/          тестове (pytest)
 ```
 

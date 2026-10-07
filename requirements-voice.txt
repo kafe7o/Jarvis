@@ -1,0 +1,10 @@
+# Гласов режим (python -m jarvis.voice). Инсталира се отделно:
+#   pip install -r requirements.txt -r requirements-voice.txt
+numpy>=1.24
+sounddevice>=0.4.6      # микрофон и високоговорител
+faster-whisper>=1.0     # Whisper локално, без интернет
+edge-tts>=6.1           # естествени гласове, включително български
+miniaudio>=1.59         # пускане на MP3 от edge-tts
+# По желание:
+# pyttsx3>=2.90         # офлайн глас (--tts offline)
+# openai>=1.0           # Whisper през OpenAI API (--stt openai)
