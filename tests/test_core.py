@@ -201,3 +201,35 @@ def test_heartbeat_notifies_only_when_useful(settings, ctx, registry):
     assert ctx.scheduler.heartbeat() is None and reports == []
     assert ctx.scheduler.heartbeat() == "Срещата ти е след 30 минути." and reports == ["Срещата ти е след 30 минути."]
     assert in_quiet_hours("23-7", datetime(2026, 1, 1, 2)) and not in_quiet_hours("23-7", datetime(2026, 1, 1, 12))
+
+
+def test_system_prompt_is_fixed_for_a_turn_and_bad_thinking_is_dropped(settings, ctx, registry, monkeypatch):
+    import anthropic
+
+    from conftest import FakeClient, response, text_block, tool_block
+    from jarvis.brain import Jarvis
+    from types import SimpleNamespace
+
+    thinking = SimpleNamespace(type="thinking", thinking="...", signature="sig")
+    client = FakeClient([
+        response(thinking, tool_block("remember", {"topic": "t", "fact": "нов факт"}), stop="tool_use"),
+        response(text_block("Запомних.")),
+    ])
+    calls = {"n": 0}
+    original = client._create
+
+    def create(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2 and any(getattr(b, "type", None) == "thinking" for m in kwargs["messages"]
+                                   if m["role"] == "assistant" and not isinstance(m["content"], str) for b in m["content"]):
+            err = anthropic.BadRequestError.__new__(anthropic.BadRequestError)
+            Exception.__init__(err, "Invalid `signature` in `thinking` block")
+            raise err
+        return original(**kwargs)
+
+    client.beta.messages.create = create
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=client)
+    assert jarvis.ask("запомни") == "Запомних."
+    first, second = client.requests
+    assert first["system"] == second["system"]  # the new fact did not change the prompt mid-turn
+    assert all(getattr(b, "type", None) != "thinking" for b in second["messages"][-2]["content"])

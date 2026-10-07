@@ -53,6 +53,20 @@ SERVER_TOOLS = [
 ]
 
 
+def strip_thinking(messages: list) -> bool:
+    """Remove thinking blocks from assistant turns in place. Returns True if any were removed."""
+    removed = False
+    for message in messages:
+        if message["role"] != "assistant" or isinstance(message["content"], str):
+            continue
+        kept = [b for b in message["content"]
+                if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) not in ("thinking", "redacted_thinking")]
+        if len(kept) != len(message["content"]):
+            message["content"] = kept
+            removed = True
+    return removed
+
+
 class Jarvis:
     def __init__(
         self,
@@ -88,7 +102,7 @@ class Jarvis:
         prompt += f"\n\nCurrent local time: {now} ({s.timezone})."
         return prompt
 
-    def _request(self, messages: list, user=None) -> object:
+    def _request(self, messages: list, user=None, system: str | None = None) -> object:
         s = self.settings
         allowed = user.allowed_groups() if user is not None else None
         tools = self.registry.definitions(allowed)
@@ -97,7 +111,7 @@ class Jarvis:
         kwargs = dict(
             model=s.model,
             max_tokens=s.max_tokens,
-            system=self.system_prompt(user),
+            system=system if system is not None else self.system_prompt(user),
             messages=messages,
             tools=tools,
             output_config={"effort": s.effort},
@@ -105,7 +119,15 @@ class Jarvis:
         if s.refusal_fallback:
             kwargs["betas"] = ["server-side-fallback-2026-07-01"]
             kwargs["fallbacks"] = "default"
-        return self.client.beta.messages.create(**kwargs)
+        try:
+            return self.client.beta.messages.create(**kwargs)
+        except anthropic.BadRequestError as exc:
+            # Thinking blocks are signed against the exact request they came from. If the API
+            # refuses one (e.g. after a fallback model answered), drop them and try once more.
+            if "thinking" not in str(exc) or not strip_thinking(messages):
+                raise
+            log.warning("retrying without earlier thinking blocks: %s", exc)
+            return self.client.beta.messages.create(**kwargs)
 
     def ask(
         self,
@@ -140,9 +162,10 @@ class Jarvis:
         allowed = user.allowed_groups() if user is not None else None
         ask_groups = user.ask_groups() if user is not None else None
         trust_local = self.settings.trust_local_actions and (user is None or user.is_owner)
+        system = self.system_prompt(user)  # fixed for the whole turn: thinking blocks are bound to it
         texts: list[str] = []
         for _ in range(self.settings.max_tool_rounds):
-            response = self._request(messages, user)
+            response = self._request(messages, user, system)
             texts = [b.text for b in response.content if b.type == "text" and b.text.strip()] or texts
 
             if response.stop_reason == "refusal":
