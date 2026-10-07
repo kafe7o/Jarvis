@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from types import SimpleNamespace
 
-from conftest import Approver, response, text_block, tool_block
+from conftest import Approver, response, system_text, text_block, tool_block
 
 from jarvis import core_files
 from jarvis.accounts import User
@@ -22,12 +22,12 @@ class TeamClient:
     def _create(self, **kwargs):
         with self.lock:
             self.requests.append(kwargs)
-            who = next((w for w in self.scripts if w != "Jarvis" and w in kwargs["system"]), "Jarvis")
+            who = next((w for w in self.scripts if w != "Jarvis" and w in system_text(kwargs)), "Jarvis")
             return self.scripts[who].pop(0)
 
 
 def tools_for(client, who):
-    return [{t["name"] for t in r["tools"]} for r in client.requests if who in r["system"]]
+    return [{t["name"] for t in r["tools"]} for r in client.requests if who in system_text(r)]
 
 
 def test_jarvis_hands_work_to_specialists_in_parallel(settings, ctx, registry, tmp_path):

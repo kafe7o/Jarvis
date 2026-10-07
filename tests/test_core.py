@@ -282,3 +282,47 @@ def test_voice_picks_british_for_english_and_cleans_markdown():
     assert pick_voice("Good evening, sir.", "bg-BG-BorislavNeural") == ENGLISH_VOICE
     assert pick_voice("Добър вечер, сър.", "bg-BG-BorislavNeural") == "bg-BG-BorislavNeural"
     assert clean("**Готово** виж [тук](https://x.y) ```код```") == "Готово виж тук"
+
+
+def test_answer_parts_keep_the_voice_of_the_whole_answer(monkeypatch):
+    from jarvis import tts
+
+    used = []
+    monkeypatch.setattr(tts, "edge", lambda text, voice: used.append(voice) or b"mp3")
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    answer = "Добър вечер, сър. Срещата е в 15:00. OK."
+    assert tts.synthesize("OK.", "bg-BG-BorislavNeural", sample=answer) == b"mp3"
+    assert used == ["bg-BG-BorislavNeural"]  # a short English part of a Bulgarian answer stays in Bulgarian
+
+
+def test_tools_and_system_prompt_are_cached_but_not_the_clock(settings, ctx, registry):
+    from conftest import FakeClient, response, text_block
+    from jarvis.brain import Jarvis
+
+    client = FakeClient([response(text_block("Добре."))])
+    Jarvis(settings, ctx.store, registry, lambda s: True, client=client).ask("здравей")
+    request = client.requests[0]
+    assert request["cache_control"] == {"type": "ephemeral"}
+    cached, clock = request["system"]
+    assert cached["cache_control"] == {"type": "ephemeral"} and "Current local time" not in cached["text"]
+    assert clock["text"].startswith("Current local time") and "cache_control" not in clock
+
+
+def test_an_answer_never_fails_because_of_caching(settings, ctx, registry):
+    import anthropic
+
+    from conftest import FakeClient, response, text_block
+    from jarvis.brain import Jarvis
+
+    client = FakeClient([response(text_block("Добре."))])
+    original = client._create
+
+    def create(**kwargs):
+        if "cache_control" in kwargs:
+            err = anthropic.BadRequestError.__new__(anthropic.BadRequestError)
+            Exception.__init__(err, "cache_control: not supported here")
+            raise err
+        return original(**kwargs)
+
+    client.beta.messages.create = create
+    assert Jarvis(settings, ctx.store, registry, lambda s: True, client=client).ask("здравей") == "Добре."

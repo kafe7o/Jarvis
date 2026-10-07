@@ -5,7 +5,7 @@ import threading
 import urllib.error
 import urllib.request
 
-from conftest import Approver, FakeClient, response, text_block, tool_block
+from conftest import Approver, FakeClient, response, system_text, text_block, tool_block
 
 from jarvis.accounts import Accounts, User, check_password, conversation_id, hash_password
 from jarvis.brain import Jarvis
@@ -107,7 +107,7 @@ def test_member_permissions_limit_tools_and_privacy(settings, ctx, registry):
     names = {t["name"] for t in request["tools"]}
     assert "web_search" in names and "request_approval" in names
     assert "run_shell" not in names and "remember" not in names
-    assert "1234" not in request["system"] and "Мария" in request["system"]
+    assert "1234" not in system_text(request) and "Мария" in system_text(request)
 
     # even if the model asks for a disabled tool, it does not run
     maria(f"/api/chats/{chat['id']}/ask", {"text": "пусни команда"})

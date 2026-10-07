@@ -755,19 +755,63 @@ async function send() {
 }
 
 // ---------- Voice ----------
-let voiceAudio = null;
+// Long answers are read in parts: the first part is one short sentence, and the next part is
+// fetched while the current one plays, so Jarvis starts talking almost as soon as the answer arrives.
+function speechParts(text) {
+  const plain = String(text || "").replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, "").replace(/[*_#>`|]+/g, "");
+  const sentences = [];
+  for (const raw of plain.split(/\n+/)) {
+    let line = raw.replace(/^\s*(?:[-•]|\d+[.)])\s+/, "").replace(/\s+/g, " ").trim();
+    if (!line) continue;
+    if (!/[.!?…:;,]$/.test(line)) line += ".";  // a pause after each list item
+    sentences.push(...line.split(/(?<=[.!?…:;])\s+/));
+  }
+  const parts = [];
+  let cur = "";
+  for (const sentence of sentences) {
+    if (cur && (cur + " " + sentence).length > (parts.length ? 280 : 120)) { parts.push(cur); cur = ""; }
+    cur = cur ? cur + " " + sentence : sentence;
+    if (!parts.length && /[.!?…]$/.test(cur)) { parts.push(cur); cur = ""; }
+  }
+  if (cur) parts.push(cur);
+  return parts.slice(0, 40);
+}
+async function fetchVoice(text, sample) {
+  try {
+    const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis": "1" },
+                                          body: JSON.stringify({ text, sample }) });
+    return res.ok ? await res.blob() : null;
+  } catch (e) { return null; }
+}
+// Plays text with Jarvis's own voice while alive() holds. Returns what is left unread when that voice
+// is not available (the caller reads it with the browser's voice), or "" when done or stopped.
+async function playVoice(text, alive, onAudio) {
+  const parts = speechParts(text);
+  const sample = parts.join(" ").slice(0, 1500);
+  let next = parts.length ? fetchVoice(parts[0], sample) : null;
+  for (let i = 0; i < parts.length; i++) {
+    const blob = await next;
+    if (!alive()) return "";
+    if (!blob) return parts.slice(i).join(" ");
+    next = i + 1 < parts.length ? fetchVoice(parts[i + 1], sample) : null;
+    const audio = new Audio(URL.createObjectURL(blob));
+    onAudio(audio);
+    await new Promise((done) => { audio.onended = audio.onerror = audio.onpause = done; audio.play().catch(done); });
+    URL.revokeObjectURL(audio.src);
+  }
+  return "";
+}
+
+let voiceAudio = null, voiceTurn = 0;
 async function speak(text) {
   if (!state.speak) return;
-  try {  // Jarvis's own voice (neural or ElevenLabs); the browser's voice if it is not available
-    const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis": "1" }, body: JSON.stringify({ text }) });
-    if (res.ok) {
-      if (voiceAudio) voiceAudio.pause();
-      voiceAudio = new Audio(URL.createObjectURL(await res.blob()));
-      await voiceAudio.play();
-      return;
-    }
-  } catch (e) {}
-  browserSpeak(text);
+  const turn = ++voiceTurn;
+  if (voiceAudio) voiceAudio.pause();
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  const alive = () => turn === voiceTurn && state.speak;
+  const rest = await playVoice(text, alive, (audio) => { voiceAudio = audio; });
+  if (rest && alive()) browserSpeak(rest);
 }
 function browserSpeak(text) {
   if (!("speechSynthesis" in window)) return;
@@ -782,7 +826,7 @@ $("speakBtn").addEventListener("click", () => {
   state.speak = !state.speak; store.set("jarvis.speak", state.speak);
   $("speakBtn").classList.toggle("on", state.speak);
   toast(state.speak ? "Ще чета отговорите на глас." : "Спрях четенето на глас.");
-  if (!state.speak) { if ("speechSynthesis" in window) speechSynthesis.cancel(); if (voiceAudio) voiceAudio.pause(); }
+  if (!state.speak) { voiceTurn++; if ("speechSynthesis" in window) speechSynthesis.cancel(); if (voiceAudio) voiceAudio.pause(); }
 });
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null;
@@ -1079,23 +1123,17 @@ async function hudSpeak(text) {
   if (!hud.open || !text) return;
   hudHush();
   const token = hud.speech;
+  const alive = () => token === hud.speech && hud.open;
   hud.speaking = true; hud.saying = text; hudIdle();
   try {
-    let played = false;
-    try {
-      const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis": "1" }, body: JSON.stringify({ text }) });
-      if (res.ok && token === hud.speech) {
-        const audio = new Audio(URL.createObjectURL(await res.blob()));
-        if (token !== hud.speech) return;
-        hud.audio = audio;
-        if (hud.ctx) { try { hud.ctx.resume(); hud.ctx.createMediaElementSource(audio).connect(hud.speechAnalyser); } catch (e) {} }
-        await new Promise((done) => { audio.onended = audio.onerror = audio.onpause = done; audio.play().catch(done); });
-        played = true;
-      }
-    } catch (e) {}
-    if (!played && token === hud.speech && "speechSynthesis" in window) {
+    const rest = await playVoice(text, alive, (audio) => {
+      hud.audio = audio;
+      if (hud.ctx) { try { hud.ctx.resume(); hud.ctx.createMediaElementSource(audio).connect(hud.speechAnalyser); } catch (e) {} }
+    });
+    if (rest && alive() && "speechSynthesis" in window) {
+      hud.audio = null;
       await new Promise((done) => {  // the browser's voice: wait until it is quiet (onend is unreliable in Chrome)
-        browserSpeak(text);
+        browserSpeak(rest);
         const started = Date.now(), limit = Math.max(3000, text.length * 90);
         const check = setInterval(() => {
           const quiet = Date.now() - started > 600 && !speechSynthesis.speaking && !speechSynthesis.pending;

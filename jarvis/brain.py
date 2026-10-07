@@ -97,6 +97,14 @@ class Jarvis:
         self.on_progress = on_progress or (lambda _msg: None)
 
     def system_prompt(self, user=None) -> str:
+        return self._base_prompt(user) + self._clock()
+
+    def _clock(self) -> str:
+        now = datetime.now().strftime("%A %Y-%m-%d %H:%M")
+        return f"\n\nCurrent local time: {now} ({self.settings.timezone})."
+
+    def _base_prompt(self, user=None) -> str:
+        """Everything in the system prompt except the clock, which changes every minute."""
         s = self.settings
         guest = user is not None and not user.is_owner
         prompt = PERSONA.format(user=user.name if guest else s.user_name,
@@ -116,11 +124,9 @@ class Jarvis:
         facts = [] if guest else self.store.query("SELECT topic, fact FROM facts ORDER BY id")
         if facts:
             prompt += "\n\nWhat you remember about the user:\n" + "\n".join(f"- [{f['topic']}] {f['fact']}" for f in facts)
-        now = datetime.now().strftime("%A %Y-%m-%d %H:%M")
-        prompt += f"\n\nCurrent local time: {now} ({s.timezone})."
         return prompt
 
-    def _request(self, messages: list, user=None, system: str | None = None, allowed: set | None = None) -> object:
+    def _request(self, messages: list, user=None, system: str | list | None = None, allowed: set | None = None) -> object:
         s = self.settings
         if allowed is None and user is not None:
             allowed = user.allowed_groups()
@@ -134,6 +140,9 @@ class Jarvis:
             messages=messages,
             tools=tools,
             output_config={"effort": s.effort},
+            # Tools and the system prompt are the same on every step, so the API reads them from its
+            # cache instead of processing them again; automatic caching also covers the growing conversation.
+            cache_control={"type": "ephemeral"},
         )
         if s.refusal_fallback and not s.model.startswith("claude-haiku"):  # Haiku has no server-side fallback
             kwargs["betas"] = ["server-side-fallback-2026-07-01"]
@@ -141,6 +150,9 @@ class Jarvis:
         try:
             return self.client.beta.messages.create(**kwargs)
         except anthropic.BadRequestError as exc:
+            if "cache_control" in str(exc) and kwargs.pop("cache_control", None):
+                log.warning("retrying without automatic caching: %s", exc)  # caching only saves time
+                return self.client.beta.messages.create(**kwargs)
             # Thinking blocks are signed against the exact request they came from. If the API
             # refuses one (e.g. after a fallback model answered), drop them and try once more.
             if "thinking" not in str(exc) or not strip_thinking(messages):
@@ -191,7 +203,10 @@ class Jarvis:
         ask_groups = user.ask_groups() if user is not None else None
         if groups is not None:
             allowed = (set(groups) if allowed is None else allowed & set(groups)) | {"core"}
-        system = self.system_prompt(user) + persona  # fixed for the whole turn: thinking blocks are bound to it
+        # Fixed for the whole turn (thinking blocks are bound to it). The cache breakpoint sits before the
+        # clock, so tools, personality and memories are cached from one message to the next.
+        system = [{"type": "text", "text": self._base_prompt(user) + persona, "cache_control": {"type": "ephemeral"}},
+                  {"type": "text", "text": self._clock().strip()}]
         TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "depth": depth})
         texts: list[str] = []
         for _ in range(self.settings.max_tool_rounds):

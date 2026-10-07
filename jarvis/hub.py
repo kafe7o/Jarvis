@@ -614,7 +614,8 @@ class Hub:
             from .tts import synthesize
 
             try:
-                return 200, (synthesize(str(b.get("text", "")), self.ctx.settings.tts_voice), "audio/mpeg")
+                audio = synthesize(str(b.get("text", "")), self.ctx.settings.tts_voice, str(b.get("sample") or "")[:3000] or None)
+                return 200, (audio, "audio/mpeg")
             except ValueError:
                 raise
             except Exception as exc:  # no voice engine installed or offline: the app uses the browser's voice

@@ -18,6 +18,12 @@ def tool_block(name, args, id="tu_1"):
     return SimpleNamespace(type="tool_use", name=name, input=args, id=id)
 
 
+def system_text(request):
+    """The system prompt of a recorded request as one string."""
+    system = request["system"]
+    return system if isinstance(system, str) else "\n".join(block["text"] for block in system)
+
+
 def response(*blocks, stop="end_turn"):
     return SimpleNamespace(content=list(blocks), stop_reason=stop)
 

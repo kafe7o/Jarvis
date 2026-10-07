@@ -52,8 +52,10 @@ def edge(text: str, voice: str) -> bytes:
     return asyncio.run(go())
 
 
-def synthesize(text: str, configured_voice: str = "bg-BG-BorislavNeural") -> bytes:
-    """MP3 audio of ``text``; raises if no voice engine is available (the app then uses the browser's)."""
+def synthesize(text: str, configured_voice: str = "bg-BG-BorislavNeural", sample: str | None = None) -> bytes:
+    """MP3 audio of ``text``; raises if no voice engine is available (the app then uses the browser's).
+
+    The app reads long answers in parts; ``sample`` is the whole answer, so every part gets the same voice."""
     text = clean(text)
     if not text:
         raise ValueError("Няма текст за четене.")
@@ -62,4 +64,4 @@ def synthesize(text: str, configured_voice: str = "bg-BG-BorislavNeural") -> byt
             return elevenlabs(text)
         except Exception:
             pass  # fall back to the free voice
-    return edge(text, pick_voice(text, configured_voice))
+    return edge(text, pick_voice(clean(sample) if sample else text, configured_voice))
