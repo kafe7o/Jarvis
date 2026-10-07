@@ -389,11 +389,15 @@ class Hub:
         return sections
 
     def save_settings(self, values: dict) -> None:
+        import dataclasses
+
+        from .config import Settings
         from .setup_wizard import STEPS, env_path, read_env, write_env
 
         known = {key for _t, _w, fields in STEPS + EXTRA_SETTINGS for key, _l in fields}
         path = env_path()
         stored = read_env(path)
+        before = Settings()
         for key, value in values.items():
             if key not in known or not isinstance(value, str) or "\n" in value:
                 continue
@@ -403,6 +407,11 @@ class Hub:
             else:
                 os.environ.pop(key, None)
         write_env(path, stored)
+        # Apply what changed at once (speed, trust, folders); keys new plugins need still want a restart.
+        after, current = Settings(), getattr(self.ctx, "settings", None)
+        for f in dataclasses.fields(Settings) if current is not None else ():
+            if getattr(before, f.name) != getattr(after, f.name):
+                setattr(current, f.name, getattr(after, f.name))
 
     def restart(self) -> None:
         args = [sys.executable, "-m", "jarvis", *sys.argv[1:]]

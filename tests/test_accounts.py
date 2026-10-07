@@ -225,3 +225,15 @@ def test_set_owner_creates_then_resets(ctx):
     accounts.set_owner("b@example.com", "654321")
     assert [u.username for u in accounts.list()] == ["b@example.com"]
     assert accounts.login("b@example.com", "654321") and not accounts.login("a@example.com", "123456")
+
+
+def test_saved_settings_apply_without_restart(settings, ctx, registry, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("JARVIS_EFFORT", raising=False)
+    (tmp_path / ".env").write_text("JARVIS_EFFORT=xhigh\n", encoding="utf-8")
+    hub, owner, _ = make(settings, ctx, registry, [])
+    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
+    db_path = ctx.settings.db_path
+    owner("/api/settings", {"values": {"JARVIS_EFFORT": "low"}})
+    assert ctx.settings.effort == "low" and ctx.jarvis.settings.effort == "low"
+    assert ctx.settings.db_path == db_path  # untouched fields stay as they were
