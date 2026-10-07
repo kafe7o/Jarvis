@@ -14,7 +14,7 @@ from ..tools import ToolRegistry
 log = logging.getLogger("jarvis.plugins")
 
 BUILTIN = ["memory", "tasks", "system", "browser", "android", "home", "comms", "messaging", "google",
-           "payments", "sendmoney", "agent"]  # agent last: loads skills
+           "payments", "sendmoney", "team", "agent"]  # agent last: loads skills
 
 
 @dataclass

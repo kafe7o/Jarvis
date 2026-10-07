@@ -170,6 +170,29 @@ def register(registry: ToolRegistry, ctx) -> None:
         return f"Sent (id {sent['id']})."
 
     @registry.tool(
+        "Save a reply or new e-mail as a Gmail draft without sending it; the owner reviews and sends it "
+        "from Gmail. Use for e-mail triage.",
+        obj({"to": ("string", "Address(es), comma-separated"), "subject": ("string", "Subject"), "body": ("string", "Text"),
+             "reply_to_id?": ("string", "Gmail message id this answers (keeps the thread)")}),
+    )
+    def gmail_draft(to: str, subject: str, body: str, reply_to_id: str | None = None):
+        gm = service(s, "gmail", "v1")
+        msg = EmailMessage()
+        msg["To"], msg["Subject"] = to, subject
+        msg.set_content(body)
+        draft = {}
+        if reply_to_id:
+            orig = gm.users().messages().get(userId="me", id=reply_to_id, format="metadata",
+                                             metadataHeaders=["Message-ID"]).execute()
+            mid = next((h["value"] for h in orig["payload"]["headers"] if h["name"].lower() == "message-id"), None)
+            if mid:
+                msg["In-Reply-To"] = msg["References"] = mid
+            draft["threadId"] = orig["threadId"]
+        draft["raw"] = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        made = gm.users().drafts().create(userId="me", body={"message": draft}).execute()
+        return f"Draft saved (id {made['id']}); nothing was sent."
+
+    @registry.tool(
         "Mark Gmail messages as read, archive them, or move them to trash.",
         obj({"ids": ("array", "Message ids"), "action": ("string", "read | archive | trash")}),
     )

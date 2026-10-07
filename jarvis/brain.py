@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
 from datetime import datetime
 from typing import Callable
 
 import anthropic
 
+from . import core_files
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
 
 log = logging.getLogger("jarvis.brain")
+
+# The request being answered (user, confirmer, progress callback), so a tool such as delegate can
+# start specialist agents that ask the same person and report to the same window.
+TURN: contextvars.ContextVar[dict | None] = contextvars.ContextVar("jarvis_turn", default=None)
 
 PERSONA = """You are J.A.R.V.I.S., the personal AI assistant of {user}. You run on their own computer \
 and act for them in the real world through your tools: phone calls and SMS, e-mail, payments, tasks, \
@@ -34,6 +40,8 @@ posting, messaging people), call request_approval with the exact details.
 phone_call and phone_sms (device "phone"), which ask by themselves; never place them with adb shell \
 commands, and never add request_approval on top of a tool that already asks. Don't ask in chat for \
 permission to do what the user just asked; do it.
+- You manage a team of specialists (delegate): for bigger jobs with parts that can run in parallel \
+(research, content, inbox, planning, code), hand the parts to them and combine their reports.
 - For goals that take several steps, first call make_plan to build a task tree, then work through it \
 and keep it updated with update_plan_step; adapt the plan when something fails instead of giving up.
 - Think ahead like a real assistant: notice what the user will need next, point out problems, and offer \
@@ -99,6 +107,12 @@ class Jarvis:
                        "files, messages) unless a tool you are allowed to use returns it for this request. Some "
                        "abilities are switched off for this account; if one is needed, say the owner can enable "
                        "it in Settings > Permissions.")
+        soul = core_files.read(s.home, "SOUL.md")
+        if soul:
+            prompt += "\n\nYour personality and standing orders, written by the owner (SOUL.md):\n" + soul
+        about = "" if guest else core_files.read(s.home, "USER.md")
+        if about:
+            prompt += "\n\nAbout the owner, in their own words (USER.md):\n" + about
         facts = [] if guest else self.store.query("SELECT topic, fact FROM facts ORDER BY id")
         if facts:
             prompt += "\n\nWhat you remember about the user:\n" + "\n".join(f"- [{f['topic']}] {f['fact']}" for f in facts)
@@ -106,9 +120,10 @@ class Jarvis:
         prompt += f"\n\nCurrent local time: {now} ({s.timezone})."
         return prompt
 
-    def _request(self, messages: list, user=None, system: str | None = None) -> object:
+    def _request(self, messages: list, user=None, system: str | None = None, allowed: set | None = None) -> object:
         s = self.settings
-        allowed = user.allowed_groups() if user is not None else None
+        if allowed is None and user is not None:
+            allowed = user.allowed_groups()
         tools = self.registry.definitions(allowed)
         if allowed is None or "web" in allowed:
             tools += SERVER_TOOLS
@@ -161,14 +176,20 @@ class Jarvis:
         self.store.add_message(conversation, "assistant", answer)
         return answer
 
-    def _loop(self, messages: list, confirmer: Confirmer, user=None, on_progress=None) -> str:
+    def _loop(self, messages: list, confirmer: Confirmer, user=None, on_progress=None, persona: str = "",
+              groups: set | None = None, agent: str = "Jarvis", depth: int = 0) -> str:
+        """The tool loop. Specialists (see plugins/team.py) pass a ``persona``, the permission
+        ``groups`` they work with (never more than the user's own) and their ``agent`` name."""
         on_progress = on_progress or self.on_progress
         allowed = user.allowed_groups() if user is not None else None
         ask_groups = user.ask_groups() if user is not None else None
-        system = self.system_prompt(user)  # fixed for the whole turn: thinking blocks are bound to it
+        if groups is not None:
+            allowed = (set(groups) if allowed is None else allowed & set(groups)) | {"core"}
+        system = self.system_prompt(user) + persona  # fixed for the whole turn: thinking blocks are bound to it
+        TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "depth": depth})
         texts: list[str] = []
         for _ in range(self.settings.max_tool_rounds):
-            response = self._request(messages, user, system)
+            response = self._request(messages, user, system, allowed)
             texts = [b.text for b in response.content if b.type == "text" and b.text.strip()] or texts
 
             if response.stop_reason == "refusal":
@@ -189,8 +210,31 @@ class Jarvis:
                     block.name, dict(block.input or {}), confirmer, trust_local, allowed, ask_groups
                 )
                 log.info("tool %s -> %s", block.name, output[:200] if isinstance(output, str) else "[image]")
+                self.log_activity(user, agent, block.name, dict(block.input or {}), is_error)
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": output, "is_error": is_error})
             messages.append({"role": "user", "content": results})
         else:
             texts.append("(Спрях: твърде много стъпки за една заявка.)")
         return "\n\n".join(texts) if texts else "Готово."
+
+    def log_activity(self, user, agent: str, name: str, args: dict, is_error: bool) -> None:
+        """Everything Jarvis does goes to the activity feed (Settings > Activity)."""
+        tool = self.registry.tools.get(name)
+        try:
+            summary = tool.describe_call(args) if tool else name
+        except Exception:
+            summary = name
+        try:
+            self.store.insert("activity", user_id=getattr(user, "id", None), agent=agent, tool=name,
+                              summary=str(summary)[:600], ok=0 if is_error else 1)
+        except Exception:
+            log.exception("activity log failed")
+
+    def run_agent(self, task: str, persona: str, groups: set, agent: str) -> str:
+        """Run one specialist on ``task`` for the person whose request is being answered."""
+        turn = TURN.get() or {}
+        if turn.get("depth", 0) >= 1:
+            raise RuntimeError("Specialists cannot hand work to other specialists; do it yourself.")
+        messages = [{"role": "user", "content": task}]
+        return contextvars.copy_context().run(self._loop, messages, turn.get("confirmer") or self.confirmer, turn.get("user"), turn.get("on_progress"),
+                          persona=persona, groups=set(groups) - {"team"}, agent=agent, depth=turn.get("depth", 0) + 1)
