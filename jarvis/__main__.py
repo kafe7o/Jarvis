@@ -7,7 +7,7 @@ import anthropic
 
 from .assistant import Jarvis
 
-HELP = "Команди: /reset изчиства историята, /exit (или Ctrl+D) излиза."
+HELP = "Команди: /reset изчиства историята, /memory показва паметта, /exit (или Ctrl+D) излиза."
 
 
 def main() -> int:
@@ -31,6 +31,10 @@ def main() -> int:
         if text == "/reset":
             jarvis.reset()
             print("Историята е изчистена.")
+            continue
+        if text == "/memory":
+            facts = jarvis.memory.all()
+            print("\n".join(f.as_line() for f in facts) if facts else "Паметта е празна.")
             continue
         try:
             print(f"\nJarvis: {jarvis.ask(text)}")

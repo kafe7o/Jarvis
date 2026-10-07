@@ -58,3 +58,31 @@ def test_unknown_tool_is_error():
 def test_bad_timezone():
     out, is_error = run_tool("get_current_time", {"timezone": "Mars/Base"})
     assert "Непозната" in out
+
+
+def test_memory_is_saved_and_fed_into_prompt():
+    from jarvis.memory import MemoryStore
+
+    memory = MemoryStore(":memory:")
+    calls = []
+
+    class Client(FakeClient):
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return super().create(**kwargs)
+
+    client = Client([
+        SimpleNamespace(stop_reason="tool_use", content=[
+            _tool("remember_fact", {"text": "Кучето на Анастас се казва Рекс", "category": "person"})
+        ]),
+        SimpleNamespace(stop_reason="end_turn", content=[_text("Запомних.")]),
+    ])
+    j = Jarvis(client=client, model="test", memory=memory)
+    assert j.ask("Кучето ми се казва Рекс") == "Запомних."
+    assert "remember_fact" in [t["name"] for t in calls[0]["tools"]]
+    assert not client.calls[1][-1]["content"][0]["is_error"]
+
+    # Нова сесия със същата памет: фактът е в system prompt-а.
+    client2 = Client([SimpleNamespace(stop_reason="end_turn", content=[_text("Рекс.")])])
+    Jarvis(client=client2, model="test", memory=memory).ask("Как се казва кучето?")
+    assert "Рекс" in calls[-1]["system"]

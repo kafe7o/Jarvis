@@ -4,6 +4,7 @@ import os
 
 import anthropic
 
+from .memory import MEMORY_TOOL_NAMES, MEMORY_TOOLS, MemoryStore
 from .tools import TOOLS, run_tool
 
 DEFAULT_MODEL = "claude-opus-5-5"
@@ -17,10 +18,17 @@ SYSTEM_PROMPT = (
 
 
 class Jarvis:
-    def __init__(self, client: anthropic.Anthropic | None = None, model: str | None = None):
+    def __init__(
+        self,
+        client: anthropic.Anthropic | None = None,
+        model: str | None = None,
+        memory: MemoryStore | None = None,
+    ):
         self.client = client or anthropic.Anthropic()
         self.model = model or os.environ.get("JARVIS_MODEL", DEFAULT_MODEL)
+        self.memory = memory or MemoryStore()
         self.history: list[dict] = []
+        self._system = SYSTEM_PROMPT
 
     def reset(self) -> None:
         self.history.clear()
@@ -29,6 +37,8 @@ class Jarvis:
         """Изпраща съобщение, изпълнява инструментите при нужда и връща отговора."""
         start = len(self.history)
         self.history.append({"role": "user", "content": text})
+        # Фактите от дълготрайната памет, свързани с това съобщение, отиват в system prompt-а.
+        self._system = SYSTEM_PROMPT + self.memory.prompt_section(text)
         try:
             return self._run()
         except Exception:
@@ -41,8 +51,8 @@ class Jarvis:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
+                system=self._system,
+                tools=[*TOOLS, *MEMORY_TOOLS],
                 messages=self.history,
             )
             self.history.append({"role": "assistant", "content": response.content})
@@ -53,7 +63,11 @@ class Jarvis:
             results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    output, is_error = run_tool(block.name, block.input)
+                    if block.name in MEMORY_TOOL_NAMES:
+                        output = self.memory.handle_tool(block.name, block.input)
+                        is_error = output.startswith(("Error", "No fact", "Unknown"))
+                    else:
+                        output, is_error = run_tool(block.name, block.input)
                     results.append(
                         {
                             "type": "tool_result",
