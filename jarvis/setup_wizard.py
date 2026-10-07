@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -45,13 +46,24 @@ STEPS = [
 ]
 
 
+def env_path() -> Path:
+    """The .env Jarvis reads: the nearest one from the current folder up, else ./.env."""
+    try:
+        from dotenv import find_dotenv
+
+        found = find_dotenv(usecwd=True)
+    except ImportError:  # pragma: no cover
+        found = ""
+    return Path(found) if found else Path.cwd() / ".env"
+
+
 def read_env(path: Path) -> dict[str, str]:
     values = {}
     if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
             if "=" in line and not line.lstrip().startswith("#"):
                 key, _, value = line.partition("=")
-                values[key.strip()] = value.split("#")[0].strip()
+                values[key.strip()] = re.split(r"\s+#", value, maxsplit=1)[0].strip()  # "a#b" stays, "a  # note" -> "a"
     return values
 
 
@@ -65,8 +77,8 @@ def write_env(path: Path, values: dict[str, str]) -> None:
 
 
 def run() -> None:
-    env_path = Path.cwd() / ".env"
-    values = read_env(env_path)
+    path = Path.cwd() / ".env"
+    values = read_env(path)
     print("Настройка на J.A.R.V.I.S. Натисни Enter, за да пропуснеш или запазиш текущото.\n")
     for title, where, fields in STEPS:
         print(f"── {title}" + (f"  ({where})" if where else ""))
@@ -78,9 +90,9 @@ def run() -> None:
                 values[key] = answer
         print()
     values.setdefault("JARVIS_WEB_TOKEN", secrets.token_urlsafe(24))
-    write_env(env_path, values)
-    print(f"Записах {env_path}.")
-    print(f"Уеб приложение: http://<този компютър>:8770/?token={values['JARVIS_WEB_TOKEN']}")
+    write_env(path, values)
+    print(f"Записах {path}.")
+    print("Приложението: `jarvis app` (или иконата Jarvis на работния плот).")
 
     if values.get("GOOGLE_CLIENT_SECRET") and input("Да вляза ли в Google сега? [да/не]: ").strip().lower().startswith("д"):
         subprocess.run([sys.executable, "-m", "jarvis", "google-login"])
@@ -90,7 +102,10 @@ def run() -> None:
         from .autostart import install
 
         print(install(Path.cwd()))
-    print("\nГотово. Пусни `jarvis serve` или просто рестартирай компютъра.")
+    from .autostart import shortcut
+
+    print(shortcut(Path.cwd()))
+    print("\nГотово. Отвори Jarvis от иконата на работния плот или с `jarvis app`.")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -31,10 +31,19 @@ class Context:
                 log.exception("notifier failed")
 
 
+# Tools that belong to a different permission group than the plugin that defines them.
+# "core" tools are always available: they only plan and ask the user for approval.
+GROUP_OVERRIDES = {"request_approval": "core", "make_plan": "core", "update_plan_step": "core",
+                   "show_plan": "core", "search_history": "memory"}
+
+
 def load_all(registry: ToolRegistry, ctx: Context, names: list[str] | None = None) -> None:
     for name in names or BUILTIN:
+        before = set(registry.tools)
         module = importlib.import_module(f"{__name__}.{name}")
         module.register(registry, ctx)
+        for tool_name in set(registry.tools) - before:
+            registry.tools[tool_name].group = GROUP_OVERRIDES.get(tool_name, name)
 
 
 class NotConfigured(RuntimeError):

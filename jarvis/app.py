@@ -28,8 +28,11 @@ def build(
     return jarvis, ctx
 
 
-def start_background(ctx: Context) -> None:
-    """Start reminders and, when configured, the phone webhook server."""
+def start_background(ctx: Context, restartable: bool = False) -> None:
+    """Start reminders and, when configured, the phone webhook server and the hub.
+
+    ``restartable``: the process runs without a console (autostart), so the app may restart it.
+    """
     ctx.scheduler.start()
     import os
 
@@ -40,4 +43,5 @@ def start_background(ctx: Context) -> None:
     if os.environ.get("JARVIS_WEB_TOKEN") and not getattr(ctx, "hub", None):
         from .hub import Hub
 
-        Hub(ctx, os.environ["JARVIS_WEB_TOKEN"], int(os.environ.get("JARVIS_WEB_PORT", "8770"))).serve()
+        Hub(ctx, os.environ["JARVIS_WEB_TOKEN"], int(os.environ.get("JARVIS_WEB_PORT", "8770")),
+            restartable=restartable).serve()

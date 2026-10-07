@@ -31,7 +31,7 @@ jarvis = "jarvis.__main__:main"
 include = ["jarvis*"]
 
 [tool.setuptools.package-data]
-jarvis = ["web/*.html"]
+jarvis = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

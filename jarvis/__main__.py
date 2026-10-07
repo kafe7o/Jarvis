@@ -1,4 +1,4 @@
-"""Command line: python -m jarvis [chat|voice|telegram|ask "..."|serve|check]."""
+"""Command line: python -m jarvis [app|chat|voice|telegram|ask "..."|serve|check|setup|...]."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def serve(headless: bool = False) -> None:
     from .interfaces import cli
 
     shared = build(cli.console_confirm, [cli.notify], on_progress=cli.progress)
-    start_background(shared[1])
+    start_background(shared[1], restartable=headless)
     if settings.telegram_token and settings.telegram_owner_id:
         from .interfaces import telegram
 
@@ -78,22 +78,128 @@ def web() -> None:
     _jarvis, ctx = build(lambda _s: False, [print])
     start_background(ctx)
     port = os.environ.get("JARVIS_WEB_PORT", "8770")
-    print(f"Jarvis е достъпен на http://<този-компютър>:{port}/?token=<JARVIS_WEB_TOKEN>")
+    print(f"Jarvis е достъпен на http://<този-компютър>:{port}/")
+    threading.Event().wait()
+
+
+BROWSERS_WIN = [
+    r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+    r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+    r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+    r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+    r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe",
+]
+BROWSERS_MAC = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+]
+BROWSERS_LINUX = ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]
+
+
+def open_window(url: str) -> None:
+    """Open the app in its own window (Edge/Chrome app mode), else in the default browser."""
+    import shutil
+    import subprocess
+    import webbrowser
+
+    if sys.platform.startswith("win"):
+        candidates = [os.path.expandvars(p) for p in BROWSERS_WIN]
+    elif sys.platform == "darwin":
+        candidates = BROWSERS_MAC
+    else:
+        candidates = [shutil.which(name) or "" for name in BROWSERS_LINUX]
+    for exe in candidates:
+        if exe and os.path.exists(exe):
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1180,820"])
+            return
+    webbrowser.open(url)
+
+
+def hub_running(port: int) -> bool:
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/me", timeout=2) as resp:
+            return "needs_setup" in resp.read().decode()
+    except Exception:
+        return False
+
+
+def app(window: bool = True) -> None:
+    """The Jarvis app: the hub on this computer plus a window for it. Running it again only opens
+    another window."""
+    import secrets
+    import threading
+
+    from .setup_wizard import env_path, read_env, write_env
+
+    token = os.environ.get("JARVIS_WEB_TOKEN")
+    if not token:  # nodes, Siri and scripts use it; the app itself uses account logins
+        token = secrets.token_urlsafe(24)
+        path = env_path()
+        values = read_env(path)
+        values["JARVIS_WEB_TOKEN"] = token
+        write_env(path, values)
+        os.environ["JARVIS_WEB_TOKEN"] = token
+    port = int(os.environ.get("JARVIS_WEB_PORT", "8770"))
+    url = f"http://localhost:{port}/"
+    if hub_running(port):
+        if window:
+            open_window(url)
+        return
+
+    from .app import build, start_background
+    from .hub import Hub
+
+    holder: dict = {}
+    _jarvis, ctx = build(lambda summary: holder["hub"].confirmer(summary))
+    holder["hub"] = Hub(ctx, token, port, restartable=True)
+    holder["hub"].serve()
+    start_background(ctx)
+    if settings.telegram_token and settings.telegram_owner_id:
+        from .interfaces import telegram
+
+        threading.Thread(target=telegram.run, args=((ctx.jarvis, ctx),), name="jarvis-telegram", daemon=True).start()
+    if window:
+        open_window(url)
+    print(f"Jarvis работи: {url}  (от телефона: http://<IP-на-този-компютър>:{port}/)")
     threading.Event().wait()
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
-    parser.add_argument("mode", nargs="?", default="chat", choices=["chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
+    parser.add_argument("mode", nargs="?", default="chat", choices=["app", "shortcut", "update", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
                                  "enroll-voice", "google-login"])
     parser.add_argument("text", nargs="*", help="Въпрос за режим ask")
     parser.add_argument("--hub", help="node: адрес на главния Jarvis, напр. http://192.168.1.10:8770")
     parser.add_argument("--name", help="node: име на това устройство, напр. laptop")
+    parser.add_argument("--no-window", action="store_true", help="app: само сървърът, без прозорец")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(asctime)s %(name)s: %(message)s")
+    level = logging.INFO if args.verbose else logging.WARNING
+    if sys.stderr is None:  # pythonw (desktop icon, autostart): no console, log to a file
+        settings.home.mkdir(parents=True, exist_ok=True)
+        logging.basicConfig(filename=settings.home / "jarvis.log", level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
+    else:
+        logging.basicConfig(level=level, format="%(asctime)s %(name)s: %(message)s")
 
-    if args.mode == "check":
+    if args.mode == "app":
+        app(window=not args.no_window)
+    elif args.mode == "update":
+        from pathlib import Path
+
+        from .updater import update
+
+        update(Path.cwd())
+    elif args.mode == "shortcut":
+        from pathlib import Path
+
+        from .autostart import shortcut
+
+        print(shortcut(Path.cwd()))
+    elif args.mode == "check":
         check()
     elif args.mode == "ask":
         from .interfaces import cli

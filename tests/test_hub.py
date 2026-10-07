@@ -29,12 +29,12 @@ def make_hub(settings, ctx, registry, responses):
     return hub, server.server_address[1]
 
 
-def test_web_app_needs_token_and_serves_page(settings, ctx, registry):
+def test_web_app_serves_page_but_api_needs_login(settings, ctx, registry):
     hub, port = make_hub(settings, ctx, registry, [])
     status, html = call(port, "/")
     assert status == 200 and "J.A.R.V.I.S." in html
     try:
-        call(port, "/", token="wrong")
+        call(port, "/api/chats", token="wrong")
         raise AssertionError("expected 401")
     except urllib.error.HTTPError as err:
         assert err.code == 401

@@ -46,6 +46,7 @@ class Tool:
     confirm: bool = False
     local: bool = False
     summarize: Callable[[dict], str] | None = None
+    group: str = ""  # permission group (the plugin it came from); see accounts.GROUPS
 
     def definition(self) -> dict:
         return {"name": self.name, "description": self.description, "input_schema": self.input_schema}
@@ -91,15 +92,31 @@ class ToolRegistry:
 
         return wrap
 
-    def definitions(self) -> list[dict]:
-        return [t.definition() for t in self.tools.values()]
+    def definitions(self, allowed: set[str] | None = None) -> list[dict]:
+        """Tool definitions; with ``allowed``, only tools whose group is in it."""
+        return [t.definition() for t in self.tools.values() if allowed is None or (t.group or "agent") in allowed]
 
-    def run(self, name: str, args: dict, confirmer: Confirmer, trust_local: bool = False) -> tuple[str | list, bool]:
-        """Run a tool. Returns (result, is_error); result is text, or content blocks for images."""
+    def run(
+        self,
+        name: str,
+        args: dict,
+        confirmer: Confirmer,
+        trust_local: bool = False,
+        allowed: set[str] | None = None,
+        ask_groups: set[str] | None = None,
+    ) -> tuple[str | list, bool]:
+        """Run a tool. Returns (result, is_error); result is text, or content blocks for images.
+
+        ``allowed`` limits which permission groups may run at all; tools in ``ask_groups`` always
+        ask first, even ones that normally don't.
+        """
         tool = self.tools.get(name)
         if tool is None:
             return f"Unknown tool: {name}", True
-        needs_ok = tool.confirm and not (tool.local and trust_local)
+        group = tool.group or "agent"
+        if allowed is not None and group not in allowed:
+            return "This account is not allowed to use this ability. Tell the user the owner can enable it in Settings > Permissions.", True
+        needs_ok = (tool.confirm and not (tool.local and trust_local)) or group in (ask_groups or ())
         if needs_ok and not confirmer(tool.describe_call(args)):
             return "The user declined this action. Do not retry it unless they ask again.", True
         try:

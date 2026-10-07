@@ -3,164 +3,912 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b1220">
+<meta name="theme-color" content="#05080f">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>J.A.R.V.I.S.</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
 <style>
-  :root { --bg:#0b1220; --panel:#121b2e; --text:#e6edf7; --muted:#8a9bb8; --accent:#4fc3f7; --me:#1e3a5f; --warn:#ffb74d; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-         display:flex; flex-direction:column; height:100dvh; }
-  header { padding:12px 16px; display:flex; align-items:center; gap:10px; border-bottom:1px solid #1d2a44; }
-  header h1 { font-size:18px; margin:0; letter-spacing:.2em; color:var(--accent); flex:1; }
-  header label { color:var(--muted); font-size:14px; display:flex; gap:6px; align-items:center; }
-  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
-  .msg { max-width:min(80ch, 88%); padding:10px 14px; border-radius:14px; background:var(--panel); white-space:pre-wrap; word-wrap:break-word; }
-  .me { align-self:flex-end; background:var(--me); }
-  .note { align-self:center; background:transparent; border:1px solid #2a3a5c; color:var(--muted); font-size:14px; }
-  .confirm { align-self:stretch; max-width:none; border:1px solid var(--warn); }
-  .confirm .buttons { margin-top:10px; display:flex; gap:10px; }
-  button { font:inherit; border:0; border-radius:12px; padding:10px 18px; cursor:pointer; background:var(--accent); color:#04121c; }
-  button.no { background:#3a4660; color:var(--text); }
-  form { display:flex; gap:8px; padding:12px 16px calc(12px + env(safe-area-inset-bottom)); border-top:1px solid #1d2a44; }
-  #text { flex:1; min-width:0; font:inherit; padding:12px 14px; border-radius:12px; border:1px solid #2a3a5c; background:var(--panel); color:var(--text); }
-  #mic { width:48px; padding:0; font-size:20px; }
-  #mic.on { background:#ef5350; }
-  .thinking { color:var(--muted); font-style:italic; }
+:root {
+  --bg: #05080f; --bg2: #08101c; --panel: #0c1524; --panel2: #101c30; --raise: #15243b;
+  --line: #19283f; --line2: #24385a; --text: #e8f1ff; --muted: #8296b5; --faint: #50627f;
+  --accent: #4fd1ff; --accent2: #2b8cff; --accent-ink: #021018; --glow: rgba(79, 209, 255, .35);
+  --warn: #ffb547; --danger: #ff5d6c; --ok: #3ddc97;
+  --radius: 14px; --side: 290px;
+  --font: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, -apple-system, Roboto, sans-serif;
+  --mono: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; color: var(--text); font: 15px/1.55 var(--font); background: var(--bg);
+  background-image:
+    radial-gradient(1200px 600px at 70% -10%, rgba(43, 140, 255, .12), transparent 60%),
+    radial-gradient(900px 500px at 0% 110%, rgba(79, 209, 255, .07), transparent 60%);
+  overflow: hidden; -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.hidden { display: none !important; }
+svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+::selection { background: rgba(79, 209, 255, .3); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+
+/* Arc reactor */
+.reactor { --s: 40px; width: var(--s); height: var(--s); border-radius: 50%; position: relative; flex: none;
+  background: radial-gradient(circle, #eafcff 0 16%, #4fd1ff 17% 21%, transparent 22%),
+              radial-gradient(circle, transparent 0 52%, rgba(79,209,255,.15) 53% 100%);
+  box-shadow: 0 0 calc(var(--s) * .45) var(--glow), inset 0 0 calc(var(--s) * .2) rgba(79,209,255,.4);
+  border: calc(var(--s) * .05) solid var(--accent); }
+.reactor::before { content: ""; position: absolute; inset: 18%; border-radius: 50%;
+  background: repeating-conic-gradient(from 6deg, #8ce6ff 0 24deg, transparent 24deg 36deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 55%, #000 56% 100%); mask: radial-gradient(circle, transparent 0 55%, #000 56% 100%);
+  opacity: .9; }
+.reactor.spin::before { animation: spin 3s linear infinite; }
+.reactor.pulse { animation: pulse 2.4s ease-in-out infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { box-shadow: 0 0 calc(var(--s) * .8) var(--glow), inset 0 0 calc(var(--s) * .25) rgba(79,209,255,.5); } }
+
+/* Screens */
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.card { width: min(400px, 100%); background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--line);
+  border-radius: 20px; padding: 32px 28px 28px; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+.brand-big { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-bottom: 24px; text-align: center; }
+.brand-big h1 { margin: 0; font-size: 22px; letter-spacing: .32em; font-weight: 600; padding-left: .32em; }
+.brand-big p { margin: 0; color: var(--muted); font-size: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field label { font-size: 13px; color: var(--muted); }
+.input { width: 100%; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; padding: 11px 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,209,255,.15); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 10px; padding: 10px 16px; font-weight: 600; transition: filter .15s, background .15s, border-color .15s; white-space: nowrap; }
+.btn.primary { background: linear-gradient(180deg, #6fdcff, var(--accent)); color: var(--accent-ink); box-shadow: 0 6px 20px rgba(79,209,255,.25); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; border-color: var(--line2); color: var(--text); }
+.btn.ghost:hover { background: var(--raise); }
+.btn.danger { background: transparent; border-color: rgba(255,93,108,.4); color: var(--danger); }
+.btn.danger:hover { background: rgba(255,93,108,.1); }
+.btn.small { padding: 6px 11px; font-size: 13px; border-radius: 8px; }
+.btn.block { width: 100%; padding: 12px; }
+.btn:disabled { opacity: .55; cursor: default; }
+.err { color: var(--danger); font-size: 14px; min-height: 20px; margin: 4px 0 10px; }
+.hint { color: var(--muted); font-size: 13px; }
+
+/* App layout */
+#app { position: fixed; inset: 0; display: flex; }
+aside { width: var(--side); flex: none; display: flex; flex-direction: column; background: rgba(8, 16, 28, .82); border-right: 1px solid var(--line); backdrop-filter: blur(12px); }
+.brand { display: flex; align-items: center; gap: 12px; padding: 18px 18px 14px; }
+.brand b { letter-spacing: .26em; font-size: 15px; }
+.brand small { display: block; color: var(--muted); font-size: 12px; letter-spacing: 0; }
+#newChat { margin: 4px 14px 10px; justify-content: flex-start; }
+.list-label { padding: 10px 20px 6px; color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+#chatList { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+.chat-item { display: flex; align-items: center; gap: 4px; border-radius: 10px; padding: 0 4px 0 12px; color: var(--muted); }
+.chat-item:hover { background: var(--panel2); color: var(--text); }
+.chat-item.active { background: var(--raise); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.chat-item .t { flex: 1; min-width: 0; padding: 9px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: none; border: 0; text-align: left; color: inherit; }
+.chat-item .act { opacity: 0; background: none; border: 0; padding: 6px; border-radius: 7px; color: var(--muted); display: inline-flex; }
+.chat-item:hover .act, .chat-item.active .act { opacity: 1; }
+.chat-item .act:hover { background: var(--line2); color: var(--text); }
+.chat-item .act svg.i { width: 15px; height: 15px; }
+.me { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; flex: none;
+  background: linear-gradient(135deg, var(--accent2), var(--accent)); color: var(--accent-ink); }
+.me .who { flex: 1; min-width: 0; }
+.me .who b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me .who small { color: var(--muted); font-size: 12px; }
+.icon-btn { background: none; border: 0; padding: 8px; border-radius: 9px; color: var(--muted); display: inline-flex; }
+.icon-btn:hover { background: var(--raise); color: var(--text); }
+.icon-btn.on { color: var(--accent); }
+
+main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+header.top { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--line); min-height: 58px; }
+header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; padding: 0 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.dot.off { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+#menuBtn { display: none; }
+
+#scroller { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+#messages { max-width: 860px; margin: 0 auto; padding: 24px 20px 12px; display: flex; flex-direction: column; gap: 18px; }
+.msg { display: flex; gap: 14px; align-items: flex-start; animation: rise .25s ease; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+.msg .reactor { --s: 30px; margin-top: 2px; }
+.msg .body { min-width: 0; flex: 1; }
+.msg .name { font-size: 12px; color: var(--muted); margin-bottom: 3px; letter-spacing: .04em; }
+.msg.user { justify-content: flex-end; }
+.msg.user .bubble { background: linear-gradient(180deg, #17304f, #132843); border: 1px solid #1f3d63; border-radius: 16px 16px 4px 16px; padding: 10px 14px; max-width: min(620px, 85%); white-space: pre-wrap; word-wrap: break-word; }
+.msg.error .md { color: #ffb3ba; }
+.md { word-wrap: break-word; overflow-wrap: anywhere; }
+.md p { margin: 0 0 10px; } .md p:last-child { margin-bottom: 0; }
+.md ul, .md ol { margin: 4px 0 10px; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md h3, .md h4 { margin: 14px 0 6px; font-size: 15px; }
+.md a { color: var(--accent); }
+.md code { font-family: var(--mono); font-size: 13px; background: var(--raise); border: 1px solid var(--line2); padding: 1px 5px; border-radius: 5px; }
+.md pre { background: #060c16; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 6px 0 10px; }
+.md pre code { background: none; border: 0; padding: 0; }
+.md blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line2); color: var(--muted); }
+.thinking { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
+.dots span { display: inline-block; width: 6px; height: 6px; margin-right: 3px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite both; }
+.dots span:nth-child(2) { animation-delay: .2s; } .dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+.steps { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.step { font-size: 12px; color: var(--muted); border: 1px solid var(--line2); border-radius: 999px; padding: 2px 9px; }
+
+.confirm-card { border: 1px solid rgba(255,181,71,.45); background: linear-gradient(180deg, rgba(255,181,71,.08), rgba(255,181,71,.03)); border-radius: var(--radius); padding: 14px 16px; }
+.confirm-card .head { display: flex; align-items: center; gap: 8px; color: var(--warn); font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.confirm-card .what { white-space: pre-wrap; word-wrap: break-word; font-family: var(--mono); font-size: 13px; color: #ffe2b0; margin-bottom: 12px; }
+.confirm-card .row { display: flex; gap: 10px; flex-wrap: wrap; }
+.confirm-card .done { color: var(--muted); font-size: 14px; }
+
+#empty { max-width: 720px; margin: 0 auto; padding: 9vh 20px 20px; text-align: center; }
+#empty .reactor { --s: 88px; margin: 0 auto 26px; }
+#empty h3 { margin: 0 0 6px; font-size: 26px; font-weight: 600; }
+#empty p { margin: 0 0 26px; color: var(--muted); }
+.chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.chip { text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--text); transition: border-color .15s, background .15s; }
+.chip:hover { border-color: var(--accent); background: var(--panel2); }
+.chip small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+.composer-wrap { padding: 10px 20px calc(16px + env(safe-area-inset-bottom)); }
+#composer { max-width: 860px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; background: var(--panel); border: 1px solid var(--line2);
+  border-radius: 18px; padding: 8px 8px 8px 16px; box-shadow: 0 10px 40px rgba(0,0,0,.35); transition: border-color .15s, box-shadow .15s; }
+#composer:focus-within { border-color: rgba(79,209,255,.6); box-shadow: 0 10px 40px rgba(0,0,0,.35), 0 0 0 3px rgba(79,209,255,.1); }
+#input { flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: transparent; padding: 8px 0; max-height: 200px; line-height: 1.5; }
+#input::placeholder { color: var(--faint); }
+#mic.rec { color: #fff; background: var(--danger); animation: pulse-red 1.4s infinite; }
+@keyframes pulse-red { 50% { box-shadow: 0 0 0 6px rgba(255,93,108,.2); } }
+#send { width: 40px; height: 40px; padding: 0; border-radius: 12px; }
+.foot { max-width: 860px; margin: 8px auto 0; text-align: center; color: var(--faint); font-size: 12px; }
+
+/* Settings */
+.modal { position: fixed; inset: 0; background: rgba(2, 5, 10, .66); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 30; animation: fade .15s ease; }
+@keyframes fade { from { opacity: 0; } }
+.sheet { width: min(900px, 100%); height: min(680px, 100%); display: flex; background: var(--bg2); border: 1px solid var(--line2); border-radius: 18px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,.6); }
+.sheet nav { width: 210px; flex: none; padding: 18px 10px; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 2px; }
+.sheet nav h3 { margin: 0 10px 14px; font-size: 16px; }
+.tab { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: 0; border-radius: 9px; padding: 9px 11px; color: var(--muted); }
+.tab:hover { background: var(--panel2); color: var(--text); }
+.tab.active { background: var(--raise); color: var(--text); }
+.sheet .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sheet .content header { display: flex; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.sheet .content header h4 { flex: 1; margin: 0; font-size: 16px; }
+#tabBody { flex: 1; overflow-y: auto; padding: 20px; }
+.section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+.section h5 { margin: 0 0 4px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.section .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.badge { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--line2); color: var(--muted); }
+.badge.owner { color: var(--accent); border-color: rgba(79,209,255,.4); }
+.badge.ok { color: var(--ok); border-color: rgba(61,220,151,.35); }
+.badge.no { color: var(--faint); }
+.badge.warn { color: var(--warn); border-color: rgba(255,181,71,.35); }
+.user-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.user-row:first-of-type { border-top: 0; }
+.user-row .who { flex: 1; min-width: 0; }
+.user-row .who small { color: var(--muted); }
+.perm { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+.perm:first-of-type { border-top: 0; }
+.perm .what { flex: 1; min-width: 0; }
+.perm .what b { font-size: 14px; font-weight: 600; }
+.perm .what small { display: block; color: var(--muted); font-size: 13px; }
+.seg { display: inline-flex; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; padding: 3px; flex: none; }
+.seg button { border: 0; background: none; padding: 6px 11px; border-radius: 7px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.seg button.on[data-v="on"] { background: rgba(61,220,151,.15); color: var(--ok); }
+.seg button.on[data-v="ask"] { background: rgba(255,181,71,.15); color: var(--warn); }
+.seg button.on[data-v="off"] { background: var(--raise); color: var(--text); }
+.seg.readonly button { cursor: default; }
+.note { display: flex; gap: 10px; align-items: flex-start; background: rgba(79,209,255,.06); border: 1px solid rgba(79,209,255,.25); border-radius: 12px; padding: 12px 14px; color: #bfeeff; font-size: 13px; margin-bottom: 14px; }
+.row-end { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; align-items: center; }
+select.input { appearance: none; }
+code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+
+#toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 10px; z-index: 50; max-width: min(380px, calc(100vw - 36px)); }
+.toast { cursor: pointer; background: var(--panel2); border: 1px solid var(--line2); border-left: 3px solid var(--accent); border-radius: 12px; padding: 12px 14px; box-shadow: 0 16px 40px rgba(0,0,0,.45); animation: rise .2s ease; font-size: 14px; }
+.toast b { display: block; font-size: 12px; color: var(--accent); letter-spacing: .06em; margin-bottom: 2px; }
+.toast.warn { border-left-color: var(--warn); } .toast.warn b { color: var(--warn); }
+.toast.err { border-left-color: var(--danger); } .toast.err b { color: var(--danger); }
+#scrim { display: none; }
+
+@media (max-width: 820px) {
+  aside { position: fixed; z-index: 20; inset: 0 auto 0 0; transform: translateX(-102%); transition: transform .22s ease; width: min(var(--side), 86vw); background: var(--bg2); }
+  #app.drawer aside { transform: none; }
+  #app.drawer #scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 15; }
+  #menuBtn { display: inline-flex; }
+  header.top { padding: 10px 12px; }
+  #messages { padding: 18px 14px 8px; }
+  .composer-wrap { padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); }
+  .status span.txt { display: none; }
+  .modal { padding: 0; }
+  .sheet { height: 100%; border-radius: 0; flex-direction: column; }
+  .sheet nav { width: auto; flex-direction: row; overflow-x: auto; padding: 10px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sheet nav h3 { display: none; }
+  .grid2 { grid-template-columns: 1fr; }
+  .perm { flex-wrap: wrap; }
+  .chips { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>J.A.R.V.I.S.</h1>
-  <label><input type="checkbox" id="speak" checked> Говори</label>
-</header>
-<div id="log"></div>
-<form id="form">
-  <button type="button" id="mic" title="Говори">🎙</button>
-  <input id="text" autocomplete="off" placeholder="Кажи на Jarvis…">
-  <button>➤</button>
-</form>
+
+<div id="boot" class="screen"><div class="reactor spin pulse" style="--s:72px"></div></div>
+
+<div id="auth" class="screen hidden">
+  <div class="card">
+    <div class="brand-big">
+      <div class="reactor pulse" style="--s:64px"></div>
+      <h1>J.A.R.V.I.S.</h1>
+      <p id="authLead">Влез в акаунта си</p>
+    </div>
+    <form id="loginForm">
+      <div class="field"><label for="lu">Потребителско име</label><input class="input" id="lu" autocomplete="username" required></div>
+      <div class="field"><label for="lp">Парола</label><input class="input" id="lp" type="password" autocomplete="current-password" required></div>
+      <div class="err" id="loginErr"></div>
+      <button class="btn primary block">Вход</button>
+    </form>
+    <form id="setupForm" class="hidden">
+      <div class="field"><label for="sn">Как да се обръщам към теб</label><input class="input" id="sn" placeholder="напр. Анастас или сър" required></div>
+      <div class="field"><label for="su">Потребителско име</label><input class="input" id="su" autocomplete="username" required></div>
+      <div class="field"><label for="sp">Парола (поне 6 знака)</label><input class="input" id="sp" type="password" autocomplete="new-password" minlength="6" required></div>
+      <div class="field"><label for="sp2">Парола отново</label><input class="input" id="sp2" type="password" autocomplete="new-password" minlength="6" required></div>
+      <div class="err" id="setupErr"></div>
+      <button class="btn primary block">Създай акаунта</button>
+    </form>
+    <p id="setupBlocked" class="hint hidden">Първият акаунт се създава от компютъра, на който работи Jarvis. Отвори приложението там.</p>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div id="scrim"></div>
+  <aside>
+    <div class="brand"><div class="reactor" style="--s:34px"></div><div><b>J.A.R.V.I.S.</b><small>Личен асистент</small></div></div>
+    <button class="btn ghost" id="newChat"><svg class="i"><use href="#i-plus"/></svg>Нов разговор</button>
+    <div class="list-label">Разговори</div>
+    <nav id="chatList"></nav>
+    <div class="me">
+      <div class="avatar" id="meAvatar"></div>
+      <div class="who"><b id="meName"></b><small id="meRole"></small></div>
+      <button class="icon-btn" id="openSettings" title="Настройки"><svg class="i"><use href="#i-gear"/></svg></button>
+      <button class="icon-btn" id="logout" title="Изход"><svg class="i"><use href="#i-logout"/></svg></button>
+    </div>
+  </aside>
+  <main>
+    <header class="top">
+      <button class="icon-btn" id="menuBtn" title="Меню"><svg class="i"><use href="#i-menu"/></svg></button>
+      <h2 id="chatTitle">Нов разговор</h2>
+      <span class="status"><span class="dot" id="netDot"></span><span class="txt" id="netText">На линия</span></span>
+      <button class="icon-btn" id="speakBtn" title="Чети отговорите на глас"><svg class="i"><use href="#i-speaker"/></svg></button>
+    </header>
+    <div id="scroller">
+      <div id="empty">
+        <div class="reactor pulse"></div>
+        <h3 id="greeting">Добър ден.</h3>
+        <p>С какво да помогна? Мога да търся, да планирам, да работя на компютъра и да действам от твое име.</p>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div id="messages"></div>
+    </div>
+    <div class="composer-wrap">
+      <form id="composer">
+        <textarea id="input" rows="1" placeholder="Кажи на Jarvis…" autocomplete="off"></textarea>
+        <button type="button" class="icon-btn" id="mic" title="Говори"><svg class="i"><use href="#i-mic"/></svg></button>
+        <button class="btn primary" id="send" title="Изпрати"><svg class="i"><use href="#i-send"/></svg></button>
+      </form>
+      <div class="foot">Обаждания, съобщения и плащания винаги чакат твоето „да“.</div>
+    </div>
+  </main>
+</div>
+
+<div id="settings" class="modal hidden">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Настройки">
+    <nav id="tabs"><h3>Настройки</h3></nav>
+    <div class="content">
+      <header><h4 id="tabTitle"></h4><button class="icon-btn" id="closeSettings" title="Затвори"><svg class="i"><use href="#i-x"/></svg></button></header>
+      <div id="tabBody"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0V8zM12 18v4"/></symbol>
+  <symbol id="i-devices" viewBox="0 0 24 24"><rect x="2" y="4" width="14" height="11" rx="2"/><path d="M6 19h6"/><rect x="17" y="8" width="5" height="12" rx="1"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+</svg>
+
 <script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const icon = (name) => `<svg class="i"><use href="#i-${name}"/></svg>`;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+
+const state = { me: null, groups: [], chats: [], chat: null, busy: false, lastEvent: 0, restartable: false, pending: null, confirms: [], speak: store.get("jarvis.speak", false) };
+
+// A ?token= link (older setups, Siri) works as the owner for this window.
 const params = new URLSearchParams(location.search);
-let token = params.get("token") || "";
-try { if (token) localStorage.setItem("jarvisToken", token); else token = localStorage.getItem("jarvisToken") || ""; } catch (e) {}
+let bearer = params.get("token") || "";
 if (params.has("token")) history.replaceState(null, "", location.pathname);
 
-const log = document.getElementById("log");
-const input = document.getElementById("text");
-const speakBox = document.getElementById("speak");
-
-function add(text, cls) {
-  const div = document.createElement("div");
-  div.className = "msg " + (cls || "");
-  div.textContent = text;
-  log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
-  return div;
-}
-
-function say(text) {
-  if (!speakBox.checked || !("speechSynthesis" in window)) return;
-  const u = new SpeechSynthesisUtterance(text.replace(/https?:\/\/\S+/g, "линк"));
-  u.lang = "bg-BG";
-  speechSynthesis.cancel();
-  speechSynthesis.speak(u);
-}
-
+class ApiError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 async function api(path, body) {
-  const res = await fetch(path, {
-    method: body ? "POST" : "GET",
-    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (res.status === 401) throw new Error("Грешен или липсващ токен. Отвори адреса с ?token=…");
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  const headers = { "X-Jarvis": "1" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (bearer) headers["Authorization"] = "Bearer " + bearer;
+  let res;
+  try {
+    res = await fetch(path, { method: body === undefined ? "GET" : "POST", headers, credentials: "same-origin",
+                              body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (e) { setOnline(false); throw new ApiError(0, "Няма връзка с Jarvis."); }
+  setOnline(true);
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (res.status === 401 && !path.startsWith("/api/login") && !path.startsWith("/api/setup") && !path.startsWith("/api/me")) { showAuth(); }
+  if (!res.ok) throw new ApiError(res.status, data.error || res.statusText);
   return data;
 }
 
-async function ask(text) {
-  add(text, "me");
-  const wait = add("мисля…", "note thinking");
+function setOnline(on) {
+  $("netDot").classList.toggle("off", !on);
+  $("netText").textContent = on ? "На линия" : "Няма връзка";
+}
+
+function toast(text, title = "Jarvis", kind = "") {
+  const t = document.createElement("div");
+  t.className = "toast " + kind;
+  t.innerHTML = `<b>${esc(title)}</b>${esc(text)}`;
+  t.title = "Затвори";
+  t.addEventListener("click", () => t.remove());
+  $("toasts").appendChild(t);
+  setTimeout(() => t.remove(), kind === "warn" ? 12000 : 6000);
+  return t;
+}
+
+function systemNotify(title, body) {
+  if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+  try { new Notification(title, { body, icon: "/icon.svg" }); } catch (e) {}
+}
+
+// ---------- Markdown (safe: everything is escaped first) ----------
+function inline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+}
+function md(src) {
+  const parts = esc(src).split(/```/);
+  let html = "";
+  parts.forEach((part, i) => {
+    if (i % 2) { html += `<pre><code>${part.replace(/^[\w-]*\n/, "")}</code></pre>`; return; }
+    const lines = part.split("\n");
+    let list = null, para = [];
+    const flush = () => { if (para.length) { html += `<p>${inline(para.join("<br>"))}</p>`; para = []; } };
+    const close = () => { if (list) { html += `</${list}>`; list = null; } };
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      let m;
+      if (!line.trim()) { flush(); close(); continue; }
+      if ((m = line.match(/^#{1,6}\s+(.*)/))) { flush(); close(); html += `<h4>${inline(m[1])}</h4>`; continue; }
+      if ((m = line.match(/^\s*[-*•]\s+(.*)/))) { flush(); if (list !== "ul") { close(); html += "<ul>"; list = "ul"; } html += `<li>${inline(m[1])}</li>`; continue; }
+      if ((m = line.match(/^\s*\d+[.)]\s+(.*)/))) { flush(); if (list !== "ol") { close(); html += "<ol>"; list = "ol"; } html += `<li>${inline(m[1])}</li>`; continue; }
+      if ((m = line.match(/^&gt;\s?(.*)/))) { flush(); close(); html += `<blockquote>${inline(m[1])}</blockquote>`; continue; }
+      close(); para.push(line);
+    }
+    flush(); close();
+  });
+  return html;
+}
+
+// ---------- Auth ----------
+function showAuth(me) {
+  $("app").classList.add("hidden"); $("boot").classList.add("hidden"); $("auth").classList.remove("hidden");
+  const setup = me && me.needs_setup;
+  $("loginForm").classList.toggle("hidden", !!setup);
+  $("setupForm").classList.toggle("hidden", !setup || !me.can_setup);
+  $("setupBlocked").classList.toggle("hidden", !setup || me.can_setup);
+  $("authLead").textContent = setup ? "Добре дошъл. Създай своя акаунт — ти ще си собственикът." : "Влез в акаунта си";
+  setTimeout(() => (setup ? $("sn") : $("lu")).focus(), 50);
+}
+
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("loginErr").textContent = "";
+  try { await api("/api/login", { username: $("lu").value, password: $("lp").value }); $("lp").value = ""; start(); }
+  catch (err) { $("loginErr").textContent = err.message; }
+});
+$("setupForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("setupErr").textContent = "";
+  if ($("sp").value !== $("sp2").value) { $("setupErr").textContent = "Паролите не съвпадат."; return; }
+  try { await api("/api/setup", { name: $("sn").value, username: $("su").value, password: $("sp").value }); start(); }
+  catch (err) { $("setupErr").textContent = err.message; }
+});
+$("logout").addEventListener("click", async () => {
+  try { await api("/api/logout", {}); } catch (e) {}
+  bearer = ""; state.me = null; start();
+});
+
+// ---------- Boot ----------
+async function start() {
+  let me;
+  try { me = await api("/api/me"); }
+  catch (e) { $("boot").innerHTML = `<div class="card" style="text-align:center"><div class="reactor" style="--s:56px;margin:0 auto 16px"></div><p>${esc(e.message)}</p><button class="btn primary" onclick="location.reload()">Опитай пак</button></div>`; return; }
+  state.groups = me.groups; state.restartable = me.restartable;
+  if (!me.user) { showAuth(me); return; }
+  state.me = me.user;
+  $("auth").classList.add("hidden"); $("boot").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("meName").textContent = me.user.name;
+  $("meRole").textContent = me.user.role === "owner" ? "Собственик" : "Акаунт";
+  $("meAvatar").textContent = (me.user.name || "?").trim().charAt(0).toUpperCase();
+  $("speakBtn").classList.toggle("on", state.speak);
+  greet();
+  await loadChats();
+  const last = store.get("jarvis.chat." + me.user.id, null);
+  if (last && state.chats.some((c) => c.id === last)) await openChat(last); else newChat();
+  if ("Notification" in window && Notification.permission === "default") {
+    document.addEventListener("click", () => Notification.requestPermission().catch(() => {}), { once: true });
+  }
+  if (!state.polling) { state.polling = true; pollEvents(); }
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+function greet() {
+  const h = new Date().getHours();
+  const hello = h < 5 ? "Добър вечер" : h < 12 ? "Добро утро" : h < 18 ? "Добър ден" : "Добър вечер";
+  $("greeting").textContent = `${hello}, ${state.me.name}.`;
+  const ideas = [
+    ["Какво имам днес?", "задачи, напомняния и календар"],
+    ["Намери най-евтиния полет до Лондон този месец", "търси в интернет"],
+    ["Напомни ми утре в 9 да се обадя на мама", "напомняния"],
+    ["Направи план за ремонт на банята", "дърво от стъпки"],
+  ];
+  $("chips").innerHTML = ideas.map(([t, s]) => `<button class="chip" data-t="${esc(t)}">${esc(t)}<small>${esc(s)}</small></button>`).join("");
+}
+$("chips").addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (b) { $("input").value = b.dataset.t; send(); } });
+
+// ---------- Chats ----------
+async function loadChats() {
+  state.chats = (await api("/api/chats")).chats;
+  renderChats();
+}
+function renderChats() {
+  $("chatList").innerHTML = state.chats.length ? state.chats.map((c) => `
+    <div class="chat-item ${state.chat && state.chat.id === c.id ? "active" : ""}" data-id="${c.id}">
+      <button class="t" data-a="open" title="${esc(c.title)}">${esc(c.title)}</button>
+      <button class="act" data-a="rename" title="Преименувай">${icon("edit")}</button>
+      <button class="act" data-a="delete" title="Изтрий">${icon("trash")}</button>
+    </div>`).join("") : `<div class="hint" style="padding:8px 14px">Още нямаш разговори.</div>`;
+}
+$("chatList").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  const id = Number(btn.closest(".chat-item").dataset.id);
+  const chat = state.chats.find((c) => c.id === id);
+  if (btn.dataset.a === "open") { await openChat(id); closeDrawer(); }
+  if (btn.dataset.a === "rename") {
+    const title = prompt("Ново име на разговора:", chat.title);
+    if (title && title.trim()) { await api(`/api/chats/${id}/rename`, { title }); await loadChats(); if (state.chat && state.chat.id === id) $("chatTitle").textContent = title.trim(); }
+  }
+  if (btn.dataset.a === "delete") {
+    if (!confirm(`Да изтрия ли „${chat.title}“?`)) return;
+    await api(`/api/chats/${id}/delete`, {});
+    if (state.chat && state.chat.id === id) newChat();
+    await loadChats();
+  }
+});
+
+function newChat() {
+  state.chat = null;
+  $("messages").innerHTML = "";
+  $("empty").classList.remove("hidden");
+  $("chatTitle").textContent = "Нов разговор";
+  state.confirms.forEach(maybeShowConfirm);
+  renderChats();
+  $("input").focus();
+}
+$("newChat").addEventListener("click", () => { newChat(); closeDrawer(); });
+
+async function openChat(id) {
+  const data = await api(`/api/chats/${id}`);
+  state.chat = data.chat;
+  store.set("jarvis.chat." + state.me.id, id);
+  $("chatTitle").textContent = data.chat.title;
+  $("messages").innerHTML = "";
+  $("empty").classList.toggle("hidden", data.messages.length > 0);
+  for (const m of data.messages) addMessage(m.role, m.content);
+  if (state.pending && state.pending.chat === id) $("messages").appendChild(state.pending.el);
+  state.confirms.forEach(maybeShowConfirm);
+  renderChats();
+  scrollDown(true);
+}
+
+function addMessage(role, text, opts = {}) {
+  const el = document.createElement("div");
+  if (role === "user") {
+    el.className = "msg user";
+    el.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+  } else {
+    el.className = "msg assistant" + (opts.error ? " error" : "");
+    el.innerHTML = `<div class="reactor"></div><div class="body"><div class="name">JARVIS</div><div class="md">${md(text)}</div></div>`;
+  }
+  $("messages").appendChild(el);
+  return el;
+}
+
+function scrollDown(force) {
+  const s = $("scroller");
+  if (force || s.scrollHeight - s.scrollTop - s.clientHeight < 240) s.scrollTop = s.scrollHeight;
+}
+
+// ---------- Sending ----------
+const input = $("input");
+input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 200) + "px"; });
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+$("composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
+
+async function send() {
+  const text = input.value.trim();
+  if (!text || state.busy) return;
+  state.busy = true; $("send").disabled = true;
+  input.value = ""; input.style.height = "auto";
   try {
-    const { answer } = await api("/api/ask", { text });
-    wait.remove();
-    add(answer);
-    say(answer);
-  } catch (e) {
-    wait.remove();
-    add("Грешка: " + e.message, "note");
+    if (!state.chat) {
+      state.chat = (await api("/api/chats", {})).chat;
+      store.set("jarvis.chat." + state.me.id, state.chat.id);
+      state.chats.unshift(state.chat); renderChats();
+    }
+    const chatId = state.chat.id;
+    $("empty").classList.add("hidden");
+    addMessage("user", text);
+    const pend = document.createElement("div");
+    pend.className = "msg assistant";
+    pend.innerHTML = `<div class="reactor spin pulse"></div><div class="body"><div class="name">JARVIS</div><div class="thinking"><span class="dots"><span></span><span></span><span></span></span><span class="label">Мисли…</span></div><div class="steps"></div></div>`;
+    $("messages").appendChild(pend);
+    state.pending = { chat: chatId, el: pend, steps: [] };
+    scrollDown(true);
+    let data;
+    try { data = await api(`/api/chats/${chatId}/ask`, { text }); }
+    catch (err) { data = { answer: err.message, error: true }; }
+    pend.remove(); state.pending = null;
+    if (state.chat && state.chat.id === chatId) {
+      addMessage("assistant", data.answer, { error: data.error });
+      scrollDown(true);
+      if (data.chat) $("chatTitle").textContent = data.chat.title;
+    } else {
+      toast("Отговорих в „" + (data.chat ? data.chat.title : "друг разговор") + "“.");
+    }
+    if (!data.error) speak(data.answer);
+    systemNotify("Jarvis", data.answer.slice(0, 180));
+    await loadChats();
+  } catch (err) {
+    toast(err.message, "Грешка", "err");
+  } finally {
+    state.busy = false; $("send").disabled = false; input.focus();
   }
 }
 
-document.getElementById("form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const text = input.value.trim();
-  if (text) { input.value = ""; ask(text); }
+// ---------- Voice ----------
+function speak(text) {
+  if (!state.speak || !("speechSynthesis" in window)) return;
+  const clean = text.replace(/```[\s\S]*?```/g, "").replace(/https?:\/\/\S+/g, "линк").replace(/[*#`>_]/g, "");
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = "bg-BG";
+  const voice = speechSynthesis.getVoices().find((v) => v.lang && v.lang.startsWith("bg"));
+  if (voice) u.voice = voice;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+$("speakBtn").addEventListener("click", () => {
+  state.speak = !state.speak; store.set("jarvis.speak", state.speak);
+  $("speakBtn").classList.toggle("on", state.speak);
+  toast(state.speak ? "Ще чета отговорите на глас." : "Спрях четенето на глас.");
+  if (!state.speak && "speechSynthesis" in window) speechSynthesis.cancel();
+});
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+$("mic").addEventListener("click", () => {
+  if (!Recognition) { toast("Този браузър не поддържа гласово въвеждане. Пробвай Chrome или Edge.", "Глас", "warn"); return; }
+  if (rec) { rec.stop(); return; }
+  rec = new Recognition();
+  rec.lang = "bg-BG"; rec.interimResults = true; rec.continuous = false;
+  const before = input.value;
+  rec.onresult = (e) => {
+    const said = Array.from(e.results).map((r) => r[0].transcript).join("");
+    input.value = (before ? before + " " : "") + said;
+    if (e.results[e.results.length - 1].isFinal) { rec.stop(); send(); }
+  };
+  rec.onend = () => { rec = null; $("mic").classList.remove("rec"); };
+  rec.onerror = (e) => { if (e.error === "not-allowed") toast("Разреши микрофона в браузъра.", "Глас", "warn"); };
+  $("mic").classList.add("rec");
+  rec.start();
 });
 
-// Live events: reminders, Jarvis speaking up on its own, confirmation requests.
-const confirmBoxes = {};
-async function events() {
-  let last = 0;
-  try { last = (await api("/api/events?after=-1")).last; } catch (e) {}
+// ---------- Live events: progress, confirmations, notifications ----------
+async function pollEvents() {
+  try { state.lastEvent = (await api("/api/events?after=-1")).last || 0; } catch (e) {}
   for (;;) {
+    if (!state.me) { await sleep(1500); continue; }
     try {
-      const { events } = await api("/api/events?after=" + last);
-      for (const ev of events) {
-        last = Math.max(last, ev.id);
-        if (ev.kind === "notify") { add("🔔 " + ev.text, "note"); say(ev.text); }
-        if (ev.kind === "confirm") showConfirm(ev);
-        if (ev.kind === "confirm_closed" && confirmBoxes[ev.confirm_id]) {
-          confirmBoxes[ev.confirm_id].querySelector(".buttons")?.remove();
-        }
-      }
-    } catch (e) {
-      await new Promise((r) => setTimeout(r, 3000));
+      const data = await api("/api/events?after=" + state.lastEvent);
+      for (const ev of data.events) { state.lastEvent = Math.max(state.lastEvent, ev.id); handleEvent(ev); }
+    } catch (e) { await sleep(e.status === 401 ? 3000 : 2500); }
+  }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function handleEvent(ev) {
+  if (ev.kind === "progress" && state.pending && state.pending.chat === ev.chat) {
+    const el = state.pending.el;
+    el.querySelector(".label").textContent = ev.label + "…";
+    if (state.pending.steps[state.pending.steps.length - 1] !== ev.label) {
+      state.pending.steps.push(ev.label);
+      el.querySelector(".steps").innerHTML = state.pending.steps.slice(-6).map((s) => `<span class="step">${esc(s)}</span>`).join("");
     }
+    scrollDown();
+  }
+  if (ev.kind === "notify") { toast(ev.text, "Jarvis"); systemNotify("Jarvis", ev.text); }
+  if (ev.kind === "confirm") showConfirm(ev);
+  if (ev.kind === "confirm_closed") {
+    const card = state.confirms.find((c) => c.dataset.id === String(ev.confirm_id));
+    if (card && !card.dataset.answered) finishConfirm(card, "Вече е отговорено или времето изтече.");
+    state.confirms = state.confirms.filter((c) => c !== card || c.isConnected);
   }
 }
 
 function showConfirm(ev) {
-  const box = add("⚠ Да направя ли това?\n" + ev.text, "confirm");
-  const buttons = document.createElement("div");
-  buttons.className = "buttons";
-  for (const [label, yes] of [["Да", true], ["Не", false]]) {
-    const b = document.createElement("button");
-    b.textContent = label;
-    if (!yes) b.className = "no";
-    b.onclick = async () => { buttons.remove(); add(label, "me"); await api("/api/confirm", { id: ev.id, yes }); };
-    buttons.appendChild(b);
-  }
-  box.appendChild(buttons);
-  confirmBoxes[ev.id] = box;
-  say("Да направя ли това? " + ev.text);
+  const holder = document.createElement("div");
+  holder.className = "msg assistant confirm-holder";
+  holder.dataset.id = ev.id;
+  holder.dataset.chat = ev.chat || "";
+  holder.innerHTML = `<div class="reactor"></div><div class="body"><div class="confirm-card">
+      <div class="head">${icon("shield")} Jarvis иска разрешение</div>
+      <div class="what">${esc(ev.text)}</div>
+      <div class="row"><button class="btn primary small" data-yes="1">Разреши</button><button class="btn ghost small" data-yes="0">Откажи</button></div>
+    </div></div>`;
+  holder.addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-yes]"); if (!b || holder.dataset.answered) return;
+    const yes = b.dataset.yes === "1";
+    holder.dataset.answered = "1";
+    try { await api("/api/confirm", { id: ev.id, yes }); finishConfirm(holder, yes ? "Разрешено." : "Отказано."); }
+    catch (err) { delete holder.dataset.answered; toast(err.message, "Грешка", "err"); }
+  });
+  state.confirms.push(holder);
+  maybeShowConfirm(holder);
+  holder.toast = toast(ev.text, "Чака твоето разрешение", "warn");
+  systemNotify("Jarvis иска разрешение", ev.text);
+}
+function confirmBelongsHere(holder) {
+  const chat = Number(holder.dataset.chat) || null;
+  return !chat || (state.chat && state.chat.id === chat);
+}
+function maybeShowConfirm(holder) {
+  if (holder.dataset.answered || !confirmBelongsHere(holder)) { holder.remove(); return; }
+  const pend = state.pending && state.pending.el.isConnected ? state.pending.el : null;
+  pend ? $("messages").insertBefore(holder, pend) : $("messages").appendChild(holder);
+  $("empty").classList.add("hidden");
+  scrollDown(true);
+}
+function finishConfirm(holder, text) {
+  holder.dataset.answered = "1";
+  if (holder.toast) holder.toast.remove();
+  holder.querySelector(".row").outerHTML = `<div class="done">${esc(text)}</div>`;
 }
 
-// Push-to-talk with the browser's speech recognition (Chrome, Edge, Safari, Android).
-const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const mic = document.getElementById("mic");
-if (!Recognition) mic.style.display = "none";
-mic.addEventListener("click", () => {
-  const rec = new Recognition();
-  rec.lang = "bg-BG";
-  rec.interimResults = false;
-  mic.classList.add("on");
-  rec.onresult = (e) => {
-    const text = e.results[0][0].transcript;
-    const pending = Object.values(confirmBoxes).find((b) => b.querySelector(".buttons"));
-    if (pending && /^(да|не)\b/i.test(text.trim())) {
-      pending.querySelector(/^да/i.test(text.trim()) ? "button" : "button.no").click();
-    } else {
-      ask(text);
-    }
-  };
-  rec.onend = () => mic.classList.remove("on");
-  rec.start();
-});
+// ---------- Drawer (phones) ----------
+$("menuBtn").addEventListener("click", () => $("app").classList.add("drawer"));
+$("scrim").addEventListener("click", closeDrawer);
+function closeDrawer() { $("app").classList.remove("drawer"); }
 
-add("J.A.R.V.I.S. е на линия.", "note");
-events();
+// ---------- Settings ----------
+const TABS = [
+  { id: "profile", label: "Профил", icon: "user" },
+  { id: "accounts", label: "Акаунти", icon: "users", owner: true },
+  { id: "perms", label: "Разрешения", icon: "shield" },
+  { id: "connections", label: "Връзки", icon: "plug", owner: true },
+  { id: "devices", label: "Устройства", icon: "devices", owner: true },
+];
+let currentTab = "profile";
+let permsFor = null;
+
+function openSettings(tab) {
+  const owner = state.me.role === "owner";
+  $("tabs").innerHTML = "<h3>Настройки</h3>" + TABS.filter((t) => owner || !t.owner).map((t) =>
+    `<button class="tab" data-tab="${t.id}">${icon(t.icon)}${t.label}</button>`).join("");
+  $("settings").classList.remove("hidden");
+  showTab(tab || currentTab);
+}
+$("openSettings").addEventListener("click", () => openSettings());
+$("closeSettings").addEventListener("click", () => $("settings").classList.add("hidden"));
+$("settings").addEventListener("click", (e) => { if (e.target.id === "settings") $("settings").classList.add("hidden"); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("settings").classList.add("hidden"); });
+$("tabs").addEventListener("click", (e) => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.tab); });
+
+async function showTab(id) {
+  const tab = TABS.find((t) => t.id === id && (state.me.role === "owner" || !t.owner)) || TABS[0];
+  currentTab = tab.id;
+  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab.id));
+  $("tabTitle").textContent = tab.label;
+  $("tabBody").innerHTML = `<div class="hint">Зареждам…</div>`;
+  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, connections: tabConnections, devices: tabDevices })[tab.id](); }
+  catch (err) { $("tabBody").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+}
+
+function tabProfile() {
+  const me = state.me;
+  $("tabBody").innerHTML = `
+    <div class="section">
+      <h5>Твоят профил</h5><p class="sub">@${esc(me.username)} · ${me.role === "owner" ? "Собственик" : "Акаунт"}</p>
+      <div class="field"><label>Как да се обръща към теб Jarvis</label><input class="input" id="pfName" value="${esc(me.name)}"></div>
+      <div class="row-end"><span class="hint" id="pfMsg"></span><button class="btn primary small" id="pfSave">Запази</button></div>
+    </div>
+    <div class="section">
+      <h5>Смяна на паролата</h5><p class="sub">След смяната другите ти устройства ще трябва да влязат отново.</p>
+      <div class="grid2">
+        <div class="field"><label>Сегашна парола</label><input class="input" type="password" id="pfOld" autocomplete="current-password"></div>
+        <div class="field"><label>Нова парола</label><input class="input" type="password" id="pfNew" autocomplete="new-password"></div>
+      </div>
+      <div class="row-end"><span class="hint" id="pwMsg"></span><button class="btn primary small" id="pwSave">Смени паролата</button></div>
+    </div>`;
+  $("pfSave").onclick = async () => {
+    try { state.me = (await api("/api/me", { name: $("pfName").value })).user; $("meName").textContent = state.me.name; $("meAvatar").textContent = state.me.name.charAt(0).toUpperCase(); $("pfMsg").textContent = "Запазено."; greet(); }
+    catch (err) { $("pfMsg").textContent = err.message; }
+  };
+  $("pwSave").onclick = async () => {
+    try { await api("/api/me", { old_password: $("pfOld").value, password: $("pfNew").value }); $("pwMsg").textContent = "Паролата е сменена."; $("pfOld").value = $("pfNew").value = ""; }
+    catch (err) { $("pwMsg").textContent = err.message; }
+  };
+}
+
+async function tabAccounts() {
+  const users = (await api("/api/users")).users;
+  $("tabBody").innerHTML = `
+    <div class="section">
+      <h5>Акаунти</h5><p class="sub">Всеки има свои разговори. Ти решаваш какво може да прави Jarvis за всеки от тях.</p>
+      ${users.map((u) => `
+        <div class="user-row" data-id="${u.id}">
+          <div class="avatar">${esc(u.name.charAt(0).toUpperCase())}</div>
+          <div class="who"><b>${esc(u.name)}</b> <span class="badge ${u.role === "owner" ? "owner" : ""}">${u.role === "owner" ? "Собственик" : "Акаунт"}</span><br><small>@${esc(u.username)}</small></div>
+          <button class="btn ghost small" data-a="perms">Разрешения</button>
+          <button class="btn ghost small" data-a="pw">Парола</button>
+          ${u.id === state.me.id ? "" : `<button class="btn danger small" data-a="del" title="Изтрий">${icon("trash")}</button>`}
+        </div>`).join("")}
+    </div>
+    <div class="section">
+      <h5>Нов акаунт</h5><p class="sub">Например за някого вкъщи. Новите акаунти могат само да говорят и да търсят в интернет, докато не им разрешиш още.</p>
+      <div class="grid2">
+        <div class="field"><label>Име</label><input class="input" id="nuName"></div>
+        <div class="field"><label>Потребителско име</label><input class="input" id="nuUser" autocomplete="off"></div>
+        <div class="field"><label>Парола</label><input class="input" id="nuPass" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>Роля</label><select class="input" id="nuRole"><option value="member">Акаунт</option><option value="owner">Собственик (пълен достъп)</option></select></div>
+      </div>
+      <div class="row-end"><span class="hint" id="nuMsg"></span><button class="btn primary small" id="nuAdd">${icon("plus")}Създай</button></div>
+    </div>`;
+  $("tabBody").querySelectorAll(".user-row").forEach((row) => row.addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const id = Number(row.dataset.id), u = users.find((x) => x.id === id);
+    if (b.dataset.a === "perms") { permsFor = id; showTab("perms"); }
+    if (b.dataset.a === "pw") {
+      const pw = prompt(`Нова парола за ${u.name} (поне 6 знака):`);
+      if (pw) { try { await api(`/api/users/${id}`, { password: pw }); toast("Паролата е сменена."); } catch (err) { toast(err.message, "Грешка", "err"); } }
+    }
+    if (b.dataset.a === "del") {
+      if (!confirm(`Да изтрия ли акаунта на ${u.name} и разговорите му?`)) return;
+      try { await api(`/api/users/${id}/delete`, {}); showTab("accounts"); } catch (err) { toast(err.message, "Грешка", "err"); }
+    }
+  }));
+  $("nuAdd").onclick = async () => {
+    try {
+      await api("/api/users", { name: $("nuName").value, username: $("nuUser").value, password: $("nuPass").value, role: $("nuRole").value });
+      toast("Акаунтът е създаден."); showTab("accounts");
+    } catch (err) { $("nuMsg").textContent = err.message; }
+  };
+}
+
+async function tabPerms() {
+  const owner = state.me.role === "owner";
+  const users = owner ? (await api("/api/users")).users : [state.me];
+  const target = users.find((u) => u.id === permsFor) || users.find((u) => u.id === state.me.id) || users[0];
+  permsFor = target.id;
+  const modes = [["on", "Вкл"], ["ask", "Питай"], ["off", "Изкл"]];
+  $("tabBody").innerHTML = `
+    <div class="note">${icon("info")}<div>Обажданията, съобщенията, имейлите и плащанията <b>винаги</b> чакат „Разреши“ преди всяко действие, каквото и да е избрано тук. „Питай“ кара Jarvis да пита и за всичко останало в групата.</div></div>
+    ${owner ? `<div class="field"><label>Разрешения за</label><select class="input" id="permUser">${users.map((u) => `<option value="${u.id}" ${u.id === target.id ? "selected" : ""}>${esc(u.name)} (@${esc(u.username)})</option>`).join("")}</select></div>` : ""}
+    <div class="section">
+      ${state.groups.map((g) => `
+        <div class="perm">
+          <div class="what"><b>${esc(g.label)}</b> ${g.sensitive ? `<span class="badge warn">действа от твое име</span>` : ""}<small>${esc(g.desc)}</small></div>
+          <div class="seg ${owner ? "" : "readonly"}" data-g="${g.key}">${modes.map(([v, l]) => `<button data-v="${v}" class="${target.perms[g.key] === v ? "on" : ""}">${l}</button>`).join("")}</div>
+        </div>`).join("")}
+    </div>
+    ${owner ? "" : `<p class="hint">Само собственикът може да променя разрешенията.</p>`}`;
+  if (!owner) return;
+  $("permUser").onchange = (e) => { permsFor = Number(e.target.value); tabPerms(); };
+  $("tabBody").querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    try {
+      const user = (await api(`/api/users/${target.id}`, { perms: { [seg.dataset.g]: b.dataset.v } })).user;
+      seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      if (user.id === state.me.id) state.me = user;
+    } catch (err) { toast(err.message, "Грешка", "err"); }
+  }));
+}
+
+async function tabConnections() {
+  const sections = (await api("/api/settings")).sections;
+  $("tabBody").innerHTML = `
+    <div class="note">${icon("info")}<div>Ключовете се пазят само на този компютър (във файла .env). Попълни само това, което ползваш. ${state.restartable ? "След промяна натисни „Рестартирай“." : "След промяна рестартирай Jarvis."}</div></div>
+    ${sections.map((s, i) => `
+      <div class="section" data-i="${i}">
+        <h5>${esc(s.title)} <span class="badge ${s.ready ? "ok" : "no"}">${s.ready ? "свързано" : "не е настроено"}</span></h5>
+        <p class="sub">${s.where ? esc(s.where) : "&nbsp;"}</p>
+        ${s.fields.map((f) => `
+          <div class="field"><label>${esc(f.label)} <code class="k">${esc(f.key)}</code></label>
+            <input class="input" data-k="${esc(f.key)}" type="${f.secret ? "password" : "text"}" autocomplete="off"
+              value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + ") — пиши, за да смениш" : "Не е въведено") : ""}"></div>`).join("")}
+        <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>
+      </div>`).join("")}
+    ${state.restartable ? `<div class="row-end"><button class="btn ghost" id="restart">Рестартирай Jarvis</button></div>` : ""}`;
+  $("tabBody").querySelectorAll("button[data-save]").forEach((b) => b.addEventListener("click", async () => {
+    const sec = b.closest(".section"), s = sections[Number(b.dataset.save)];
+    const values = {};
+    sec.querySelectorAll("input[data-k]").forEach((inp) => {
+      const f = s.fields.find((x) => x.key === inp.dataset.k);
+      if (f.secret ? inp.value !== "" : inp.value !== f.value) values[f.key] = inp.value;
+    });
+    if (!Object.keys(values).length) { sec.querySelector(".msg").textContent = "Няма промени."; return; }
+    try { await api("/api/settings", { values }); toast("Запазено. Рестартирай Jarvis, за да важи навсякъде."); tabConnections(); }
+    catch (err) { sec.querySelector(".msg").textContent = err.message; }
+  }));
+  const r = $("restart");
+  if (r) r.onclick = async () => {
+    r.disabled = true; r.textContent = "Рестартирам…";
+    try { await api("/api/restart", {}); } catch (e) {}
+    for (let i = 0; i < 40; i++) { await sleep(750); try { await fetch("/api/me"); location.reload(); return; } catch (e) {} }
+  };
+}
+
+async function tabDevices() {
+  const data = await api("/api/devices");
+  $("tabBody").innerHTML = `
+    <div class="section">
+      <h5>Телефон, таблет, телевизор</h5>
+      <p class="sub">Свържи ги към същия Wi-Fi и отвори този адрес в браузъра. После влез с акаунт и избери „Добави към началния екран“.</p>
+      <div class="field"><input class="input" readonly value="${esc(data.lan_url)}" onclick="this.select()"></div>
+    </div>
+    <div class="section">
+      <h5>Други компютри</h5>
+      <p class="sub">Инсталирай Jarvis на лаптопа и пусни <code class="k">jarvis node --hub ${esc(data.lan_url)} --name laptop</code> със същия JARVIS_WEB_TOKEN. Тогава Jarvis може да работи и там.</p>
+      ${data.devices.length ? data.devices.map((d) => `
+        <div class="user-row"><div class="avatar">${icon("devices")}</div>
+          <div class="who"><b>${esc(d.device)}</b><br><small>${d.tools} умения</small></div>
+          <span class="badge ${d.online ? "ok" : "no"}">${d.online ? "на линия" : "изключен"}</span></div>`).join("")
+        : `<p class="hint">Още няма свързани компютри.</p>`}
+    </div>`;
+}
+
+start();
 </script>
 </body>
 </html>
