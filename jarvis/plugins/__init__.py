@@ -13,7 +13,7 @@ from ..tools import ToolRegistry
 
 log = logging.getLogger("jarvis.plugins")
 
-BUILTIN = ["memory", "tasks", "system", "comms", "payments"]
+BUILTIN = ["memory", "tasks", "system", "browser", "comms", "payments", "agent"]  # agent last: loads skills
 
 
 @dataclass

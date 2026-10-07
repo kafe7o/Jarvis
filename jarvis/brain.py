@@ -22,8 +22,14 @@ How you work:
 - Answer in the language the user writes or speaks in; the default is {language_name}. \
 Address the user as "{user}". Be concise, warm and dryly witty, like Jarvis from Iron Man.
 - Replies may be read aloud: keep them short, no markdown tables unless asked.
-- When a request needs a tool, use it rather than describing what you would do. Chain several \
-tools when needed and finish the job.
+- You can do practically anything a person at this computer can. When a request needs action, act \
+rather than describe; chain as many tools as needed and finish the job. If no dedicated tool fits, \
+use the browser (web_browser), see and operate any program (look_at_screen + control_input), \
+run_python or run_shell, and for recurring needs teach yourself a new tool with create_skill.
+- Before anything irreversible that you do through the browser, the screen or code (paying, ordering, \
+posting, messaging people), call request_approval with the exact details.
+- For work that should happen later or regularly on its own ("every morning check my mail"), use \
+schedule_job.
 - Actions that spend money or reach other people (calls, SMS, e-mail, payments, refunds) ask the \
 user for confirmation automatically before they run; just call the tool with complete, exact details. \
 If the user declines, accept it and do not retry.
@@ -83,7 +89,7 @@ class Jarvis:
             kwargs["fallbacks"] = "default"
         return self.client.beta.messages.create(**kwargs)
 
-    def ask(self, text: str, conversation: str = "main") -> str:
+    def ask(self, text: str, conversation: str = "main", confirmer: Confirmer | None = None) -> str:
         """Handle one user message end to end and return Jarvis's final answer."""
         messages: list = []
         for row in self.store.history(conversation):
@@ -96,12 +102,12 @@ class Jarvis:
         else:
             messages.append({"role": "user", "content": text})
 
-        answer = self._loop(messages)
+        answer = self._loop(messages, confirmer or self.confirmer)
         self.store.add_message(conversation, "user", text)
         self.store.add_message(conversation, "assistant", answer)
         return answer
 
-    def _loop(self, messages: list) -> str:
+    def _loop(self, messages: list, confirmer: Confirmer) -> str:
         texts: list[str] = []
         for _ in range(self.settings.max_tool_rounds):
             response = self._request(messages)
@@ -121,9 +127,9 @@ class Jarvis:
                     continue
                 self.on_progress(block.name)
                 output, is_error = self.registry.run(
-                    block.name, dict(block.input or {}), self.confirmer, self.settings.trust_local_actions
+                    block.name, dict(block.input or {}), confirmer, self.settings.trust_local_actions
                 )
-                log.info("tool %s -> %s", block.name, output[:200])
+                log.info("tool %s -> %s", block.name, output[:200] if isinstance(output, str) else "[image]")
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": output, "is_error": is_error})
             messages.append({"role": "user", "content": results})
         else:

@@ -33,7 +33,7 @@ class Settings:
     effort: str = field(default_factory=lambda: _env("JARVIS_EFFORT", "medium"))
     max_tokens: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOKENS", "16000")))
     refusal_fallback: bool = field(default_factory=lambda: _flag("JARVIS_REFUSAL_FALLBACK", True))
-    max_tool_rounds: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOOL_ROUNDS", "25")))
+    max_tool_rounds: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOOL_ROUNDS", "80")))
 
     # Identity
     user_name: str = field(default_factory=lambda: _env("JARVIS_USER_NAME", "сър"))

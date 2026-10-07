@@ -13,6 +13,26 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 
+@dataclass
+class Image:
+    """Return this from a tool to let Claude see a picture (e.g. a screenshot)."""
+
+    data: bytes
+    media_type: str = "image/png"
+    text: str = ""
+
+    def content(self) -> list[dict]:
+        import base64
+
+        blocks: list[dict] = [{
+            "type": "image",
+            "source": {"type": "base64", "media_type": self.media_type, "data": base64.b64encode(self.data).decode()},
+        }]
+        if self.text:
+            blocks.append({"type": "text", "text": self.text})
+        return blocks
+
+
 class Confirmer(Protocol):
     def __call__(self, summary: str) -> bool: ...
 
@@ -74,8 +94,8 @@ class ToolRegistry:
     def definitions(self) -> list[dict]:
         return [t.definition() for t in self.tools.values()]
 
-    def run(self, name: str, args: dict, confirmer: Confirmer, trust_local: bool = False) -> tuple[str, bool]:
-        """Run a tool. Returns (result_text, is_error)."""
+    def run(self, name: str, args: dict, confirmer: Confirmer, trust_local: bool = False) -> tuple[str | list, bool]:
+        """Run a tool. Returns (result, is_error); result is text, or content blocks for images."""
         tool = self.tools.get(name)
         if tool is None:
             return f"Unknown tool: {name}", True
@@ -88,6 +108,8 @@ class ToolRegistry:
             return f"{type(exc).__name__}: {exc}", True
         if isinstance(result, str):
             return result, False
+        if isinstance(result, Image):
+            return result.content(), False
         return json.dumps(result, ensure_ascii=False, default=str), False
 
 

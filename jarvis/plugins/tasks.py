@@ -14,6 +14,7 @@ log = logging.getLogger("jarvis.tasks")
 
 REPEATS = {"hourly", "daily", "weekdays", "weekly", "monthly", "yearly"}
 CHANNELS = {"local", "sms", "call", "telegram"}
+JOB = "agent"  # reminders with this channel are instructions Jarvis carries out itself
 
 
 def parse_time(value: str) -> datetime:
@@ -90,8 +91,11 @@ class ReminderScheduler:
         return due
 
     def deliver(self, rem: dict) -> None:
-        text = f"Напомняне: {rem['text']}"
         channels = (rem["channels"] or "local").split(",")
+        if JOB in channels:
+            threading.Thread(target=self.run_job, args=(rem,), name="jarvis-job", daemon=True).start()
+            return
+        text = f"Напомняне: {rem['text']}"
         if "local" in channels or "telegram" in channels:
             self.ctx.notify(text)
         if "sms" in channels or "call" in channels:
@@ -105,6 +109,27 @@ class ReminderScheduler:
                     comms.call_raw(s, s.owner_phone, text)
             except Exception as exc:
                 self.ctx.notify(f"{text} (не успях да звънна/пиша на телефона: {exc})")
+
+
+    def run_job(self, rem: dict) -> None:
+        """Carry out a scheduled instruction unattended and report the result."""
+        jarvis = getattr(self.ctx, "jarvis", None)
+        if jarvis is None:
+            return
+
+        def unattended(summary: str) -> bool:
+            self.ctx.notify(f"Задача „{rem['text']}“ иска одобрение за: {summary}. Не го направих; кажи ми, ако искаш.")
+            return False
+
+        try:
+            result = jarvis.ask(
+                f"(Scheduled job, the user is not watching; report the outcome briefly.) {rem['text']}",
+                conversation=f"job-{rem['id']}",
+                confirmer=unattended,
+            )
+            self.ctx.notify(f"Задача „{rem['text']}“: {result}")
+        except Exception as exc:
+            self.ctx.notify(f"Задача „{rem['text']}“ се провали: {exc}")
 
 
 def register(registry: ToolRegistry, ctx) -> None:
@@ -190,11 +215,29 @@ def register(registry: ToolRegistry, ctx) -> None:
         rid = store.insert("reminders", text=text, at=when.isoformat(), repeat=repeat, channels=",".join(chans))
         return f"Reminder {rid} set for {when:%Y-%m-%d %H:%M}" + (f", repeating {repeat}." if repeat else ".")
 
-    @registry.tool("List upcoming reminders.", obj({}))
+    @registry.tool(
+        "Schedule a job for yourself: at the given time (optionally repeating) you will carry out the "
+        "instruction on your own and report the result, e.g. 'summarize my unread e-mail', "
+        "'check the price of X and tell me if it is below 500'. Actions that need approval are not taken "
+        "unattended; the user is told instead.",
+        obj({
+            "instruction": ("string", "What to do, self-contained"),
+            "at": ("string", "First run, ISO 8601 local time"),
+            "repeat?": ("string", "hourly | daily | weekdays | weekly | monthly | yearly"),
+        }),
+    )
+    def schedule_job(instruction: str, at: str, repeat: str | None = None):
+        when = parse_time(at)
+        if repeat and repeat not in REPEATS:
+            raise ValueError(f"repeat must be one of {sorted(REPEATS)}")
+        rid = store.insert("reminders", text=instruction, at=when.isoformat(), repeat=repeat, channels=JOB)
+        return f"Job {rid} scheduled for {when:%Y-%m-%d %H:%M}" + (f", repeating {repeat}." if repeat else ".")
+
+    @registry.tool("List upcoming reminders and scheduled jobs (channel 'agent').", obj({}))
     def list_reminders():
         return store.query("SELECT id, text, at, repeat, channels FROM reminders WHERE fired=0 ORDER BY at")
 
-    @registry.tool("Cancel a reminder.", obj({"reminder_id": ("integer", "Reminder id")}))
+    @registry.tool("Cancel a reminder or scheduled job.", obj({"reminder_id": ("integer", "Reminder or job id")}))
     def cancel_reminder(reminder_id: int):
         n = store.execute("DELETE FROM reminders WHERE id=?", (reminder_id,)).rowcount
         return "Cancelled." if n else "No such reminder."

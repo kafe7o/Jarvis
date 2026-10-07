@@ -11,7 +11,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
-from ..tools import ToolRegistry, obj
+from ..tools import Image, ToolRegistry, obj
 
 MAX_OUTPUT = 20_000
 
@@ -197,43 +197,100 @@ def register(registry: ToolRegistry, ctx) -> None:
         pyperclip.copy(text)
         return "Copied to clipboard."
 
+    screen = {"scale": 1.0}
+
     @registry.tool(
-        "Take a screenshot and save it as PNG.",
-        obj({"path?": ("string", "Where to save; default ~/.jarvis/screenshots/<time>.png")}),
+        "Look at the computer screen: returns a screenshot you can see. Use it to operate any program or "
+        "website visually together with control_input (look, act, look again to check).",
+        obj({"save_to?": ("string", "Also save the full-size PNG here")}),
     )
-    def screenshot(path: str | None = None):
+    def look_at_screen(save_to: str | None = None):
+        import io
+
         import pyautogui
 
-        target = Path(path).expanduser() if path else ctx.settings.home / "screenshots" / f"{datetime.now():%Y%m%d-%H%M%S}.png"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        pyautogui.screenshot(str(target))
-        return f"Saved {target}."
+        shot = pyautogui.screenshot()
+        if save_to:
+            target = Path(save_to).expanduser()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shot.save(target)
+        width, height = shot.size
+        scale = min(1.0, 1280 / width)
+        screen["scale"] = scale
+        small = shot.resize((int(width * scale), int(height * scale))) if scale < 1 else shot
+        buf = io.BytesIO()
+        small.convert("RGB").save(buf, format="PNG", optimize=True)
+        note = f"Screenshot {small.size[0]}x{small.size[1]}. Give control_input coordinates in this image's pixels."
+        return Image(buf.getvalue(), "image/png", note)
 
     @registry.tool(
-        "Control keyboard and mouse: type text, press a hotkey, or click at screen coordinates.",
+        "Control the mouse and keyboard. Coordinates are pixels in the latest look_at_screen image. "
+        "Actions: click, double_click, right_click, move, drag (to x2,y2), scroll (amount, + up / - down), "
+        "type (text), hotkey (keys, e.g. ['ctrl','c']), press (keys, one after another).",
         obj({
-            "action": ("string", "type | hotkey | click"),
-            "text?": ("string", "Text to type (type)"),
-            "keys?": ("array", "Keys to press together (hotkey), e.g. ['ctrl','c']"),
-            "x?": ("integer", "X (click)"),
-            "y?": ("integer", "Y (click)"),
+            "action": ("string", "click | double_click | right_click | move | drag | scroll | type | hotkey | press"),
+            "x?": ("integer", "X in the screenshot"),
+            "y?": ("integer", "Y in the screenshot"),
+            "x2?": ("integer", "Drag target X"),
+            "y2?": ("integer", "Drag target Y"),
+            "text?": ("string", "Text to type"),
+            "keys?": ("array", "Key names"),
+            "amount?": ("integer", "Scroll clicks"),
         }),
         confirm=True,
         local=True,
-        summarize=lambda a: f"Клавиатура/мишка: {a}",
+        summarize=lambda a: f"Мишка/клавиатура: {a}",
     )
-    def control_input(action: str, text: str = "", keys: list | None = None, x: int | None = None, y: int | None = None):
+    def control_input(action: str, x: int | None = None, y: int | None = None, x2: int | None = None,
+                      y2: int | None = None, text: str = "", keys: list | None = None, amount: int = -5):
         import pyautogui
 
-        if action == "type":
-            pyautogui.write(text, interval=0.02)
+        def real(v):
+            return None if v is None else int(v / screen["scale"])
+
+        X, Y = real(x), real(y)
+        if action == "click":
+            pyautogui.click(X, Y)
+        elif action == "double_click":
+            pyautogui.doubleClick(X, Y)
+        elif action == "right_click":
+            pyautogui.rightClick(X, Y)
+        elif action == "move":
+            pyautogui.moveTo(X, Y, duration=0.2)
+        elif action == "drag":
+            pyautogui.moveTo(X, Y)
+            pyautogui.dragTo(real(x2), real(y2), duration=0.4)
+        elif action == "scroll":
+            pyautogui.scroll(amount, X, Y)
+        elif action == "type":
+            try:  # pyautogui.write only handles ASCII; paste anything else (e.g. Cyrillic)
+                text.encode("ascii")
+                pyautogui.write(text, interval=0.02)
+            except UnicodeEncodeError:
+                import pyperclip
+
+                pyperclip.copy(text)
+                pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
         elif action == "hotkey":
             pyautogui.hotkey(*(keys or []))
-        elif action == "click":
-            pyautogui.click(x, y)
+        elif action == "press":
+            for key in keys or []:
+                pyautogui.press(key)
         else:
-            raise ValueError("action must be type, hotkey or click")
-        return "Done."
+            raise ValueError(f"Unknown action {action}")
+        return "Done. Look at the screen to check the result."
+
+    @registry.tool(
+        "Run Python code on this computer and return what it prints. Good for calculations, data, "
+        "spreadsheets, documents, images and quick automation.",
+        obj({"code": ("string", "Python source"), "timeout?": ("integer", "Seconds (default 300)")}),
+        confirm=True,
+        local=True,
+        summarize=lambda a: f"Изпълни Python код:\n{a.get('code')}",
+    )
+    def run_python(code: str, timeout: int = 300):
+        proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=timeout)
+        return _clip(f"exit code {proc.returncode}\n{proc.stdout}{proc.stderr}")
 
     @registry.tool(
         "Set the system volume (0-100) or mute. Works on Windows, macOS and Linux (PulseAudio/PipeWire).",

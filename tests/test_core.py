@@ -20,7 +20,7 @@ def test_every_tool_has_a_valid_schema(registry):
 
 def test_people_and_money_tools_always_need_confirmation(registry):
     for name in ["make_call", "connect_call", "agent_call", "send_sms", "send_email",
-                 "create_payment_link", "send_invoice", "refund_payment", "payout"]:
+                 "create_payment_link", "send_invoice", "refund_payment", "payout", "request_approval"]:
         tool = registry.tools[name]
         assert tool.confirm and not tool.local, name
 
@@ -116,3 +116,54 @@ def test_wake_word_and_yes_no():
     assert strip_wake_word("Hey Jarvis") == ""
     assert strip_wake_word("здравей") is None
     assert is_yes("Да, давай") and not is_yes("не, недей") and not is_yes("хмм")
+
+
+def test_image_results_become_image_blocks(registry):
+    from jarvis.tools import Image
+
+    @registry.tool("Test picture.", {"type": "object", "properties": {}, "required": []})
+    def picture():
+        return Image(b"\x89PNG", "image/png", "a screen")
+
+    out, err = registry.run("picture", {}, Approver())
+    assert not err and out[0]["type"] == "image" and out[1] == {"type": "text", "text": "a screen"}
+
+
+def test_scheduled_job_runs_unattended_and_never_auto_approves(settings, ctx, registry):
+    reports = []
+    ctx.notifiers.append(reports.append)
+    client = FakeClient([
+        response(tool_block("send_sms", {"to": "+359888111111", "body": "Здрасти"}), stop="tool_use"),
+        response(text_block("Не изпратих SMS-а, чака одобрение."), stop="end_turn"),
+    ])
+    ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(True), client=client)
+    registry.run("schedule_job", {"instruction": "Пиши на Иван", "at": "2026-01-01T08:00"}, Approver())
+    job = ctx.store.query("SELECT * FROM reminders")[0]
+    ctx.scheduler.run_job(job)
+    assert any("одобрение" in r for r in reports)
+    assert "declined" in client.requests[1]["messages"][2]["content"][0]["content"]
+    assert reports[-1].startswith("Задача „Пиши на Иван“")
+
+
+def test_create_skill_adds_tools_now_and_after_restart(settings, ctx, registry):
+    from jarvis.plugins import load_all
+    from jarvis.tools import ToolRegistry
+
+    code = (
+        "from jarvis.tools import obj\n"
+        "def register(registry, ctx):\n"
+        "    @registry.tool('Double a number.', obj({'n': ('integer', 'Number')}))\n"
+        "    def double(n: int):\n"
+        "        return str(n * 2)\n"
+    )
+    out, err = registry.run("create_skill", {"name": "math_tools", "code": code}, Approver())
+    assert not err and "double" in out
+    assert registry.run("double", {"n": 21}, Approver()) == ("42", False)
+
+    fresh = ToolRegistry()
+    load_all(fresh, ctx)
+    assert "double" in fresh.tools
+
+    out, err = registry.run("create_skill", {"name": "broken", "code": "def register(r, c): raise RuntimeError('x')"}, Approver())
+    assert "failed to load" in out
+    assert not (settings.home / "skills" / "broken.py").exists()
