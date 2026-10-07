@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 STEPS = [
-    ("Мозъкът (задължително)", "console.anthropic.com > API Keys", [("ANTHROPIC_API_KEY", "Claude API ключ")]),
+    ("Мозъкът: Claude (платен)", "console.anthropic.com > API Keys", [("ANTHROPIC_API_KEY", "Claude API ключ")]),
+    ("Мозъкът: Gemini (безплатен)", "aistudio.google.com/apikey > Create API key", [("GEMINI_API_KEY", "Gemini API ключ")]),
     ("Как да се обръща към теб", "", [("JARVIS_USER_NAME", "Обръщение (напр. сър, шефе, Анастас)")]),
     ("Обаждания и SMS", "twilio.com > Console (купи номер)", [
         ("TWILIO_ACCOUNT_SID", "Account SID"), ("TWILIO_AUTH_TOKEN", "Auth Token"),

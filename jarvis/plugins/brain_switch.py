@@ -1,4 +1,4 @@
-"""Switch Jarvis's brain (the Claude model) by asking: "switch to Fable", "go faster".
+"""Switch Jarvis's brain (Claude or Gemini) by asking: "switch to Fable", "use Gemini", "go faster".
 
 Only the owner can switch; the choice is saved in .env and the app changes colour to match.
 """
@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 
+from .. import gemini
 from ..tools import ToolRegistry, obj
 
 # key: (model id, name, what it is for)
@@ -15,16 +16,19 @@ BRAINS = {
     "fable": ("claude-fable-5-1", "Fable 5.1", "the most capable, for the hardest problems; slower and pricier"),
     "sonnet": ("claude-sonnet-5-5", "Sonnet 5.5", "fast everyday work, cheaper"),
     "haiku": ("claude-haiku-5-5", "Haiku 5.5", "the fastest and cheapest, for simple things"),
+    "gemini": ("gemini-3.8-flash", "Gemini 3.8 Flash", "Google's model, free within Google's limits; needs GEMINI_API_KEY"),
 }
 
 
 def brain_key(model: str) -> str:
+    if model.startswith("gemini"):
+        return "gemini"
     return next((key for key, (mid, _n, _d) in BRAINS.items() if mid == model), "custom")
 
 
 def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
-        "Switch your own brain (the Claude model you run on) when the owner asks, e.g. 'switch to Fable', "
+        "Switch your own brain (the model you run on) when the owner asks, e.g. 'switch to Fable', "
         "'use the fastest brain'. Options: " + "; ".join(f"{k} = {n}: {d}" for k, (_m, n, d) in BRAINS.items()),
         obj({"brain": ("string", "One of: " + ", ".join(BRAINS))}),
     )
@@ -38,6 +42,9 @@ def register(registry: ToolRegistry, ctx) -> None:
         if key not in BRAINS:
             raise ValueError(f"Unknown brain '{brain}'. Choose: {', '.join(BRAINS)}")
         model, name, _desc = BRAINS[key]
+        if key == "gemini" and not gemini.available():
+            raise ValueError("Gemini needs a free key: the owner adds GEMINI_API_KEY in Settings > Connections "
+                             "(get it at aistudio.google.com/apikey).")
         hub = getattr(ctx, "hub", None)
         if hub is not None:
             hub.save_settings({"JARVIS_MODEL": model})

@@ -90,10 +90,17 @@ def lan_ip() -> str:
 def friendly_error(exc: Exception) -> str:
     text = f"{type(exc).__name__}: {exc}"
     low = text.lower()
+    if type(exc).__module__.startswith("google."):
+        if "resource_exhausted" in low or "429" in low:
+            return "Безплатният лимит на Gemini е изчерпан за момента. Опитай пак след минута."
+        if "api key" in low or "api_key" in low or "permission_denied" in low:
+            return "Gemini ключът е грешен. Вземи нов от aistudio.google.com/apikey и го сложи в Настройки > Връзки."
+        return f"Gemini не отговори: {exc}"
+    if "credit balance" in low or "billing" in low:
+        return ("Няма кредит в Claude акаунта. Безплатно: вземи ключ от aistudio.google.com/apikey и го сложи "
+                "в Настройки > Връзки > Gemini. Jarvis ще мине на Gemini сам.")
     if "authentication" in low or "api key" in low or "x-api-key" in low or "api_key" in low:
         return "Claude ключът липсва или е грешен. Сложи го в Настройки > Връзки."
-    if "credit balance" in low or "billing" in low:
-        return "Няма кредит в Claude акаунта. Зареди от console.anthropic.com > Billing."
     if "rate" in low and "limit" in low:
         return "Claude е претоварен в момента. Опитай пак след малко."
     if "connection" in low or "timed out" in low or "timeout" in low:
@@ -316,7 +323,7 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_MODEL", "Мозък: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
+        ("JARVIS_MODEL", "Мозък: gemini-3.8-flash (безплатно), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
     ]),
@@ -401,6 +408,7 @@ class Hub:
 
         with self.chat_locks[chat_id or 0]:
             self.busy += 1
+            model = self.ctx.settings.model
             try:
                 return self.ctx.jarvis.ask(
                     text, conversation=conversation, user=user, on_progress=progress,
@@ -408,6 +416,9 @@ class Hub:
                 )
             finally:
                 self.busy -= 1
+                if self.ctx.settings.model != model and self.ctx.settings.model.startswith("gemini"):
+                    # Claude ran out of credit and Gemini took over: tell the app (colour, toast).
+                    self.events.add("brain", brain="gemini", name="Gemini (безплатно)")
 
     def job_conversation(self, title: str) -> str | None:
         """The owner's chat named ``title`` (made if missing), where a routine writes its result."""

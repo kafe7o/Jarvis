@@ -13,7 +13,8 @@ from .config import settings
 def check() -> None:
     """Show which capabilities are ready and which keys are missing."""
     groups = {
-        "Мозък (Claude)": ["ANTHROPIC_API_KEY"],
+        "Мозък (Claude, платен)": ["ANTHROPIC_API_KEY"],
+        "Мозък (Gemini, безплатен)": ["GEMINI_API_KEY"],
         "Обаждания и SMS (Twilio)": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "JARVIS_OWNER_PHONE"],
         "Разговори по телефона (вх./изх.)": ["JARVIS_PUBLIC_URL"],
         "Плащания (Stripe)": ["STRIPE_API_KEY"],

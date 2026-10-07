@@ -1,4 +1,4 @@
-"""The brain: a Claude tool-use loop over every registered plugin."""
+"""The brain: a tool-use loop over every registered plugin, thinking with Claude or Google Gemini."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Callable
 
 import anthropic
 
-from . import core_files
+from . import core_files, gemini
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -65,6 +65,13 @@ SERVER_TOOLS = [
 ]
 
 
+def claude_unusable(exc: Exception) -> bool:
+    """True when Claude cannot answer at all: no credit left, or no or a wrong API key."""
+    text = str(exc).lower()
+    return (isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError))
+            or "credit balance" in text or "authentication" in text or "api_key" in text)
+
+
 def strip_thinking(messages: list) -> bool:
     """Remove thinking blocks from assistant turns in place. Returns True if any were removed."""
     removed = False
@@ -88,12 +95,14 @@ class Jarvis:
         confirmer: Confirmer,
         client: anthropic.Anthropic | None = None,
         on_progress: Callable[[str], None] | None = None,
+        gemini_brain: gemini.GeminiBrain | None = None,
     ):
         self.settings = settings
         self.store = store
         self.registry = registry
         self.confirmer = confirmer
         self.client = client or anthropic.Anthropic()
+        self.gemini = gemini_brain or gemini.GeminiBrain()
         self.on_progress = on_progress or (lambda _msg: None)
 
     def system_prompt(self, user=None) -> str:
@@ -131,12 +140,29 @@ class Jarvis:
         if allowed is None and user is not None:
             allowed = user.allowed_groups()
         tools = self.registry.definitions(allowed)
+        system = system if system is not None else self.system_prompt(user)
+        if s.model.startswith("gemini"):
+            return self.gemini.create(model=s.model, system=system, messages=messages, tools=tools,
+                                      max_tokens=s.max_tokens, effort=s.effort)
+        tools = [t for t in tools if t["name"] not in gemini.ONLY_FOR_GEMINI]
         if allowed is None or "web" in allowed:
             tools += SERVER_TOOLS
+        try:
+            return self._ask_claude(messages, system, tools)
+        except Exception as exc:
+            if not gemini.available() or not claude_unusable(exc):
+                raise
+            # No credit or no key for Claude: Gemini (free) takes over instead of failing.
+            log.warning("Claude is unavailable, switching to Gemini: %s", exc)
+            s.model = gemini.DEFAULT_MODEL
+            return self._request(messages, user, system, allowed)
+
+    def _ask_claude(self, messages: list, system, tools: list) -> object:
+        s = self.settings
         kwargs = dict(
             model=s.model,
             max_tokens=s.max_tokens,
-            system=system if system is not None else self.system_prompt(user),
+            system=system,
             messages=messages,
             tools=tools,
             output_config={"effort": s.effort},

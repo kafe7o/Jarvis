@@ -113,7 +113,8 @@ jarvis ask "Какво имам утре?"
 
 | За | Какво | Откъде |
 |---|---|---|
-| Мозъка (задължително) | `ANTHROPIC_API_KEY` | console.anthropic.com |
+| Мозъка: Claude (платен) | `ANTHROPIC_API_KEY` | console.anthropic.com |
+| Мозъка: Gemini (безплатен, в лимитите на Google) | `GEMINI_API_KEY` | aistudio.google.com/apikey |
 | Обаждания и SMS | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `JARVIS_OWNER_PHONE` | twilio.com (купуваш номер) |
 | Двупосочни и входящи разговори | `JARVIS_PUBLIC_URL` (напр. `ngrok http 8765`); в Twilio сложи „A call comes in“ → `<URL>/voice/incoming` | ngrok.com |
 | Плащания | `STRIPE_API_KEY` | dashboard.stripe.com |
@@ -126,6 +127,8 @@ jarvis ask "Какво имам утре?"
 | Плащания към други | `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` и/или `WISE_API_TOKEN` | developer.paypal.com, wise.com |
 | WhatsApp през API (по желание) | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | developers.facebook.com |
 | Известия на телефона | `NTFY_TOPIC` | приложението ntfy |
+
+Трябва поне един от двата мозъка. Ако Claude остане без кредит или без ключ, а има Gemini ключ, Jarvis сам минава на Gemini 3.8 Flash. С „смени мозъка на Gemini“ (или Opus, Sonnet, Haiku, Fable) се сменя ръчно. Внимание: на безплатния план Google може да ползва разговорите, за да подобрява своите продукти.
 
 Гласът (Whisper за разпознаване, неврален глас за говор, „hey_jarvis“ за събуждане) работи без допълнителни ключове.
 
