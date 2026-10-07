@@ -1,4 +1,4 @@
-# One-step install of J.A.R.V.I.S. on Windows. In PowerShell, inside this folder:
+﻿# One-step install of J.A.R.V.I.S. on Windows. In PowerShell, inside this folder:
 #   Set-ExecutionPolicy -Scope Process Bypass; .\install.ps1
 Set-Location $PSScriptRoot
 
