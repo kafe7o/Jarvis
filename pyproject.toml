@@ -16,7 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 phone = ["twilio>=9"]
 payments = ["stripe>=10"]
-voice = ["faster-whisper>=1.0", "sounddevice>=0.4", "numpy>=1.24", "edge-tts>=6.1", "pyttsx3>=2.90", "openwakeword>=0.6", "resemblyzer>=0.1.4"]
+voice = ["faster-whisper>=1.0", "sounddevice>=0.4", "numpy>=1.24", "edge-tts>=6.1", "pyttsx3>=2.90", "openwakeword>=0.6"]
+voicelock = ["resemblyzer>=0.1.4"]  # needs C++ build tools on Windows (webrtcvad)
 desktop = ["psutil>=5.9", "pyperclip>=1.8", "pyautogui>=0.9", "pillow>=10", "pycaw>=20230407; sys_platform == 'win32'"]
 browser = ["playwright>=1.40"]
 google = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.2"]

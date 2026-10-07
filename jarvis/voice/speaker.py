@@ -57,6 +57,11 @@ class VoiceLock:
 
 
 def enroll(settings) -> None:
+    try:
+        import resemblyzer  # noqa: F401
+    except ImportError:
+        raise SystemExit('Гласовата защита иска допълнителен пакет: pip install -e ".[voicelock]"\n'
+                         "(на Windows първо: Visual Studio Build Tools с „Desktop development with C++“)")
     from .audio import Microphone
 
     mic = Microphone()

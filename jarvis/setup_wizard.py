@@ -85,7 +85,7 @@ def run() -> None:
     if values.get("GOOGLE_CLIENT_SECRET") and input("Да вляза ли в Google сега? [да/не]: ").strip().lower().startswith("д"):
         subprocess.run([sys.executable, "-m", "jarvis", "google-login"])
     if input("Да запиша ли гласа ти, за да слуша само теб? [да/не]: ").strip().lower().startswith("д"):
-        subprocess.run([sys.executable, "-m", "jarvis", "enroll-voice"])
+        subprocess.run([sys.executable, "-m", "jarvis", "enroll-voice"], check=False)
     if input("Да тръгва ли Jarvis сам при включване на компютъра? [да/не]: ").strip().lower().startswith("д"):
         from .autostart import install
 
