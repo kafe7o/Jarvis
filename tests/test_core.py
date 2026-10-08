@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from conftest import Approver, FakeClient, response, text_block, tool_block
@@ -327,3 +328,16 @@ def test_an_answer_never_fails_because_of_caching(settings, ctx, registry):
 
     client.beta.messages.create = create
     assert Jarvis(settings, ctx.store, registry, lambda s: True, client=client).ask("здравей") == "Добре."
+
+
+def test_jarvis_waits_for_a_pause_before_acting(settings, ctx, registry, monkeypatch):
+    from test_hub import call, make_hub
+
+    from jarvis.config import silence_seconds
+
+    assert silence_seconds() == 2.0
+    for value, seconds in [("3", 3.0), ("1,5", 1.5), ("0", 0.5), ("60", 10.0), ("много", 2.0)]:
+        monkeypatch.setenv("JARVIS_SILENCE", value)
+        assert silence_seconds() == seconds
+    _hub, port = make_hub(settings, ctx, registry, [])
+    assert json.loads(call(port, "/api/me")[1])["silence"] == 2.0

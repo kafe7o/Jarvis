@@ -878,7 +878,7 @@ async function start() {
   let me;
   try { me = await api("/api/me"); }
   catch (e) { $("boot").innerHTML = `<div class="card" style="text-align:center"><div class="reactor" style="--s:56px;margin:0 auto 16px"></div><p>${esc(e.message)}</p><button class="btn primary" onclick="location.reload()">Опитай пак</button></div>`; return; }
-  state.groups = me.groups; state.restartable = me.restartable;
+  state.groups = me.groups; state.restartable = me.restartable; state.silence = me.silence;
   if (!me.user) { showAuth(me); return; }
   state.me = me.user;
   $("auth").classList.add("hidden"); $("boot").classList.add("hidden"); $("app").classList.remove("hidden");
@@ -1123,18 +1123,30 @@ $("speakBtn").addEventListener("click", () => {
 });
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null;
+// How long a pause ends what you say (JARVIS_SILENCE): nothing starts while you are still talking.
+function silenceMs() { return (state.silence || 2) * 1000; }
+// When to act: the pause counts from the last sound (interim results come while you speak; the final one comes
+// only after the browser has heard a short pause itself).
+function quietIn(final, last) { return final ? Math.max(150, last + silenceMs() - Date.now()) : silenceMs(); }
 $("mic").addEventListener("click", () => {
   if (!Recognition) { toast("Този браузър не поддържа гласово въвеждане. Пробвай Chrome или Edge.", "Глас", "warn"); return; }
-  if (rec) { rec.stop(); return; }
+  if (rec) { rec.stop(); return; }  // tapped again: done talking
   rec = new Recognition();
-  rec.lang = "bg-BG"; rec.interimResults = true; rec.continuous = false;
-  const before = input.value;
+  rec.lang = "bg-BG"; rec.interimResults = true; rec.continuous = true;
+  const before = input.value, mine = rec;
+  let last = Date.now(), quiet = null;
   rec.onresult = (e) => {
-    const said = Array.from(e.results).map((r) => r[0].transcript).join("");
+    const said = Array.from(e.results).map((r) => r[0].transcript.trim()).join(" ");
     input.value = (before ? before + " " : "") + said;
-    if (e.results[e.results.length - 1].isFinal) { rec.stop(); send(); }
+    const final = e.results[e.results.length - 1].isFinal;
+    if (!final) last = Date.now();
+    clearTimeout(quiet);
+    quiet = setTimeout(() => mine.stop(), quietIn(final, last));
   };
-  rec.onend = () => { rec = null; $("mic").classList.remove("rec"); };
+  rec.onend = () => {
+    clearTimeout(quiet); rec = null; $("mic").classList.remove("rec");
+    if (input.value.trim() && input.value !== before) send();
+  };
   rec.onerror = (e) => { if (e.error === "not-allowed") toast("Разреши микрофона в браузъра.", "Глас", "warn"); };
   $("mic").classList.add("rec");
   rec.start();
@@ -1239,12 +1251,13 @@ const SAY_NO = /(?<!\p{L})(?:не|недей|откажи|отказвам|от�
 const SAY_ALWAYS = /(?<!\p{L})винаги(?!\p{L})/iu;
 const SAY_YES = /(?<!\p{L})(?:да|давай|разрешавам|разреши|добре|окей|ок|потвърждавам|yes|ok|okay)(?!\p{L})/iu;
 const SAY_CONFIRM = /(?<!\p{L})потвърждавам(?!\p{L})/iu;
+const SAY_WAIT = /(?<!\p{L})(?:чакай|почакай|момент|ама|обаче)(?!\p{L})/iu;  // „да, ама почакай“ is no answer yet
 const MONEY = /ПЛАЩАНЕ|ПРЕВОД|ФАКТУРА|ВЪЗСТАНОВЯВАНЕ|ИЗПЛАЩАНЕ/;
 const ANDROID = /Android/i.test(navigator.userAgent);
 const hud = { open: false, listening: false, rec: null, awake: false, awakeUntil: 0, deafUntil: 0, busy: false, speaking: false,
               speech: 0, audio: null, ctx: null, micAnalyser: null, speechAnalyser: null, mic: null, screen: null,
               screenVideo: null, cam: null, confirm: null, lvl: 0, buf: null, pendingChat: null, dirty: false, steps: [],
-              look: "orb", rgb: [0, 229, 255], jobs: new Map(), done: [], asked: 0 };
+              look: "orb", rgb: [0, 229, 255], jobs: new Map(), done: [], asked: 0, said: "", quiet: null, lastSound: 0 };
 // What he says at once when a request needs the full agent: no AI, so it is instant and costs nothing.
 const ACKS = ["Заемам се, сър.", "Веднага, сър.", "Започвам, сър.", "Дадено, сър.", "Разбрано, сър."];
 try { hud.look = localStorage.getItem("jarvisLook") || "orb"; } catch (e) {}
@@ -1468,25 +1481,38 @@ function hudHeard(final, interim) {
     if (!WAKE.test(said) || WAKE.test(hud.saying)) return;
     hudHush(false);
   }
-  if (hud.confirm) {
-    $("hudYou").textContent = said;
-    if (!final || words(final) > 4) return;
-    const money = MONEY.test(hud.confirm.ev.text);
-    if (SAY_NO.test(final)) answerConfirm(hud.confirm, false, false);
-    else if (money) { if (SAY_CONFIRM.test(final)) answerConfirm(hud.confirm, true, false); }
-    else if (SAY_ALWAYS.test(final) && hud.confirm.ev.always) answerConfirm(hud.confirm, true, true);
-    else if (SAY_YES.test(final) || SAY_ALWAYS.test(final)) answerConfirm(hud.confirm, true, false);
-    return;
-  }
+  if (hud.confirm) { hudHeardSoFar(final, said); return; }  // „да“ / „не“ count once you have finished
   if (hud.busy) return;
-  const called = WAKE.test(said), awake = Date.now() < hud.awakeUntil;
+  const called = WAKE.test(said) || WAKE.test(hud.said), awake = Date.now() < hud.awakeUntil;
   if (!called && !awake) return;
-  $("hudYou").textContent = said;
   if (called && !awake) { hud.awake = true; chime(); }
   hud.awakeUntil = Date.now() + 8000;
   hudIdle();
-  if (!final) return;
-  const command = final.replace(WAKE, " ").replace(/^[\s,.!?]+/, "").trim();
+  hudHeardSoFar(final, said);
+}
+// Everything said so far; Jarvis acts only after a pause of state.silence seconds, never while you still talk.
+function hudHeardSoFar(final, said) {
+  if (final) hud.said = (hud.said + " " + final).trim();
+  if (!final || !hud.lastSound) hud.lastSound = Date.now();
+  $("hudYou").textContent = final ? hud.said : (hud.said + " " + said).trim();
+  clearTimeout(hud.quiet);
+  hud.quiet = setTimeout(hudPause, quietIn(final, hud.lastSound));
+}
+function hudPause() {
+  const said = hud.said;
+  hud.said = ""; hud.lastSound = 0;
+  if (!said || !hud.open) return;
+  if (hud.confirm) {
+    if (words(said) > 4 || (SAY_WAIT.test(said) && !SAY_NO.test(said))) return;
+    const money = MONEY.test(hud.confirm.ev.text);
+    if (SAY_NO.test(said)) answerConfirm(hud.confirm, false, false);
+    else if (money) { if (SAY_CONFIRM.test(said)) answerConfirm(hud.confirm, true, false); }
+    else if (SAY_ALWAYS.test(said) && hud.confirm.ev.always) answerConfirm(hud.confirm, true, true);
+    else if (SAY_YES.test(said) || SAY_ALWAYS.test(said)) answerConfirm(hud.confirm, true, false);
+    return;
+  }
+  if (hud.busy) return;
+  const command = said.replace(WAKE, " ").replace(/^[\s,.!?]+/, "").trim();
   if (command && STOP.test(command) && words(command) <= 2) { hud.awakeUntil = 0; hudIdle(); return; }
   if (command) hudAsk(command);
 }
@@ -1729,6 +1755,7 @@ async function openHud() {
 function closeHud() {
   if (!hud.open) return;
   hud.open = false; hud.listening = false; hud.awake = false;
+  clearTimeout(hud.quiet); hud.said = ""; hud.lastSound = 0;
   hud.done.splice(0).forEach(({ job, data }) => hudFinished(job, data));  // not said yet: a note instead
   if (hud.rec) { try { hud.rec.abort(); } catch (e) {} hud.rec = null; }
   hudHush(); hud.speaking = false;

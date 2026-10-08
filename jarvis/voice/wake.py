@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 
+from ..config import silence_seconds
 from .audio import Microphone
 
 WAKE_PATTERN = re.compile(r"\b(hey\s+)?(jarvis|джарвис|жарвис|джарвиз|дарвис)\b[\s,.!?]*", re.I)
@@ -46,7 +47,7 @@ class WakeWord:
                 if max(scores.values()) >= self.threshold:
                     return ""
         while True:
-            audio = self.mic.record_utterance(wait_seconds=3600, max_seconds=10)
+            audio = self.mic.record_utterance(wait_seconds=3600, max_seconds=20, silence_seconds=silence_seconds())
             if audio is None or len(audio) < 4000:
                 continue
             command = strip_wake_word(self.transcribe(audio))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from ..app import build, start_background
-from ..config import settings
+from ..config import settings, silence_seconds
 from ..confirm import is_yes
 
 log = logging.getLogger("jarvis.voice")
@@ -38,7 +38,7 @@ def run(shared=None) -> None:
         mic.drain()
 
     def listen(wait: float = 6.0) -> tuple[str, object]:
-        audio = mic.record_utterance(wait_seconds=wait)
+        audio = mic.record_utterance(wait_seconds=wait, silence_seconds=silence_seconds())
         text = transcribe(audio) if audio is not None else ""
         if text:
             print(f"Ти: {text}")

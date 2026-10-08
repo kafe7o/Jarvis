@@ -26,6 +26,16 @@ def _flag(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on", "да"}
 
 
+def silence_seconds() -> float:
+    """How long a pause ends what the owner says (JARVIS_SILENCE): Jarvis starts only after it, never while
+    they are still talking. Read each time, so a change in Settings counts at once."""
+    try:
+        seconds = float((_env("JARVIS_SILENCE", "2") or "2").replace(",", "."))
+    except ValueError:
+        return 2.0
+    return min(max(seconds, 0.5), 10.0)
+
+
 @dataclass
 class Settings:
     # Brain

@@ -34,6 +34,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .accounts import GROUPS, SESSION_DAYS, TOKEN_USER, Accounts, User, check_password, conversation_id
+from .config import silence_seconds
 from .tools import Tool, asking
 from .work import Board
 
@@ -373,6 +374,7 @@ EXTRA_SETTINGS = [
     ]),
     ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
         ("JARVIS_TTS_VOICE", "Безплатен глас на български (bg-BG-BorislavNeural)"),
+        ("JARVIS_SILENCE", "Колко секунди тишина да изчака, преди да започне, за да не те прекъсва (празно = 2)"),
         ("ELEVENLABS_API_KEY", "ElevenLabs ключ, за глас като във филма или твой клониран глас (по желание)"),
         ("ELEVENLABS_VOICE_ID", "ElevenLabs глас (празно = George, британски мъжки)"),
     ]),
@@ -655,7 +657,7 @@ class Hub:
             from .plugins.brain_switch import brain_key
 
             return 200, {"user": user.public() if user else None, "needs_setup": self.accounts.count() == 0,
-                         "brain": brain_key(self.ctx.settings.model),
+                         "brain": brain_key(self.ctx.settings.model), "silence": silence_seconds(),
                          "can_setup": req.local or req.via == "token", "restartable": self.restartable,
                          "groups": [{"key": k, "label": l, "desc": d, "sensitive": s} for k, l, d, s in GROUPS]}
         if p == "/api/setup" and m == "POST":
