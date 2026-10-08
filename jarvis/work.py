@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 import threading
 import time
 from collections import deque
 from typing import Callable
+
+log = logging.getLogger("jarvis.work")
 
 MAX_STEPS = 80
 OPEN = ("running", "waiting")  # a step still going: working, or waiting for the person's yes
@@ -20,9 +23,10 @@ OPEN = ("running", "waiting")  # a step still going: working, or waiting for the
 
 class Board:
     def __init__(self, label: Callable[[str], str] = str, publish: Callable[[dict, int | None], None] | None = None,
-                 keep: int = 10):
+                 keep: int = 10, watch: Callable[[dict, dict], None] | None = None):
         self.label = label  # tool name -> words for people ("Търси в интернет")
         self.publish = publish or (lambda run, to: None)
+        self.watch = watch or (lambda run, event: None)  # sees every event too (the memory map lights up from it)
         self.running: dict[int, dict] = {}
         self.recent: deque[dict] = deque(maxlen=keep)
         self._ids = itertools.count(1)
@@ -48,6 +52,10 @@ class Board:
                     return
                 self.apply(run, event)
             self._publish(run)
+            try:
+                self.watch(run, event)
+            except Exception:
+                log.exception("watching the work failed")
         return report
 
     def apply(self, run: dict, event: dict) -> None:

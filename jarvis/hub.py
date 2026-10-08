@@ -25,7 +25,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from concurrent.futures import Future
 from datetime import datetime
 from http.cookies import SimpleCookie
@@ -408,7 +408,10 @@ class Hub:
         self.chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         self.busy = 0  # requests being answered right now; updates wait for 0
         # what Jarvis is doing right now and just did, step by step: the "На живо" screen and Settings > Задачи
-        self.board = Board(label=lambda name: tool_label(ctx.jarvis.registry, name), publish=self.publish_work)
+        self.board = Board(label=lambda name: tool_label(ctx.jarvis.registry, name), publish=self.publish_work,
+                           watch=self.watch_memory)
+        self._memory: tuple[float, dict] | None = None
+        self._thought: deque[int] = deque(maxlen=50)  # requests already shown thinking with the memory
         self.updating = threading.Lock()
         self.failures: dict[str, list[float]] = defaultdict(list)
         ctx.hub = self
@@ -487,6 +490,38 @@ class Hub:
         self.events.add("work", run=shown)
         if to is not None:
             self.events.add("work", to=to, run=shown)
+
+    def memory_graph(self, fresh: bool = False) -> dict:
+        """The „Памет“ map (memory_map.py), rebuilt when something was written or every 20 seconds."""
+        from . import memory_map
+
+        if fresh or self._memory is None or time.time() - self._memory[0] > 20:
+            vault = Path(self.ctx.settings.vault).expanduser()
+            self._memory = (time.time(), memory_map.build(self.ctx.store, vault if vault.is_dir() else None))
+        return self._memory[1]
+
+    def watch_memory(self, run: dict, event: dict) -> None:
+        """Light up on the memory map what Jarvis reads or writes while it works (only the owner's map)."""
+        from . import memory_map
+
+        if run.get("to") is not None:
+            return
+        if event.get("type") == "level" and event.get("level") in (2, 3):
+            # Every answer starts from what he remembers about the owner (it is in his instructions): once a request.
+            if run["id"] not in self._thought:
+                self._thought.append(run["id"])
+                self.events.add("memory", hub="facts", verb="think", nodes=[], run=run["id"], label="Мисли с това, което помни")
+            return
+        info = event.get("memory")
+        if event.get("type") != "step" or not info or event.get("state") != "ok":
+            return
+        tool = info.get("tool", "")
+        writes = memory_map.TOOLS.get(tool, ("", ""))[1] == "write"
+        hub, verb, nodes = memory_map.touched(self.memory_graph(fresh=writes), tool, info.get("args") or {},
+                                              info.get("result") or "")
+        if hub:
+            self.events.add("memory", hub=hub, verb=verb, nodes=nodes, run=run["id"], changed=writes,
+                            label=tool_label(self.ctx.jarvis.registry, tool))
 
     def work_for(self, user: User) -> dict:
         """The "На живо" screen: owners see all the work, a member only their own."""
@@ -716,6 +751,9 @@ class Hub:
 
         if not user.is_owner:
             raise HTTPError(403, "Само собственикът може да прави това.")
+
+        if p == "/api/memory" and m == "GET":  # the „Памет“ map
+            return 200, self.memory_graph(fresh=bool(req.query.get("fresh")))
 
         if p == "/api/users":
             if m == "GET":

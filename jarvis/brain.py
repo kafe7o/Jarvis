@@ -500,7 +500,8 @@ class Jarvis:
         log.info("tool %s -> %s", name, output[:200] if isinstance(output, str) else "[image]")
         self.log_activity(user, agent, name, args, is_error)
         declined = is_error and isinstance(output, str) and output.startswith("The user declined")
-        report({"type": "step", "id": step, "state": "declined" if declined else "error" if is_error else "ok"})
+        report({"type": "step", "id": step, "state": "declined" if declined else "error" if is_error else "ok",
+                "memory": {"tool": name, "args": args, "result": output[:8000] if isinstance(output, str) else ""}})
         if not is_error and name in ("make_plan", "update_plan_step"):
             self.report_plan(report, args.get("plan_id") if name == "update_plan_step" else output)
         return output, is_error
