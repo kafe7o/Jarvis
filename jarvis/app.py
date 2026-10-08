@@ -50,3 +50,7 @@ def start_background(ctx: Context, restartable: bool = False) -> None:
         hub.serve()
         if restartable:
             hub.auto_update()
+    from . import upgrades
+
+    for news in upgrades.started(ctx.settings.home):  # Jarvis is up: his upgrades stay (and what he undid is told)
+        ctx.notify(news)

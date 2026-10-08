@@ -100,6 +100,9 @@ REPLY_ON = rx(r"^(?:отговаряй|отговарай) (?:вместо ме�
               r"^(?:включи|пусни) (?:автоматичните )?отговори(?:те)?(?: на съобщенията)?$")
 REPLY_OFF = rx(r"^(?:спри|престани|изключи) (?:да отговаряш|автоматичните отговори|отговорите)(?: вместо мен| на съобщенията)?$|"
                r"^не отговаряй (?:вместо мен|на съобщенията)$")
+UNDO_UPGRADE = rx(r"^(?:върни|отмени|махни)(?: последната| си)? (?:надстройка(?:та)?|промяна(?:та)?)(?: (?:на|в) себе си)?$")
+UPDATE_SELF = rx(r"^(?:обнови се|ъпдейтни се|самоъпдейтни се|обнови (?:jarvis|джарвис)|"
+                 r"провери за (?:нова версия|обновления|ъпдейт))$")
 SPLIT = rx(r"\s*,?\s+(?:и после|после|след това|и)\s+")
 
 # Sites and programs that "отвори …" opens without asking the AI. Keys are regular expressions (Bulgarian
@@ -237,6 +240,10 @@ def _talk(s: str, info: Info) -> Step | None:
         return Step(lambda _o: info.spending() or "Днес не съм похарчил нищо.")
     if (REPLY_ON.match(s) or REPLY_OFF.match(s)) and info.owner:  # „отговаряй вместо мен“ (replies.py)
         return Step(lambda out: out, "auto_reply", {"action": "on" if REPLY_ON.match(s) else "off"})
+    if UNDO_UPGRADE.match(s) and info.owner:  # works even when an upgrade broke the AI part (upgrades.py)
+        return Step(lambda out: out, "undo_upgrade", {})
+    if UPDATE_SELF.match(s) and info.owner:
+        return Step(lambda out: out, "update_jarvis", {})
     return None
 
 

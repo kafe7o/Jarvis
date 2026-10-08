@@ -70,6 +70,8 @@ TOOL_LABELS = {
     "media_control": "Управлява музиката", "lock_computer": "Заключва компютъра",
     "auto_reply": "Отговаря вместо теб", "phone_reply": "Праща отговор от телефона",
     "find_leads": "Търси клиенти без сайт", "build_website": "Прави сайт",
+    "read_own_code": "Чете собствения си код", "upgrade_self": "Надстройва се", "undo_upgrade": "Връща надстройка",
+    "list_upgrades": "Преглежда надстройките си", "update_jarvis": "Обновява се",
 }
 GROUP_LABELS = {key: label for key, label, _desc, _sensitive in GROUPS}
 
@@ -632,6 +634,17 @@ class Hub:
             os._exit(0)
 
         threading.Thread(target=go, daemon=True).start()
+
+    def restart_when_idle(self, pause: float = 6) -> None:
+        """Restart once nobody waits on an answer, so the answer about an upgrade still reaches the person."""
+        def go():
+            time.sleep(pause)
+            while self.busy:
+                time.sleep(1)
+            time.sleep(pause)
+            self.restart()
+
+        threading.Thread(target=go, name="jarvis-restart", daemon=True).start()
 
     # routing
     def handle(self, req: Request):

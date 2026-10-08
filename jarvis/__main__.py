@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import subprocess
 import sys
+from contextlib import contextmanager
 
 from .config import settings
 
@@ -41,16 +43,47 @@ def check() -> None:
     print(f"Данни: {settings.home}")
 
 
+@contextmanager
+def recovering():
+    """Starting up: if Jarvis cannot start right after he changed his own code (upgrade_self), undo that
+    change and start again (upgrades.py)."""
+    try:
+        yield
+    except Exception:
+        from . import upgrades
+
+        if upgrades.recover(settings.home) is None:
+            raise
+        logging.getLogger("jarvis").exception("Jarvis could not start after an upgrade; it was undone")
+        flags = 0x08000000 if sys.platform.startswith("win") else 0  # CREATE_NO_WINDOW
+        subprocess.Popen([sys.executable, "-m", "jarvis", *sys.argv[1:]], cwd=os.getcwd(), creationflags=flags)
+        os._exit(1)
+
+
+def undo() -> None:
+    """`jarvis undo`: put back the code from before Jarvis's last upgrade of himself (when the app no longer opens)."""
+    from . import upgrades
+    from .updater import restart_running_app
+
+    try:
+        record = upgrades.undo(settings.home)
+    except (ValueError, RuntimeError) as exc:
+        raise SystemExit(str(exc))
+    print(f"Върнах надстройка {record['id']}: {record['what']}")
+    restart_running_app()
+
+
 def serve(headless: bool = False) -> None:
     """Everything in one process sharing one Jarvis: reminders, heartbeat, phone, web hub,
     Telegram (if configured) and voice (if installed; otherwise the terminal chat)."""
     import threading
 
-    from .app import build, start_background
-    from .interfaces import cli
+    with recovering():
+        from .app import build, start_background
+        from .interfaces import cli
 
-    shared = build(cli.console_confirm, [cli.notify], on_progress=cli.progress)
-    start_background(shared[1], restartable=headless)
+        shared = build(cli.console_confirm, [cli.notify], on_progress=cli.progress)
+        start_background(shared[1], restartable=headless)
     if settings.telegram_token and settings.telegram_owner_id:
         from .interfaces import telegram
 
@@ -151,14 +184,15 @@ def app(window: bool = True) -> None:
             open_window(url)
         return
 
-    from .app import build, start_background
-    from .hub import Hub
-
     holder: dict = {}
-    _jarvis, ctx = build(lambda summary: holder["hub"].confirmer(summary))
-    holder["hub"] = Hub(ctx, token, port, restartable=True)
-    holder["hub"].serve()
-    start_background(ctx)
+    with recovering():
+        from .app import build, start_background
+        from .hub import Hub
+
+        _jarvis, ctx = build(lambda summary: holder["hub"].confirmer(summary))
+        holder["hub"] = Hub(ctx, token, port, restartable=True)
+        holder["hub"].serve()
+        start_background(ctx)
     if settings.telegram_token and settings.telegram_owner_id:
         from .interfaces import telegram
 
@@ -195,7 +229,7 @@ def owner() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
-    parser.add_argument("mode", nargs="?", default="chat", choices=["app", "owner", "shortcut", "update", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
+    parser.add_argument("mode", nargs="?", default="chat", choices=["app", "owner", "shortcut", "update", "undo", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
                                  "enroll-voice", "google-login"])
     parser.add_argument("text", nargs="*", help="Въпрос за режим ask")
     parser.add_argument("--hub", help="node: адрес на главния Jarvis, напр. http://192.168.1.10:8770")
@@ -220,6 +254,8 @@ def main(argv: list[str] | None = None) -> None:
         from .updater import update
 
         update(Path.cwd())
+    elif args.mode == "undo":
+        undo()
     elif args.mode == "shortcut":
         from pathlib import Path
 

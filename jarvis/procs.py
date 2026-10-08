@@ -34,14 +34,14 @@ def _kill_tree(proc: subprocess.Popen) -> None:
 
 
 def run_capture(args, *, shell: bool = False, cwd: str | None = None, timeout: float = 120,
-                merge: bool = True) -> tuple[int | None, bytes, bytes]:
+                merge: bool = True, env: dict | None = None) -> tuple[int | None, bytes, bytes]:
     """Run ``args``; return (exit code or None on timeout, stdout, stderr).
 
     With ``merge`` stderr is folded into stdout (and the returned stderr is empty)."""
     extra = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {"start_new_session": True}
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(args, shell=shell, cwd=cwd, stdin=subprocess.DEVNULL, stdout=out,
-                                stderr=subprocess.STDOUT if merge else err, **extra)
+                                stderr=subprocess.STDOUT if merge else err, env=env, **extra)
         try:
             code = proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:

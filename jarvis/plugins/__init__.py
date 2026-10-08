@@ -14,7 +14,7 @@ from ..tools import ToolRegistry
 log = logging.getLogger("jarvis.plugins")
 
 BUILTIN = ["memory", "tasks", "system", "browser", "android", "home", "comms", "messaging", "replies", "google",
-           "payments", "sendmoney", "team", "brain_switch", "websearch", "daily", "leads", "vault", "agent"]  # agent last: loads skills
+           "payments", "sendmoney", "team", "brain_switch", "websearch", "daily", "leads", "vault", "upgrade", "agent"]  # agent last: loads skills
 
 
 @dataclass
@@ -37,6 +37,7 @@ GROUP_OVERRIDES = {"request_approval": "core", "make_plan": "core", "update_plan
                    "show_plan": "core", "search_history": "memory", "switch_brain": "core",
                    "google_search": "web", "weather": "web", "play_youtube": "system", "watch_video": "system",
                    "auto_reply": "messaging", "phone_reply": "messaging", "find_leads": "web", "build_website": "system",
+                   **{name: "agent" for name in ("read_own_code", "upgrade_self", "undo_upgrade", "list_upgrades", "update_jarvis")},
                    **{f"vault_{name}": "memory" for name in ("note", "write", "read", "search", "list", "done")}}
 
 

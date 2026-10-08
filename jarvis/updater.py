@@ -1,7 +1,8 @@
 """Keeping Jarvis up to date from GitHub: `jarvis update`, the app's "Update now" button, and a
 background check that installs a new version by itself when Jarvis is idle.
 
-Your .env, the .venv and everything in ~/.jarvis (memory, chats, accounts) stay as they are.
+Your .env, the .venv and everything in ~/.jarvis (memory, chats, accounts) stay as they are, and the
+upgrades Jarvis made to himself are applied again on top of the new version (upgrades.py).
 """
 
 from __future__ import annotations
@@ -79,6 +80,11 @@ def install(root: Path, archive: zipfile.ZipFile, say=print) -> int:
         run_capture([sys.executable, "-m", "pip", "install", "-q", "-e", f"{root}[all]"], timeout=1800)
     if version_of(archive):
         (root / VERSION_FILE).write_text(version_of(archive), encoding="utf-8")
+    from . import upgrades
+    from .config import settings
+
+    for line in upgrades.reapply(settings.home, root):  # the changes Jarvis made to himself (upgrade_self)
+        say(line)
     return count
 
 
