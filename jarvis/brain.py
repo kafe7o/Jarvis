@@ -13,7 +13,7 @@ from typing import Callable
 
 import anthropic
 
-from . import core_files, gemini, local, router, usage, work
+from . import core_files, gemini, groq, local, router, usage, work
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -125,6 +125,7 @@ class Jarvis:
         on_progress: Callable[[str], None] | None = None,
         gemini_brain: gemini.GeminiBrain | None = None,
         local_brain: local.LocalBrain | None = None,
+        groq_brain: groq.GroqBrain | None = None,
     ):
         self.settings = settings
         self.store = store
@@ -133,6 +134,7 @@ class Jarvis:
         self.client = client or anthropic.Anthropic()
         self.gemini = gemini_brain or gemini.GeminiBrain()
         self.local = local_brain or local.LocalBrain()
+        self.groq = groq_brain or groq.GroqBrain()
         self.on_progress = on_progress or (lambda _msg: None)
         self._step_ids = itertools.count(1)
 
@@ -194,17 +196,10 @@ class Jarvis:
         again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
+        if groq.is_groq(model):
+            return self._ask_free([model, gemini.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort)
         if model.startswith("gemini"):
-            try:
-                answer = self.gemini.create(model=model, system=system, messages=messages, tools=tools,
-                                            max_tokens=max_tokens, effort=effort)
-            except gemini.UsedUp:
-                if not local.available():
-                    raise
-                log.warning("the free Gemini requests are used up for today; the brain on this computer answers")
-                return self._ask_local("local", system, messages, tools, max_tokens, effort)
-            usage.record(self.store, answer, model)
-            return answer
+            return self._ask_free([model, groq.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort)
         free = self.free_instead()
         if free:
             log.info("Claude's daily cap is reached; %s answers instead", free)
@@ -217,11 +212,12 @@ class Jarvis:
             usage.record(self.store, answer, model)
             return answer
         except Exception as exc:
-            if not gemini.available() or not claude_unusable(exc):
+            takeover = gemini.DEFAULT_MODEL if gemini.available() else groq.DEFAULT_MODEL if groq.available() else None
+            if takeover is None or not claude_unusable(exc):
                 raise
-            # No credit or no key for Claude: Gemini (free) takes over instead of failing.
-            log.warning("Claude is unavailable, switching to Gemini: %s", exc)
-            s.model = gemini.DEFAULT_MODEL
+            # No credit or no key for Claude: a free brain (Gemini, else Groq) takes over instead of failing.
+            log.warning("Claude is unavailable, switching to %s: %s", takeover, exc)
+            s.model = takeover
             return self._request(messages, user, system, allowed, model=s.model, **again)
 
     def free_instead(self) -> str | None:
@@ -231,9 +227,34 @@ class Jarvis:
             return None
         if gemini.available():
             return gemini.DEFAULT_MODEL
+        if groq.available():
+            return groq.DEFAULT_MODEL
         if local.available():
             return "local"
         raise BudgetReached(f"Claude's daily cap of ${cap:g} is reached and no free brain is set up.")
+
+    def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
+        """The free brains in ``order``: the first one asked for, then the others that are set up, each taking
+        over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day)."""
+        used_up = None
+        for i, model in enumerate(order):
+            ready = (groq.available() if groq.is_groq(model) else local.available() if local.is_local(model)
+                     else gemini.available())
+            if i and not ready:
+                continue
+            if local.is_local(model):
+                return self._ask_local(model, system, messages, tools, max_tokens, effort)
+            brain = self.groq if groq.is_groq(model) else self.gemini
+            try:
+                answer = brain.create(model=model, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
+                                      effort=effort)
+            except (groq.UsedUp, gemini.UsedUp) as exc:
+                log.warning("%s; the next free brain answers", exc)
+                used_up = exc
+                continue
+            usage.record(self.store, answer, answer.model or model)
+            return answer
+        raise used_up
 
     def _ask_local(self, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
         name = local.pick(model.partition(":")[2] or self.settings.local_model)
@@ -245,13 +266,15 @@ class Jarvis:
         return answer
 
     def fast_model(self) -> str:
-        """The model for the quick lane: the owner's choice (JARVIS_FAST_MODEL), else free Gemini, else the
-        brain on this computer, else Claude's cheapest."""
+        """The model for the quick lane: the owner's choice (JARVIS_FAST_MODEL), else free Groq (the fastest),
+        else free Gemini, else the brain on this computer, else Claude's cheapest."""
         s = self.settings
         if s.fast_model:
             return s.fast_model
         if local.is_local(s.model):
             return s.model
+        if groq.is_groq(s.model) or groq.available():
+            return groq.DEFAULT_MODEL
         if s.model.startswith("gemini") or gemini.available():
             return gemini.DEFAULT_MODEL
         return "claude-haiku-5-5"
