@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from conftest import Approver, FakeClient, response, text_block, tool_block
+from conftest import Approver, FakeClient, response, system_text, text_block, tool_block
 
 from jarvis.brain import Jarvis
 from jarvis.confirm import is_yes
@@ -341,3 +341,11 @@ def test_jarvis_waits_for_a_pause_before_acting(settings, ctx, registry, monkeyp
         assert silence_seconds() == seconds
     _hub, port = make_hub(settings, ctx, registry, [])
     assert json.loads(call(port, "/api/me")[1])["silence"] == 2.0
+
+
+def test_jarvis_is_told_to_claim_only_what_his_tools_did(settings, ctx, registry):
+    client = FakeClient([response(text_block("Добре."))])
+    Jarvis(settings, ctx.store, registry, Approver(), client=client).ask("работи сам до 6:30 и ми пиши доклад")
+    instructions = system_text(client.requests[0])
+    assert "only when a tool call" in instructions and "Between messages you do nothing on your own" in instructions
+    assert "keep working while the user" in registry.tools["schedule_job"].description
