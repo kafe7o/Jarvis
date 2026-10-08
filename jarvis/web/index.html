@@ -322,6 +322,11 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .hud-log .st-waiting { border-left-color: var(--warn); color: #ffe2b0; } .hud-log .st-declined { opacity: .6; }
 .hud-log .st-running { animation: hudblink 1.2s ease-in-out infinite !important; }
 .hud-log .live-link { margin: 4px 0 0; font: 11px var(--mono); letter-spacing: .08em; color: rgba(var(--hud-rgb), .9); }
+.hud-log h6.behind { margin-top: 18px; }
+.hud-log .bg-job { margin: 0 0 6px; padding: 6px 10px; border: 1px dashed rgba(var(--hud-rgb), .45); cursor: pointer; font-size: 11px;
+  color: rgba(var(--hud-rgb), .75); }
+.hud-log .bg-job b { display: block; font-weight: 500; color: #d9f7ff; font-family: var(--font); font-size: 12px; letter-spacing: 0; margin-bottom: 2px; }
+.hud-log .bg-job b::before { content: "◷ "; color: var(--hud); }
 @keyframes slidein { from { opacity: 0; transform: translateX(-12px); } }
 .hud-confirm { position: absolute; right: 24px; top: 96px; width: min(360px, calc(100vw - 48px)); padding: 16px; border: 1px solid rgba(255,181,71,.6);
   background: rgba(40, 26, 4, .65); box-shadow: 0 0 30px rgba(255,181,71,.2); font-family: var(--font); }
@@ -975,7 +980,19 @@ function speechParts(text) {
   if (cur) parts.push(cur);
   return parts.slice(0, 40);
 }
-async function fetchVoice(text, sample) {
+// Short phrases ("Заемам се, сър.") are kept once fetched, so they play at once the next time.
+const shortVoices = new Map();
+function fetchVoice(text, sample) {
+  if (text.length > 60) return fetchVoiceNow(text, sample);
+  if (!shortVoices.has(text)) {
+    if (shortVoices.size >= 40) shortVoices.delete(shortVoices.keys().next().value);
+    const blob = fetchVoiceNow(text, sample || text);
+    shortVoices.set(text, blob);
+    blob.then((b) => { if (!b) shortVoices.delete(text); });
+  }
+  return shortVoices.get(text);
+}
+async function fetchVoiceNow(text, sample) {
   try {
     const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis": "1" },
                                           body: JSON.stringify({ text, sample }) });
@@ -1148,7 +1165,9 @@ const ANDROID = /Android/i.test(navigator.userAgent);
 const hud = { open: false, listening: false, rec: null, awake: false, awakeUntil: 0, deafUntil: 0, busy: false, speaking: false,
               speech: 0, audio: null, ctx: null, micAnalyser: null, speechAnalyser: null, mic: null, screen: null,
               screenVideo: null, cam: null, confirm: null, lvl: 0, buf: null, pendingChat: null, dirty: false, steps: [],
-              look: "orb", rgb: [0, 229, 255] };
+              look: "orb", rgb: [0, 229, 255], jobs: new Map(), done: [], asked: 0 };
+// What he says at once when a request needs the full agent: no AI, so it is instant and costs nothing.
+const ACKS = ["Заемам се, сър.", "Веднага, сър.", "Започвам, сър.", "Дадено, сър.", "Разбрано, сър."];
 try { hud.look = localStorage.getItem("jarvisLook") || "orb"; } catch (e) {}
 
 function setBrain(key) {
@@ -1169,26 +1188,40 @@ function hudIdle() {
   if (hud.speaking) return hudState("speaking", "Говоря");
   if (hud.busy) return hudState("thinking", "Обработвам");
   if (Date.now() < hud.awakeUntil) return hudState("listening", "Слушам");
-  hudState("idle", hud.listening ? "Кажи „Джарвис…“" : Recognition ? "Микрофонът е спрян" : "Пиши отдолу");
+  const behind = hudBackground().length;
+  hudState("idle", (hud.listening ? "Кажи „Джарвис…“" : Recognition ? "Микрофонът е спрян" : "Пиши отдолу")
+    + (behind ? ` · ${behind} ${behind === 1 ? "задача" : "задачи"} на заден план` : ""));
 }
+function hudBackground() { return [...hud.jobs.values()].filter((j) => j.background); }
 function hudLog(text) {
   if (!hud.open || hud.steps[hud.steps.length - 1] === text) return;
   hud.steps = hud.steps.concat(text).slice(-6);
   hudRenderLog();
 }
 // The protocol: the level and what he looks at, then each step of the current request with how it went.
+// Work going on in the background shows below it, each with what it is doing now.
 function hudWork(run) {
-  if (!hud.open || !hud.busy || run.chat !== hud.pendingChat) return;
-  hud.work = run;
+  const job = hud.jobs.get(run.chat);
+  if (!hud.open || !job) return;
+  job.step = run.step; job.run = run.id;
+  if (hud.work ? hud.work.id === run.id : run.chat === hud.pendingChat) hud.work = run;
   hudRenderLog();
 }
 function hudRenderLog() {
   const lines = hud.steps.map((s) => `<div>› ${esc(s)}</div>`).concat((hud.work ? hud.work.steps : []).map((s) =>
     `<div class="st-${esc(s.state)}">${STEP_ICON[s.state] || "›"} ${esc(s.label)}${s.state === "waiting" ? " · чака" : ""}</div>`));
+  const behind = hudBackground().filter((j) => !hud.work || j.run !== hud.work.id);
   $("hudLog").innerHTML = "<h6>ПРОТОКОЛ</h6>" + lines.slice(-7).join("")
-    + (hud.work ? `<button type="button" class="live-link" id="hudLogLive">виж всичко на живо ›</button>` : "");
+    + (hud.work ? `<button type="button" class="live-link" id="hudLogLive">виж всичко на живо ›</button>` : "")
+    + (behind.length ? "<h6 class=\"behind\">НА ЗАДЕН ПЛАН</h6>" + behind.map((j) =>
+      `<p class="bg-job" data-run="${j.run || ""}"><b>${esc(clip(j.text, 48))}</b>${esc(j.step || "Работи")}</p>`).join("") : "");
 }
-$("hudLog").addEventListener("click", (e) => { if (e.target.id === "hudLogLive") openLive(hud.work ? hud.work.id : null); });
+function clip(text, n) { return text.length > n ? text.slice(0, n - 1).trimEnd() + "…" : text; }
+$("hudLog").addEventListener("click", (e) => {
+  if (e.target.id === "hudLogLive") openLive(hud.work ? hud.work.id : null);
+  const job = e.target.closest(".bg-job");
+  if (job) openLive(Number(job.dataset.run) || null);
+});
 function hudClock() {
   const now = new Date();
   $("hudClock").innerHTML = `<b>${now.toLocaleTimeString("bg-BG", { hour12: false }).replace(/\s*ч\.?$/, "")}</b>${esc(now.toLocaleDateString("bg-BG", { weekday: "long", day: "numeric", month: "long" }))}`;
@@ -1220,6 +1253,7 @@ function hudTick() {
   $("hud").style.setProperty("--lvl", hud.lvl.toFixed(3));
   if (hud.look === "orb") drawOrb(hud.lvl, $("hud").dataset.state);
   if (hud.awake && Date.now() > hud.awakeUntil) { hud.awake = false; hudIdle(); }
+  if (hud.done.length && !hud.speaking) hudNext();
 }
 
 // The glowing sphere (like "Jarvis 2.0"): points on a ball joined to their neighbours, turning slowly,
@@ -1393,21 +1427,29 @@ async function hudAsk(text) {
   $("hudLog").innerHTML = "<h6>ПРОТОКОЛ</h6>";
   $("hudYou").textContent = text; $("hudAnswer").innerHTML = "";
   hudIdle();
+  hudRenderLog();
+  hud.ack = ACKS[hud.asked++ % ACKS.length] + (hud.toldLater ? "" : " Ще ви кажа, когато е готово.");
+  fetchVoice(speechParts(hud.ack)[0]);  // ready to say at once if this turns into real work
   let chatId = null;
   try {
-    if (!state.chat) {
+    // A chat still busy with earlier work gets no new request (it would wait its turn): a new chat starts.
+    if (!state.chat || hud.jobs.has(state.chat.id)) {
       state.chat = (await api("/api/chats", {})).chat;
       store.set("jarvis.chat." + state.me.id, state.chat.id);
       state.chats.unshift(state.chat); renderChats();
     }
     chatId = hud.pendingChat = state.chat.id;
+    const job = { chat: chatId, text, background: false, n: hud.asked };
+    hud.jobs.set(chatId, job);
     const images = [hud.screen && grab(hud.screenVideo), hud.cam && grab($("hudCam"))].filter(Boolean);
     if (hud.screen) hudLog("Гледам екрана");
     if (hud.cam) hudLog("Гледам камерата");
     let data;
     try { data = await api(`/api/chats/${chatId}/ask`, images.length ? { text, images } : { text }); }
     catch (err) { data = { answer: err.message, error: true }; }
+    hud.jobs.delete(chatId);
     hud.dirty = true;
+    if (job.background) return hudFinished(job, data);
     if (!hud.open) { if (state.chat && state.chat.id === chatId) openChat(chatId).catch(() => {}); return; }
     $("hudAnswer").innerHTML = md(data.answer);
     $("hudAnswer").scrollTop = 0;
@@ -1418,9 +1460,45 @@ async function hudAsk(text) {
   } catch (err) {
     toast(err.message, "Грешка", "err");
   } finally {
-    hud.busy = false; hud.pendingChat = null;
-    hudIdle();
+    if (chatId) hud.jobs.delete(chatId);
+    if (hud.pendingChat === chatId) { hud.busy = false; hud.pendingChat = null; }
+    hudIdle(); hudRenderLog();
   }
+}
+
+// The full agent takes a while: he says so at once and the request goes on in the background, so you can
+// ask for something else meanwhile; the answer is said when it comes (see hudFinished).
+function hudToBackground() {
+  const job = hud.jobs.get(hud.pendingChat);
+  if (!job || job.background) return;
+  job.background = true; hud.toldLater = true;
+  hud.busy = false; hud.pendingChat = null;
+  hudSpeak(hud.ack || ACKS[0]);
+  hudIdle(); hudRenderLog();
+}
+function hudFinished(job, data) {
+  if (!hud.open) {
+    toast(clip(data.answer || "", 300), "Готово: " + clip(job.text, 60), data.error ? "err" : "");
+    systemNotify("Jarvis: готово", clip(data.answer || "", 200));
+    if (state.chat && state.chat.id === job.chat) openChat(job.chat).catch(() => {});
+    loadChats().catch(() => {});
+    return;
+  }
+  hud.done.push({ job, data });
+  hudNext();
+  hudIdle(); hudRenderLog();
+}
+// Finished background work is shown and said when he is free: not while you talk, he speaks or waits for a "yes".
+async function hudNext() {
+  if (!hud.open || !hud.done.length || hud.busy || hud.speaking || hud.confirm || Date.now() < hud.awakeUntil) return;
+  const { job, data } = hud.done.shift();
+  const later = job.n !== hud.asked;  // something else was asked since: say which request this answers
+  $("hudYou").textContent = job.text;
+  $("hudAnswer").innerHTML = md(data.answer); $("hudAnswer").scrollTop = 0;
+  hud.steps = []; hud.work = live.runs.get(job.run) || null; hudRenderLog();
+  hudStats();
+  chime();
+  await hudSpeak((later ? `Готово: ${clip(job.text, 80)}. ` : "") + data.answer);
 }
 
 function hudHush(flush = true) {  // flush = false when the user is talking over him and must be heard
@@ -1513,7 +1591,10 @@ async function hudStats() {
 }
 
 function hudEvent(ev) {
-  if (ev.kind === "progress" && ev.chat === hud.pendingChat && ev.tool.startsWith("level:")) hudLog(ev.label);
+  if (ev.kind === "progress" && ev.chat === hud.pendingChat && ev.tool.startsWith("level:")) {
+    hudLog(ev.label);
+    if (ev.tool === "level:3") hudToBackground();
+  }
   if (ev.kind === "notify" && !hud.busy && !hud.speaking) hudSpeak(ev.text);
 }
 
@@ -1555,6 +1636,7 @@ async function openHud() {
 function closeHud() {
   if (!hud.open) return;
   hud.open = false; hud.listening = false; hud.awake = false;
+  hud.done.splice(0).forEach(({ job, data }) => hudFinished(job, data));  // not said yet: a note instead
   if (hud.rec) { try { hud.rec.abort(); } catch (e) {} hud.rec = null; }
   hudHush(); hud.speaking = false;
   [hud.mic, hud.screen, hud.cam].forEach(stopTracks);
