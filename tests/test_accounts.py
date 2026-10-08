@@ -294,7 +294,7 @@ def test_routines_personality_and_activity_tabs(settings, ctx, registry, tmp_pat
     hub, owner, _ = make(settings, ctx, registry, [])
     owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     routines = owner("/api/routines")[1]["routines"]
-    assert [r["key"] for r in routines] == ["morning", "inbox", "week"] and not any(r["enabled"] for r in routines)
+    assert [r["key"] for r in routines] == ["morning", "inbox", "week", "vault"] and not any(r["enabled"] for r in routines)
     data = owner("/api/routines", {"key": "morning", "enabled": True, "time": "07:30"})[1]["routines"]
     assert data[0]["enabled"] and data[0]["time"] == "07:30"
     rows = ctx.store.query("SELECT * FROM reminders WHERE channels='agent'")

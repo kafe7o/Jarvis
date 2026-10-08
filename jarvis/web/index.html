@@ -266,6 +266,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 :root[data-brain="sonnet"] { --hud: #b18cff; --hud-rgb: 177, 140, 255; }
 :root[data-brain="haiku"] { --hud: #3ddc97; --hud-rgb: 61, 220, 151; }
 :root[data-brain="gemini"] { --hud: #8ab4ff; --hud-rgb: 138, 180, 255; }
+:root[data-brain="local"] { --hud: #e6edf5; --hud-rgb: 230, 237, 245; }
 #hud { position: fixed; inset: 0; z-index: 60; color: #dff6ff; font-family: var(--mono); overflow: hidden;
   background: radial-gradient(900px 700px at 50% 45%, rgba(var(--hud-rgb), .10), transparent 60%), #02050b; --lvl: 0; }
 #hud.hidden { display: none; }
@@ -322,6 +323,21 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .hud-confirm .t { color: var(--warn); letter-spacing: .2em; font: 600 12px var(--mono); text-transform: uppercase; margin-bottom: 8px; }
 .hud-confirm .what { white-space: pre-wrap; word-break: break-word; font: 13px var(--mono); color: #ffe2b0; max-height: 30vh; overflow: auto; margin-bottom: 12px; }
 .hud-confirm .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.hud-side { position: absolute; right: 24px; top: 96px; width: 230px; font-size: 12px; letter-spacing: .06em; color: rgba(var(--hud-rgb), .85); }
+.hud-side h6 { margin: 0 0 8px; font-size: 11px; letter-spacing: .35em; color: rgba(var(--hud-rgb), .6); font-weight: 500; }
+#hud .hud-confirm:not(.hidden) ~ .hud-side { display: none; }
+.hud-skills { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
+.hud-skill { text-align: left; padding: 8px 10px; border: 1px solid rgba(var(--hud-rgb), .3); border-left: 2px solid var(--hud); border-radius: 3px;
+  background: rgba(var(--hud-rgb), .06); color: rgba(var(--hud-rgb), .95); font: 600 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+.hud-skill:hover { background: rgba(var(--hud-rgb), .16); box-shadow: 0 0 12px rgba(var(--hud-rgb), .25); }
+.hud-levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.hud-levels div { padding: 6px 4px; border: 1px solid rgba(var(--hud-rgb), .22); background: rgba(var(--hud-rgb), .05); text-align: center; }
+.hud-levels b { display: block; font-size: 18px; color: #eaffff; font-weight: 500; letter-spacing: 0; }
+.hud-levels small { font-size: 10px; letter-spacing: .06em; color: rgba(var(--hud-rgb), .7); }
+.hud-spark { display: flex; align-items: flex-end; gap: 4px; height: 40px; margin: 12px 0 6px; }
+.hud-spark div { flex: 1; min-height: 2px; background: rgba(var(--hud-rgb), .55); box-shadow: 0 0 6px rgba(var(--hud-rgb), .35); }
+.hud-spark div:last-child { background: var(--hud); }
+.hud-cost { font-size: 11px; line-height: 1.5; color: rgba(var(--hud-rgb), .75); }
 .hud-cam { position: absolute; right: 24px; bottom: 96px; width: 200px; border: 1px solid rgba(var(--hud-rgb), .6); box-shadow: 0 0 24px rgba(var(--hud-rgb), .3); transform: scaleX(-1); }
 .hud-cam.hidden { display: none; }
 .hud-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 18px 24px 22px; }
@@ -344,6 +360,10 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   .hud-cam { width: 110px; bottom: 150px; right: 12px; }
   .hud-bar { padding: 10px 12px 16px; gap: 8px; }
   .hud-btn { padding: 8px 10px; font-size: 11px; }
+  .hud-side { left: 12px; right: 12px; top: 62px; width: auto; }
+  .hud-side h6, .hud-today { display: none; }
+  .hud-skills { flex-direction: row; overflow-x: auto; margin: 0; padding-bottom: 4px; scrollbar-width: none; }
+  .hud-skill { flex: none; white-space: nowrap; padding: 7px 9px; font-size: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .ring { animation: none !important; } }
 </style>
@@ -450,6 +470,18 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
     <div class="t">Нужно ми е разрешение</div>
     <div class="what" id="hudConfirmText"></div>
     <div class="row" id="hudConfirmRow"></div>
+  </div>
+  <div class="hud-side" id="hudSide">
+    <h6>УМЕНИЯ</h6>
+    <div class="hud-skills" id="hudSkills"></div>
+    <div class="hud-today hidden" id="hudToday">
+      <h6>ДНЕС</h6>
+      <div class="hud-levels" title="Колко отговора на кое ниво: командите без AI и бързите не харчат кредити">
+        <div><b id="hudL1">0</b><small>без AI</small></div><div><b id="hudL2">0</b><small>бързи</small></div><div><b id="hudL3">0</b><small>агент</small></div>
+      </div>
+      <div class="hud-spark" id="hudSpark" title="Заявки към AI през последните 7 дни"></div>
+      <div class="hud-cost" id="hudCost"></div>
+    </div>
   </div>
   <video id="hudCam" class="hud-cam hidden" autoplay muted playsinline></video>
   <div class="hud-bar">
@@ -954,7 +986,7 @@ function finishConfirm(holder, text) {
 // ---------- Jarvis mode: full-screen voice HUD ----------
 // Says "Джарвис…" (or anything right after he spoke), answers aloud, takes "да/не" for permissions,
 // sees the shared screen or camera, and glows in the colour of the brain he is running on.
-const BRAINS = { opus: "OPUS 5.5", fable: "FABLE 5.1", sonnet: "SONNET 5.5", haiku: "HAIKU 5.5", gemini: "GEMINI" };
+const BRAINS = { opus: "OPUS 5.5", fable: "FABLE 5.1", sonnet: "SONNET 5.5", haiku: "HAIKU 5.5", gemini: "GEMINI", local: "ЛАПТОП" };
 const WAKE = /(?<!\p{L})(?:хей\s+)?(?:джарвис|джарвиз|жарвис|дарвис|чарвис|джервис|джарви|jarvis|jervis)(?!\p{L})[\s,.!?]*/iu;
 const STOP = /(?<!\p{L})(?:стоп|спри|тихо|млъкни|достатъчно|stop)(?!\p{L})/iu;
 const SAY_NO = /(?<!\p{L})(?:не|недей|откажи|отказвам|отказ|спри|no)(?!\p{L})/iu;
@@ -1217,6 +1249,7 @@ async function hudAsk(text) {
     $("hudAnswer").innerHTML = md(data.answer);
     $("hudAnswer").scrollTop = 0;
     hud.busy = false; hud.pendingChat = null;
+    hudStats();
     await hudSpeak(data.answer);
     if (hud.open && !data.error) { hud.awake = true; hud.awakeUntil = Date.now() + 7000; }
   } catch (err) {
@@ -1281,6 +1314,41 @@ $("hudConfirmRow").addEventListener("click", (e) => {
   if (b && hud.confirm) answerConfirm(hud.confirm, b.dataset.yes === "1", b.dataset.always === "1");
 });
 
+// The quick skills from the video's right-hand panel: one tap and the full agent does a whole job.
+const SKILLS = [
+  { label: "Сутрешен брифинг", text: "Сутрешен брифинг: времето днес, задачите, напомнянията и срещите ми за днес, важната непрочетена поща (ако е свързана) и 3 важни новини. Кратко, за четене на глас. Запиши го и в паметта (output)." },
+  { label: "План за утре", text: "Направи ми план за утре от задачите, напомнянията и срещите ми, подреден по часове, с почивки. Кратко. Запиши плана в паметта (output)." },
+  { label: "Проучи тема", ask: "Проучи подробно и запиши доклад в паметта: " },
+  { label: "Подреди паметта", text: "Подреди паметта: прочети новите бележки в raw, разпредели ги в wiki по теми (обнови или създай бележки), обнови wiki/_master-index.md и маркирай обработените с vault_done. Накрая ми кажи накратко какво подреди." },
+  { label: "Седмичен преглед", text: "Седмичен преглед: какво свършихме тази седмица, какво остава, какво предстои следващата седмица, колко струваше и трите най-важни неща за фокус. Запиши го в паметта (output)." },
+];
+$("hudSkills").innerHTML = SKILLS.map((s, i) => `<button class="hud-skill" data-i="${i}">${esc(s.label)}</button>`).join("");
+$("hudSkills").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-i]");
+  if (!b) return;
+  const skill = SKILLS[Number(b.dataset.i)];
+  if (skill.ask) {
+    const inp = $("hudInput");
+    inp.value = skill.ask; inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+    return;
+  }
+  if (hud.busy) { toast("Още работя по предишното.", "Jarvis режим", "warn"); return; }
+  hudAsk(skill.text);
+});
+// Today's answers by level and a week of AI requests (only the owner sees spending).
+async function hudStats() {
+  if (!hud.open || !state.me || state.me.role !== "owner") return;
+  let u;
+  try { u = await api("/api/usage"); } catch (e) { return; }
+  const levels = u.levels || {};
+  ["1", "2", "3"].forEach((k) => { $("hudL" + k).textContent = levels[k] || 0; });
+  const days = u.days.slice(-7), top = Math.max(...days.map((d) => d.requests), 1);
+  $("hudSpark").innerHTML = days.map((d) => `<div title="${esc(d.day)}: ${d.requests} заявки" style="height:${Math.max(5, Math.round(100 * d.requests / top))}%"></div>`).join("");
+  const cost = u.today.cost > 0 ? "$" + u.today.cost.toFixed(2) : "$0";
+  $("hudCost").textContent = `Похарчено днес: ${cost} · ${u.week.requests} заявки към AI за 7 дни`;
+  $("hudToday").classList.remove("hidden");
+}
+
 function hudEvent(ev) {
   if (ev.kind === "progress" && ev.chat === hud.pendingChat) hudLog(ev.label);
   if (ev.kind === "notify" && !hud.busy && !hud.speaking) hudSpeak(ev.text);
@@ -1301,6 +1369,7 @@ async function openHud() {
   requestAnimationFrame(hudTick);
   hudListen(true);
   hudShowConfirm();
+  hudStats();
   // A level meter for the core; skipped on Android, where it would take the microphone from speech recognition.
   if (!ANDROID && hud.ctx && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     try {
@@ -1614,11 +1683,16 @@ async function tabUsage() {
   const day = (iso) => new Date(iso + "T12:00").toLocaleDateString("bg-BG", { day: "numeric", month: "short" });
   const freeToday = u.gemini.reduce((n, g) => n + g.today, 0);
   $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>Колко струва мозъкът на Jarvis. Claude се плаща на брой думи (токени); Gemini е безплатен до дневен лимит на Google, който се подновява всеки ден около 10:00.</div></div>
+    <div class="note">${icon("info")}<div>Колко струва мозъкът на Jarvis. Claude се плаща на брой думи (токени); Gemini е безплатен до дневен лимит на Google, който се подновява всеки ден около 10:00. „Пусни…“, „колко е часът“, „времето утре“, „спри музиката“, „напомни ми в 18:00…“ минават без AI и не струват нищо. Таванът за Claude е във Връзки → Пестене.</div></div>
     <div class="stats">
       <div class="stat"><small>Днес (Claude)</small><b>${usd(u.today.cost)}</b><small>${u.today.requests} заявки общо</small></div>
       <div class="stat"><small>Последните 7 дни</small><b>${usd(u.week.cost)}</b><small>${u.week.requests} заявки</small></div>
       <div class="stat"><small>Безплатни днес (Gemini)</small><b>${freeToday}</b><small>заявки от 10:00 насам</small></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><small>Ниво 1: без AI</small><b>${(u.levels || {})["1"] || 0}</b><small>команди днес, без кредити</small></div>
+      <div class="stat"><small>Ниво 2: бърз модел</small><b>${(u.levels || {})["2"] || 0}</b><small>кратки въпроси днес</small></div>
+      <div class="stat"><small>Ниво 3: пълен агент</small><b>${(u.levels || {})["3"] || 0}</b><small>истинска работа днес</small></div>
     </div>
     <div class="section">
       <h5>${anyCost ? "Разход по дни" : "Заявки по дни"}</h5>

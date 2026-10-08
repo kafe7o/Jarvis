@@ -27,6 +27,7 @@ import threading
 import time
 from collections import defaultdict
 from concurrent.futures import Future
+from datetime import datetime
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -62,6 +63,10 @@ TOOL_LABELS = {
     "whatsapp_send": "Праща WhatsApp", "viber_send": "Праща Viber", "android": "Работи с телефона",
     "home_control": "Управлява дома", "home_devices": "Преглежда дома", "home_camera": "Гледа камерата",
     "switch_brain": "Сменя мозъка", "delegate": "Разпределя работата на екипа", "gmail_draft": "Пише чернова в Gmail",
+    "level:1": "Ниво 1: команда без AI", "level:2": "Ниво 2: бърз модел", "level:3": "Ниво 3: пълен агент",
+    "vault_search": "Търси в паметта", "vault_note": "Записва в паметта", "vault_write": "Подрежда паметта",
+    "vault_read": "Чете от паметта", "play_youtube": "Пуска от YouTube", "weather": "Гледа времето",
+    "media_control": "Управлява музиката", "lock_computer": "Заключва компютъра",
 }
 GROUP_LABELS = {key: label for key, label, _desc, _sensitive in GROUPS}
 
@@ -88,8 +93,20 @@ def lan_ip() -> str:
 
 
 def friendly_error(exc: Exception) -> str:
+    from .brain import BudgetReached
+    from .gemini import UsedUp, next_reset
+
     text = f"{type(exc).__name__}: {exc}"
     low = text.lower()
+    if isinstance(exc, UsedUp):
+        back = datetime.fromtimestamp(next_reset()).strftime("%H:%M")
+        return (f"Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. Връщат се в {back}. "
+                "За да не спирам никога, инсталирай мозъка на лаптопа (Ollama): виж „Пестене“ в Настройки > Връзки.")
+    if isinstance(exc, BudgetReached):
+        return ("Днешният таван за Claude е достигнат, а безплатен мозък няма. Сложи безплатен Gemini ключ "
+                "(Настройки > Връзки) или вдигни тавана в „Пестене“.")
+    if "ollama" in low:
+        return ("Мозъкът на лаптопа (Ollama) не отговаря. Пусни Ollama или в PowerShell напиши: ollama pull qwen3:4b")
     if type(exc).__module__.startswith("google."):
         if "perday" in low.replace(" ", "").replace("_", ""):
             return ("Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. "
@@ -326,10 +343,17 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_MODEL", "Мозък: gemini-3.5-flash-lite (безплатно), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
+        ("JARVIS_MODEL", "Мозък: gemini-3.5-flash-lite (безплатно), local (на лаптопа, без лимит), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
+    ]),
+    ("Пестене", "https://ollama.com/download", [
+        ("JARVIS_DAILY_BUDGET", "Таван за Claude на ден, в долари (празно = 1; 0 = само безплатни мозъци; без = без таван)"),
+        ("JARVIS_ROUTER", "Простите команди без AI и кратките въпроси с бърз модел (1 = да, 0 = не)"),
+        ("JARVIS_FAST_MODEL", "Модел за кратките въпроси (празно = най-евтиният, безплатният Gemini)"),
+        ("JARVIS_LOCAL_MODEL", "Мозък на лаптопа в Ollama, без лимит (празно = най-добрият инсталиран, напр. qwen3:4b)"),
+        ("JARVIS_VAULT", "Папка-памет за бележки (празно = Документи\\Jarvis Vault)"),
     ]),
     ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
         ("JARVIS_TTS_VOICE", "Безплатен глас на български (bg-BG-BorislavNeural)"),

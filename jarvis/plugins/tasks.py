@@ -105,6 +105,7 @@ class ReminderScheduler:
         answer = jarvis.ask(
             HEARTBEAT_PROMPT, conversation="heartbeat",
             confirmer=lambda summary: False,  # never act in the outside world unattended
+            route=False,
         )
         message = answer.strip()
         if message.upper().startswith("NOTIFY:"):
@@ -176,6 +177,7 @@ class ReminderScheduler:
                 conversation=conversation or f"job-{rem['id']}",
                 confirmer=unattended,
                 on_progress=lambda name: run.update(step=name),
+                route=False,
             )
             self.ctx.notify(f"{title}: {result}" if routine else f"Задача „{title}“: {result}")
         except Exception as exc:

@@ -17,9 +17,14 @@ PRICES = {
 }
 
 
+def free(model: str) -> bool:
+    """Gemini's free tier and the brain on this computer cost nothing."""
+    return model.startswith(("gemini", "local"))
+
+
 def price(model: str) -> tuple[float, float, float, float]:
-    """Gemini's free tier costs nothing; an unknown Claude model is priced like Opus, so the sum is never too low."""
-    if model.startswith("gemini"):
+    """Free brains cost nothing; an unknown Claude model is priced like Opus, so the sum is never too low."""
+    if free(model):
         return 0.0, 0.0, 0.0, 0.0
     return PRICES.get(model) or next((p for name, p in PRICES.items() if model.startswith(name)), PRICES["claude-opus-5-5"])
 
@@ -50,6 +55,35 @@ def record(store, response, model: str) -> None:
         log.exception("could not count usage")
 
 
+def spent_today(store) -> float:
+    """US dollars spent on paid brains today (for the daily cap, JARVIS_DAILY_BUDGET)."""
+    rows = store.query("SELECT model, input, output, cache_read, cache_write FROM usage WHERE created >= ?",
+                       (datetime.now().date().isoformat(),))
+    return sum(cost(r["model"], r["input"], r["output"], r["cache_read"], r["cache_write"]) for r in rows)
+
+
+def levels_today(store) -> dict[str, int]:
+    """How many answers each level gave today: 1 = without AI, 2 = quick, 3 = the full agent (router.py)."""
+    rows = store.query("SELECT tier, COUNT(*) AS n FROM routes WHERE created >= ? GROUP BY tier",
+                       (datetime.now().date().isoformat(),))
+    counts = {"1": 0, "2": 0, "3": 0}
+    counts.update({str(r["tier"]): r["n"] for r in rows})
+    return counts
+
+
+def times(n: int) -> str:
+    return f"{n} път" if n == 1 else f"{n} пъти"
+
+
+def spoken(store) -> str:
+    """Today's spending in one sentence, for "колко похарчих днес" (answered without AI)."""
+    spent = spent_today(store)
+    levels = levels_today(store)
+    money = ("Днес не съм похарчил нищо" if spent < 0.005 else f"Днес похарчих {spent:.2f} долара".replace(".", ","))
+    return (f"{money}. Отговорих {times(levels['1'])} без AI, {times(levels['2'])} с бързия модел и "
+            f"{times(levels['3'])} с пълния агент.")
+
+
 def free_day_start(now: datetime | None = None) -> datetime:
     """Google's free daily requests start again at midnight Pacific time (about 07:00 UTC)."""
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -72,7 +106,7 @@ def summary(store, spent: dict | None = None, days: int = 14) -> dict:
         if day is not None:
             day["cost"] += c
             day["requests"] += 1
-        m = models.setdefault(r["model"], {"model": r["model"], "requests": 0, "tokens": 0, "cost": 0.0, "free": r["model"].startswith("gemini")})
+        m = models.setdefault(r["model"], {"model": r["model"], "requests": 0, "tokens": 0, "cost": 0.0, "free": free(r["model"])})
         m["requests"] += 1
         m["tokens"] += r["input"] + r["output"] + r["cache_read"] + r["cache_write"]
         m["cost"] += c
@@ -92,4 +126,5 @@ def summary(store, spent: dict | None = None, days: int = 14) -> dict:
         "days": [{"day": d, **per_day[d]} for d in sorted(per_day)],
         "models": sorted(models.values(), key=lambda m: -m["cost"] or -m["requests"]),
         "gemini": gemini,
+        "levels": levels_today(store),
     }

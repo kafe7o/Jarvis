@@ -36,6 +36,15 @@ ROUTINES = {
         "instruction": "Weekly review for the owner: what got done this week (tasks, plans, activity), what is still "
                        "open, next week's calendar and deadlines, and the three most important things to focus on.",
     },
+    "vault": {
+        "title": "Подреждане на паметта",
+        "desc": "Всяка нощ подрежда новите бележки от raw в wiki, както във видеото.",
+        "time": "03:00", "repeat": "daily",
+        "instruction": "Organise the notes vault: read every note in raw/ (not raw/_done), file what is worth keeping "
+                       "into wiki/ (update the matching topic note or create one in a topic folder, in the owner's "
+                       "language), keep wiki/_master-index.md listing every topic note with one line about it, then "
+                       "mark each processed raw note with vault_done. Report in two sentences what you filed.",
+    },
 }
 MARK = re.compile(r"^\[routine:(\w+)\]\s*")
 

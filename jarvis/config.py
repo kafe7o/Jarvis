@@ -37,6 +37,13 @@ class Settings:
     quiet_hours: str = field(default_factory=lambda: _env("JARVIS_QUIET_HOURS", "23-7"))
     max_tool_rounds: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOOL_ROUNDS", "80")))
 
+    # Saving (see router.py): commands without AI and a quick lane for short questions, the model for that lane
+    # (empty = the cheapest one), a daily cap in US dollars for paid brains, and the model on this computer.
+    router: bool = field(default_factory=lambda: _flag("JARVIS_ROUTER", True))
+    fast_model: str = field(default_factory=lambda: _env("JARVIS_FAST_MODEL", ""))
+    daily_budget: str = field(default_factory=lambda: _env("JARVIS_DAILY_BUDGET", "1"))
+    local_model: str = field(default_factory=lambda: _env("JARVIS_LOCAL_MODEL", ""))
+
     # Identity
     user_name: str = field(default_factory=lambda: _env("JARVIS_USER_NAME", "сър"))
     language: str = field(default_factory=lambda: _env("JARVIS_LANGUAGE", "bg"))
@@ -44,6 +51,8 @@ class Settings:
 
     # Storage
     home: Path = field(default_factory=lambda: Path(_env("JARVIS_HOME", str(Path.home() / ".jarvis"))))
+    # The notes vault (plugins/vault.py): Markdown the owner can also open in Obsidian
+    vault: Path = field(default_factory=lambda: Path(_env("JARVIS_VAULT", str(Path.home() / "Documents" / "Jarvis Vault"))).expanduser())
 
     # Local actions (shell, file writes). Calls, SMS, e-mail and payments ALWAYS ask.
     trust_local_actions: bool = field(default_factory=lambda: _flag("JARVIS_TRUST_LOCAL", False))
@@ -76,6 +85,16 @@ class Settings:
     wake_word: str = field(default_factory=lambda: _env("JARVIS_WAKE_WORD", "jarvis"))
     whisper_model: str = field(default_factory=lambda: _env("JARVIS_WHISPER_MODEL", "small"))
     tts_voice: str = field(default_factory=lambda: _env("JARVIS_TTS_VOICE", "bg-BG-BorislavNeural"))
+
+    def budget(self) -> float | None:
+        """Most US dollars a day for paid brains (Claude); None means no cap, 0 means only free brains."""
+        value = (self.daily_budget or "1").strip().lower()
+        if value in ("без", "няма", "none", "no", "off", "-1"):
+            return None
+        try:
+            return max(0.0, float(value.replace(",", ".").lstrip("$").rstrip("$")))
+        except ValueError:
+            return 1.0
 
     @property
     def db_path(self) -> Path:

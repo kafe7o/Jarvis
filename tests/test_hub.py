@@ -49,8 +49,11 @@ def test_web_confirmation_round_trip(settings, ctx, registry, tmp_path):
     answers = {}
     asker = threading.Thread(target=lambda: answers.update(json.loads(call(port, "/api/ask", {"text": "запиши"})[1])))
     asker.start()
-    events = json.loads(call(port, "/api/events?after=0")[1])["events"]
-    confirm = next(e for e in events if e["kind"] == "confirm")
+    confirm, after = None, 0
+    while confirm is None:  # progress events (the level, the tool) may come first
+        events = json.loads(call(port, f"/api/events?after={after}")[1])["events"]
+        confirm = next((e for e in events if e["kind"] == "confirm"), None)
+        after = max([after] + [e["id"] for e in events])
     assert "note.txt" in confirm["text"]
     call(port, "/api/confirm", {"id": confirm["id"], "yes": True})
     asker.join(10)

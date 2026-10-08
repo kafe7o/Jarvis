@@ -211,6 +211,10 @@ def from_response(response, model: str | None = None) -> Answer:
     return Answer(blocks, stop, model, usage_of(response))
 
 
+class UsedUp(RuntimeError):
+    """Every free Gemini model has used up its requests for today."""
+
+
 class GeminiBrain:
     """Answers Claude-format requests (see brain.Jarvis._request) with Gemini."""
 
@@ -237,7 +241,6 @@ class GeminiBrain:
             thinking_config=types.ThinkingConfig(thinking_level=THINKING.get(effort, "medium")),
             max_output_tokens=max_tokens,
         )
-        last = None
         for current in self.models(model):
             contents = to_contents(messages, current)
             for attempt in range(3):
@@ -245,7 +248,6 @@ class GeminiBrain:
                     response = self.client.models.generate_content(model=current, contents=contents, config=config)
                     return from_response(response, current)
                 except errors.APIError as exc:
-                    last = exc
                     if exc.code == 429 and daily_limit(exc):
                         log.warning("free requests for today are used up on %s; trying the next model", current)
                         self.spent[current] = next_reset()
@@ -255,7 +257,7 @@ class GeminiBrain:
                         raise
                     log.warning("Gemini %s, retrying: %s", exc.code, exc)
                     self._wait(retry_after(exc, 5 * 2 ** attempt))
-        raise last or RuntimeError("No Gemini model left for today.")
+        raise UsedUp("The free Gemini requests for today are used up on every free model.")
 
     def models(self, model: str) -> list[str]:
         """The model to use and the free ones to fall back to, minus those used up for today."""

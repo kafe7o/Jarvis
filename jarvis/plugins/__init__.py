@@ -14,7 +14,7 @@ from ..tools import ToolRegistry
 log = logging.getLogger("jarvis.plugins")
 
 BUILTIN = ["memory", "tasks", "system", "browser", "android", "home", "comms", "messaging", "google",
-           "payments", "sendmoney", "team", "brain_switch", "websearch", "daily", "agent"]  # agent last: loads skills
+           "payments", "sendmoney", "team", "brain_switch", "websearch", "daily", "vault", "agent"]  # agent last: loads skills
 
 
 @dataclass
@@ -35,7 +35,8 @@ class Context:
 # "core" tools are always available: they only plan and ask the user for approval.
 GROUP_OVERRIDES = {"request_approval": "core", "make_plan": "core", "update_plan_step": "core",
                    "show_plan": "core", "search_history": "memory", "switch_brain": "core",
-                   "google_search": "web", "weather": "web", "play_youtube": "system", "watch_video": "system"}
+                   "google_search": "web", "weather": "web", "play_youtube": "system", "watch_video": "system",
+                   **{f"vault_{name}": "memory" for name in ("note", "write", "read", "search", "list", "done")}}
 
 
 def load_all(registry: ToolRegistry, ctx: Context, names: list[str] | None = None) -> None:

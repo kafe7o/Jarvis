@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from jarvis import local
 from jarvis.config import Settings
 from jarvis.plugins import Context, load_all
 from jarvis.store import Store
@@ -53,6 +54,9 @@ def settings(tmp_path, monkeypatch):
     s.trust_local_actions = False
     s.twilio_sid = s.twilio_token = s.twilio_number = s.stripe_key = None
     s.owner_phone = "+359888000000"
+    s.router = False  # most tests drive the full agent; test_router.py covers the cheap levels
+    s.vault = tmp_path / "vault"
+    monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": []})  # no Ollama unless a test adds one
     return s
 
 
