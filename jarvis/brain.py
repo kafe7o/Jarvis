@@ -201,10 +201,12 @@ class Jarvis:
 
     def _request(self, messages: list, user=None, system: str | list | None = None, allowed: set | None = None, *,
                  model: str | None = None, effort: str | None = None, tools: list | None = None,
-                 max_tokens: int | None = None) -> object:
+                 max_tokens: int | None = None, smart: bool | None = None) -> object:
         """One request to the brain. ``model``, ``effort`` and ``tools`` default to the settings and every tool
-        this person may use; the quick lane passes the cheapest model, low effort and no tools."""
+        this person may use; the quick lane passes the cheapest model, low effort and no tools. ``smart``
+        (default: no model given, so the agent's own work) puts the strongest free models first."""
         s = self.settings
+        smart = model is None if smart is None else smart
         model = model or s.model
         effort = effort or (TURN.get() or {}).get("effort") or s.effort
         max_tokens = max_tokens or s.max_tokens
@@ -213,13 +215,15 @@ class Jarvis:
         if tools is None:
             tools = self.registry.definitions(allowed)
         system = system if system is not None else self.system_prompt(user)
-        again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
+        again = dict(effort=effort, tools=tools, max_tokens=max_tokens, smart=smart)
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
         if groq.is_groq(model):
-            return self._ask_free([model, gemini.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort)
+            return self._ask_free([model, gemini.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort,
+                                  smart)
         if model.startswith("gemini"):
-            return self._ask_free([model, groq.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort)
+            return self._ask_free([model, groq.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort,
+                                  smart)
         free = self.free_instead()
         if free:
             log.info("Claude's daily cap is reached; %s answers instead", free)
@@ -253,7 +257,8 @@ class Jarvis:
             return "local"
         raise BudgetReached(f"Claude's daily cap of ${cap:g} is reached and no free brain is set up.")
 
-    def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
+    def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str,
+                  smart: bool = False) -> object:
         """The free brains in ``order``: the first one asked for, then the others that are set up, each taking
         over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day)."""
         used_up = None
@@ -266,8 +271,9 @@ class Jarvis:
                 return self._ask_local(model, system, messages, tools, max_tokens, effort)
             brain = self.groq if groq.is_groq(model) else self.gemini
             try:
+                extra = {"smart": smart} if brain is self.gemini else {}
                 answer = brain.create(model=model, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
-                                      effort=effort)
+                                      effort=effort, **extra)
             except (groq.UsedUp, gemini.UsedUp) as exc:
                 log.warning("%s; the next free brain answers", exc)
                 used_up = exc

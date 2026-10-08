@@ -35,13 +35,13 @@ def test_free_gemini_requests_are_counted_per_model(settings, ctx, registry):
     first.usage_metadata = types.GenerateContentResponseUsageMetadata(prompt_token_count=5000, candidates_token_count=40,
                                                                       thoughts_token_count=60)
     jarvis, _ = make(settings, ctx, registry, [first])
-    jarvis.ask("здравей")
-    jarvis.gemini.spent["gemini-3.8-flash"] = time.time() + 3600
+    jarvis.ask("здравей")  # real work: the strongest free model answers
+    jarvis.gemini.spent[gemini.DEFAULT_MODEL] = time.time() + 3600
     summary = usage.summary(ctx.store, jarvis.gemini.spent)
     lite = next(g for g in summary["gemini"] if g["model"] == gemini.DEFAULT_MODEL)
-    flash = next(g for g in summary["gemini"] if g["model"] == "gemini-3.8-flash")
-    assert lite == {"model": gemini.DEFAULT_MODEL, "today": 1, "used_up": False, "back_at": None}
-    assert flash["used_up"] and flash["back_at"]
+    flash = next(g for g in summary["gemini"] if g["model"] == gemini.SMART_MODELS[0])
+    assert flash == {"model": gemini.SMART_MODELS[0], "today": 1, "used_up": False, "back_at": None}
+    assert lite["used_up"] and lite["back_at"]
     assert summary["today"]["cost"] == 0 and summary["models"][0] | {"tokens": 5100} == summary["models"][0]
 
 

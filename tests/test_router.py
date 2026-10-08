@@ -251,7 +251,8 @@ def test_when_gemini_is_used_up_the_laptop_brain_answers_with_its_tools(settings
     jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]),
                     gemini_brain=gemini.GeminiBrain(google, wait=lambda s: None), local_brain=local.LocalBrain(fake))
     assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних."
-    assert google.requests == gemini.FREE_MODELS  # every free model tried once, then the laptop
+    # every free model tried once, the strongest first, then the laptop
+    assert google.requests == gemini.GeminiBrain(None).models(gemini.DEFAULT_MODEL, smart=True)
     first, second = fake.bodies
     assert {t["function"]["name"] for t in first["tools"]} <= local.LOCAL_TOOLS and first["options"]["num_ctx"] == 8192
     assert second["messages"][-2]["tool_calls"][0]["function"]["name"] == "remember"

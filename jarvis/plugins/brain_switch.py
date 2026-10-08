@@ -16,7 +16,8 @@ BRAINS = {
     "fable": ("claude-fable-5-1", "Fable 5.1", "the most capable, for the hardest problems; slower and pricier"),
     "sonnet": ("claude-sonnet-5-5", "Sonnet 5.5", "fast everyday work, cheaper"),
     "haiku": ("claude-haiku-5-5", "Haiku 5.5", "the fastest and cheapest, for simple things"),
-    "gemini": ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Google's model, free within Google's daily limits; needs GEMINI_API_KEY"),
+    "gemini": ("gemini-3.5-flash-lite", "Gemini", "Google's free models: the strongest free one for real work while "
+               "its daily allowance lasts, the light one for quick answers; needs GEMINI_API_KEY"),
     "groq": ("groq", "Groq", "free (no card) and the fastest; simpler, with the most useful tools only; needs GROQ_API_KEY"),
     "local": ("local", "the brain on this computer (Ollama)", "free with no daily limit and works offline, but slower "
               "and simpler; needs Ollama installed"),

@@ -356,7 +356,7 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_MODEL", "Мозък: gemini-3.5-flash-lite (безплатно), groq (безплатно, най-бързият), local (на лаптопа, без лимит), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
+        ("JARVIS_MODEL", "Мозък: празно = безплатен (Gemini, после Groq), groq (безплатно, най-бързият), local (на лаптопа, без лимит); платени: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
