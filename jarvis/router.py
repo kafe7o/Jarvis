@@ -429,6 +429,12 @@ def quick(text: str) -> bool:
     return bool(said) and words(said) <= 40 and bool(QUESTION.match(said)) and not NEEDS_TOOLS.search(said)
 
 
+def plain_question(text: str) -> bool:
+    """A question to know something, which needs no tools (the agent may answer it from what it knows)."""
+    said = clean(text)
+    return bool(QUESTION.match(said)) and not NEEDS_TOOLS.search(said)
+
+
 def think_harder(text: str) -> bool:
     """The owner asks for careful thinking: the full agent then thinks harder for this one request."""
     return bool(THINK_HARDER.search(text or ""))

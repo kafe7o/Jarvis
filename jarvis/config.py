@@ -50,6 +50,8 @@ class Settings:
     # Saving (see router.py): commands without AI and a quick lane for short questions, the model for that lane
     # (empty = the cheapest one), a daily cap in US dollars for paid brains, and the model on this computer.
     router: bool = field(default_factory=lambda: _flag("JARVIS_ROUTER", True))
+    # an answer to a request for action with no tool used gets one more look (brain.ACT_CHECK)
+    act_check: bool = field(default_factory=lambda: _flag("JARVIS_ACT_CHECK", True))
     fast_model: str = field(default_factory=lambda: _env("JARVIS_FAST_MODEL", ""))
     daily_budget: str = field(default_factory=lambda: _env("JARVIS_DAILY_BUDGET", "1"))
     local_model: str = field(default_factory=lambda: _env("JARVIS_LOCAL_MODEL", ""))

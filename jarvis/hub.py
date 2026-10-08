@@ -73,6 +73,7 @@ TOOL_LABELS = {
     "find_leads": "Търси клиенти без сайт", "build_website": "Прави сайт",
     "read_own_code": "Чете собствения си код", "upgrade_self": "Надстройва се", "undo_upgrade": "Връща надстройка",
     "list_upgrades": "Преглежда надстройките си", "update_jarvis": "Обновява се",
+    "work_until": "Започва работа сам", "work_status": "Проверява работата си", "stop_work": "Спира работата си",
 }
 GROUP_LABELS = {key: label for key, label, _desc, _sensitive in GROUPS}
 
