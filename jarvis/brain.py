@@ -177,7 +177,7 @@ class Jarvis:
             model=s.model,
             max_tokens=s.max_tokens,
             system=system,
-            messages=messages,
+            messages=gemini.for_claude(messages),
             tools=tools,
             output_config={"effort": s.effort},
             # Tools and the system prompt are the same on every step, so the API reads them from its
@@ -198,6 +198,7 @@ class Jarvis:
             if "thinking" not in str(exc) or not strip_thinking(messages):
                 raise
             log.warning("retrying without earlier thinking blocks: %s", exc)
+            kwargs["messages"] = gemini.for_claude(messages)
             return self.client.beta.messages.create(**kwargs)
 
     def ask(

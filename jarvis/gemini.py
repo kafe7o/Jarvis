@@ -147,6 +147,26 @@ def to_contents(messages: list, model: str | None = None) -> list:
     return out
 
 
+def for_claude(messages: list) -> list:
+    """The same conversation with Gemini's blocks turned into plain dicts, so Claude can take over
+    in the middle of a turn (e.g. after "switch to Haiku"); the SDK cannot send Block objects."""
+    out = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, Reply) or (isinstance(content, list) and any(isinstance(b, Block) for b in content)):
+            blocks = []
+            for b in content:
+                if not isinstance(b, Block):
+                    blocks.append(b)
+                elif b.type == "tool_use":
+                    blocks.append({"type": "tool_use", "id": b.id, "name": b.name, "input": dict(b.input or {})})
+                elif b.text.strip():
+                    blocks.append({"type": "text", "text": b.text})
+            m = {**m, "content": blocks or [{"type": "text", "text": "…"}]}
+        out.append(m)
+    return out
+
+
 def to_declarations(tools: list) -> list:
     from google.genai import types
 

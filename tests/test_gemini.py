@@ -168,3 +168,19 @@ def test_all_free_models_used_up_says_when_they_come_back(settings, ctx, registr
     with pytest.raises(errors.ClientError) as caught:
         jarvis.ask("здравей")
     assert "утре" in friendly_error(caught.value)
+
+
+def test_claude_can_take_over_in_the_middle_of_a_gemini_turn(settings, ctx, registry, monkeypatch):
+    """Gemini switches the brain to Claude mid-turn; Claude gets Gemini's blocks as plain JSON."""
+    import json
+
+    from conftest import response, text_block
+
+    monkeypatch.setenv("GEMINI_API_KEY", "free-key")
+    monkeypatch.setattr(settings, "model", "gemini-3.8-flash")
+    claude = FakeClient([response(text_block("Вече съм на Haiku, сър."))])
+    jarvis, _ = make(settings, ctx, registry, [reply(call("switch_brain", {"brain": "haiku"}))], claude=claude)
+    assert jarvis.ask("ползвай най-евтиния модел") == "Вече съм на Haiku, сър."
+    sent = claude.requests[0]["messages"]
+    json.dumps(sent)  # the real SDK serializes this; Block objects used to crash it
+    assert sent[1]["content"][0] == {"type": "tool_use", "id": "c1", "name": "switch_brain", "input": {"brain": "haiku"}}
