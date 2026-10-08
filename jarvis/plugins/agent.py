@@ -122,6 +122,7 @@ def register(registry: ToolRegistry, ctx) -> None:
 
     # Planning: a task tree Jarvis builds for multi-step goals and ticks off as it works.
     STATUSES = {"todo": "○", "doing": "✱", "done": "✓", "failed": "✗", "skipped": "–"}
+    STATUS_WORDS = {"todo": "предстои", "doing": "започната", "done": "готова", "failed": "неуспешна", "skipped": "пропусната"}
 
     def parse_steps(lines: list) -> list[dict]:
         steps = []
@@ -152,6 +153,7 @@ def register(registry: ToolRegistry, ctx) -> None:
         "e.g. ['1 Find options', '1.1 Search the web', '1.2 Compare prices', '2 Book the best one']. "
         "Then work through it, marking steps with update_plan_step. Returns the plan id and tree.",
         obj({"goal": ("string", "The overall goal"), "steps": ("array", "Numbered steps, e.g. '2.1 Do X'")}),
+        summarize=lambda a: f"{a.get('goal', '')} ({len(a.get('steps') or [])} стъпки)",
     )
     def make_plan(goal: str, steps: list):
         pid = ctx.store.insert("plans", goal=goal, steps=json.dumps(parse_steps(steps), ensure_ascii=False))
@@ -167,6 +169,9 @@ def register(registry: ToolRegistry, ctx) -> None:
             "note?": ("string", "Result or reason"),
             "add_steps?": ("array", "New numbered steps to add"),
         }),
+        summarize=lambda a: " · ".join(x for x in (
+            f"стъпка {a['step_id']}: {STATUS_WORDS.get(a.get('status'), a.get('status') or 'бележка')}" if a.get("step_id") else "",
+            a.get("note") or "", f"+{len(a['add_steps'])} нови стъпки" if a.get("add_steps") else "") if x),
     )
     def update_plan_step(plan_id: int, step_id: str | None = None, status: str | None = None,
                          note: str | None = None, add_steps: list | None = None):

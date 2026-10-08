@@ -170,21 +170,23 @@ class ReminderScheduler:
         # In the app, the result lands in a chat named after the job; elsewhere it has its own history.
         hub = getattr(self.ctx, "hub", None)
         conversation = (hub.job_conversation(routine["title"] if routine else "Задачи по график") if hub else None)
-        run_id, run = hub.track("По график", title) if hub else (None, {})
+        run_id, _run = hub.track("По график", title, kind="job") if hub else (None, {})
+        ok = False
         try:
             result = jarvis.ask(
                 f"(Scheduled job, the user is not watching; report the outcome briefly.) {strip_marker(rem['text'])}",
                 conversation=conversation or f"job-{rem['id']}",
                 confirmer=unattended,
-                on_progress=lambda name: run.update(step=name),
                 route=False,
+                on_step=hub.board.reporter(run_id) if hub else None,
             )
+            ok = True
             self.ctx.notify(f"{title}: {result}" if routine else f"Задача „{title}“: {result}")
         except Exception as exc:
             self.ctx.notify(f"„{title}“ се провали: {exc}")
         finally:
             if hub:
-                hub.running.pop(run_id, None)
+                hub.board.finish(run_id, ok)
 
 
 def register(registry: ToolRegistry, ctx) -> None:

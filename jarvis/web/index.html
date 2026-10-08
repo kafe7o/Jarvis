@@ -316,6 +316,11 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .hud-log { position: absolute; left: 24px; top: 96px; width: 260px; font-size: 12px; letter-spacing: .06em; color: rgba(var(--hud-rgb), .85); }
 .hud-log h6 { margin: 0 0 8px; font-size: 11px; letter-spacing: .35em; color: rgba(var(--hud-rgb), .6); font-weight: 500; }
 .hud-log div { padding: 6px 10px; margin-bottom: 6px; border-left: 2px solid var(--hud); background: rgba(var(--hud-rgb), .06); animation: slidein .3s ease-out; }
+.hud-log div:not(:last-of-type) { animation: none; }
+.hud-log .st-ok { border-left-color: var(--ok); } .hud-log .st-error { border-left-color: var(--danger); color: #ffb3ba; }
+.hud-log .st-waiting { border-left-color: var(--warn); color: #ffe2b0; } .hud-log .st-declined { opacity: .6; }
+.hud-log .st-running { animation: hudblink 1.2s ease-in-out infinite !important; }
+.hud-log .live-link { margin: 4px 0 0; font: 11px var(--mono); letter-spacing: .08em; color: rgba(var(--hud-rgb), .9); }
 @keyframes slidein { from { opacity: 0; transform: translateX(-12px); } }
 .hud-confirm { position: absolute; right: 24px; top: 96px; width: min(360px, calc(100vw - 48px)); padding: 16px; border: 1px solid rgba(255,181,71,.6);
   background: rgba(40, 26, 4, .65); box-shadow: 0 0 30px rgba(255,181,71,.2); font-family: var(--font); }
@@ -365,7 +370,132 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   .hud-skills { flex-direction: row; overflow-x: auto; margin: 0; padding-bottom: 4px; scrollbar-width: none; }
   .hud-skill { flex: none; white-space: nowrap; padding: 7px 9px; font-size: 10px; }
 }
-@media (prefers-reduced-motion: reduce) { .ring { animation: none !important; } }
+/* ---------- "На живо": Jarvis's work, step by step ---------- */
+.live-open { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line2);
+  background: none; color: var(--muted); font-weight: 600; font-size: 13px; }
+.live-open:hover { color: var(--text); border-color: rgba(79,209,255,.45); }
+.live-open .ld { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.live-open.busy { color: var(--accent); border-color: rgba(79,209,255,.45); background: rgba(79,209,255,.08); }
+.live-open.busy .ld { background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: ldpulse 1.2s ease-in-out infinite; }
+.live-open.wait { color: var(--warn); border-color: rgba(255,181,71,.5); background: rgba(255,181,71,.08); }
+.live-open.wait .ld { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
+.live-open b { font-size: 11px; min-width: 18px; padding: 0 5px; border-radius: 999px; background: rgba(79,209,255,.2); color: #dff6ff; }
+.live-open b:empty { display: none; }
+@keyframes ldpulse { 50% { transform: scale(1.5); opacity: .55; } }
+@media (max-width: 560px) { .live-open span:not(.ld) { display: none; } .live-open { padding: 8px 10px; } }
+.live-link { border: 0; background: none; padding: 0; margin-left: 4px; color: var(--accent); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+
+#live { position: fixed; inset: 0; z-index: 65; color: #dff6ff; font-family: var(--mono); display: flex; flex-direction: column;
+  background: radial-gradient(1000px 600px at 60% 30%, rgba(var(--hud-rgb), .08), transparent 60%), #02050b; }
+#live.hidden { display: none; }
+#live .grid { position: absolute; inset: 0; opacity: .16; pointer-events: none;
+  background-image: linear-gradient(rgba(var(--hud-rgb), .12) 1px, transparent 1px), linear-gradient(90deg, rgba(var(--hud-rgb), .12) 1px, transparent 1px);
+  background-size: 48px 48px; mask-image: radial-gradient(circle at 50% 40%, #000 30%, transparent 80%); }
+#live .icon-btn { color: rgba(var(--hud-rgb), .9); }
+.live-top { position: relative; display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid rgba(var(--hud-rgb), .15); }
+.live-top .hud-brand { font-size: 16px; letter-spacing: .4em; }
+.live-top .sp { flex: 1; }
+.live-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.live-runs { width: 290px; flex: none; overflow-y: auto; padding: 16px 12px 16px 20px; border-right: 1px solid rgba(var(--hud-rgb), .12); }
+.live-runs h6, .lv-card h6 { margin: 0 0 10px; font-size: 11px; letter-spacing: .35em; color: rgba(var(--hud-rgb), .6); font-weight: 500; }
+.live-runs h6:not(:first-child) { margin-top: 20px; }
+.lv-run { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 10px 12px; border: 1px solid rgba(var(--hud-rgb), .18); border-left: 2px solid rgba(var(--hud-rgb), .35);
+  background: rgba(var(--hud-rgb), .04); color: #cfe9f7; border-radius: 3px; font: 12px/1.45 var(--font); }
+.lv-run:hover { background: rgba(var(--hud-rgb), .1); }
+.lv-run.sel { border-color: rgba(var(--hud-rgb), .6); border-left-color: var(--hud); background: rgba(var(--hud-rgb), .12); box-shadow: 0 0 18px rgba(var(--hud-rgb), .15); }
+.lv-run .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #eaffff; font-size: 13px; }
+.lv-run .m { display: flex; gap: 8px; align-items: center; margin-top: 4px; color: rgba(var(--hud-rgb), .75); font: 11px var(--mono); letter-spacing: .04em; }
+.lv-run .m .tm { margin-left: auto; }
+.lv-st { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ok); }
+.lv-st.working { background: var(--hud); box-shadow: 0 0 8px var(--hud); animation: ldpulse 1.2s ease-in-out infinite; }
+.lv-st.waiting { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.lv-st.error { background: var(--danger); }
+.lv-up { padding: 7px 0; border-top: 1px solid rgba(var(--hud-rgb), .1); font: 12px/1.4 var(--font); color: #b9d4e6; }
+.lv-up small { display: block; font: 11px var(--mono); color: rgba(var(--hud-rgb), .6); }
+.live-main { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 28px; }
+.lv-empty { max-width: 520px; margin: 12vh auto 0; text-align: center; font: 15px/1.6 var(--font); color: #9fb9d6; }
+.lv-empty .reactor { margin: 0 auto 18px; }
+.lv-head { margin-bottom: 16px; }
+.lv-req { font: 18px/1.45 var(--font); color: #eaffff; word-break: break-word; }
+.lv-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; font-size: 11px; letter-spacing: .12em; color: rgba(var(--hud-rgb), .75); text-transform: uppercase; }
+.lv-badge { padding: 3px 8px; border: 1px solid rgba(var(--hud-rgb), .45); color: var(--hud); background: rgba(var(--hud-rgb), .08); border-radius: 3px; }
+.lv-badge.l1, .lv-badge.l2 { border-color: rgba(61,220,151,.5); color: var(--ok); background: rgba(61,220,151,.08); }
+.lv-badge.done { border-color: rgba(61,220,151,.5); color: var(--ok); background: none; }
+.lv-badge.error { border-color: rgba(255,93,108,.55); color: var(--danger); background: none; }
+.lv-badge.waiting { border-color: rgba(255,181,71,.6); color: var(--warn); background: rgba(255,181,71,.08); }
+.lv-clock { font-size: 15px; letter-spacing: .08em; color: #eaffff; }
+.lv-ask { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; padding: 12px 14px; border: 1px solid rgba(255,181,71,.6);
+  background: rgba(40, 26, 4, .6); box-shadow: 0 0 24px rgba(255,181,71,.15); }
+.lv-ask .what { flex: 1 1 260px; font: 13px/1.5 var(--mono); color: #ffe2b0; white-space: pre-wrap; word-break: break-word; }
+.lv-ask .what b { display: block; color: var(--warn); letter-spacing: .2em; font-size: 11px; margin-bottom: 2px; }
+
+.lv-graph { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 40px; padding: 22px 18px; margin-bottom: 16px;
+  border: 1px solid rgba(var(--hud-rgb), .15); background: rgba(var(--hud-rgb), .03); min-height: 150px; }
+.lv-graph svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.lv-col { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; flex: 1 1 0; min-width: 0; align-items: center; }
+.lv-node { width: 100%; max-width: 200px; padding: 10px 12px; border: 1px solid rgba(var(--hud-rgb), .25); background: #040a14; border-radius: 6px; text-align: center; opacity: .5; transition: opacity .3s, box-shadow .3s; }
+.lv-node .n { font-size: 11px; letter-spacing: .25em; color: rgba(var(--hud-rgb), .9); text-transform: uppercase; }
+.lv-node .d { margin-top: 4px; font: 12px/1.35 var(--font); color: #cfe9f7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-node.on { opacity: 1; border-color: var(--hud); box-shadow: 0 0 22px rgba(var(--hud-rgb), .35), inset 0 0 12px rgba(var(--hud-rgb), .15); animation: nodeglow 1.6s ease-in-out infinite; }
+.lv-node.ok { opacity: 1; border-color: rgba(61,220,151,.6); }
+.lv-node.ok .n { color: var(--ok); }
+.lv-node.bad { opacity: 1; border-color: rgba(255,93,108,.7); }
+.lv-node.bad .n { color: var(--danger); }
+.lv-node.wait { opacity: 1; border-color: var(--warn); box-shadow: 0 0 22px rgba(255,181,71,.3); }
+.lv-node.wait .n { color: var(--warn); }
+.lv-node.lv-core { max-width: 170px; border-radius: 50px; padding: 14px 12px; }
+@keyframes nodeglow { 50% { box-shadow: 0 0 34px rgba(var(--hud-rgb), .55), inset 0 0 18px rgba(var(--hud-rgb), .25); } }
+.lv-edge { fill: none; stroke: rgba(var(--hud-rgb), .2); stroke-width: 1.5; }
+.lv-edge.ok { stroke: rgba(61,220,151,.45); }
+.lv-edge.on { stroke: var(--hud); stroke-width: 2; stroke-dasharray: 6 8; animation: flow .7s linear infinite; filter: drop-shadow(0 0 4px rgba(var(--hud-rgb), .9)); }
+.lv-edge.wait { stroke: var(--warn); stroke-dasharray: 3 6; }
+@keyframes flow { to { stroke-dashoffset: -14; } }
+
+.lv-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
+.lv-cols.one { grid-template-columns: minmax(0, 1fr); }
+.lv-card { border: 1px solid rgba(var(--hud-rgb), .15); background: rgba(var(--hud-rgb), .03); padding: 14px 16px; }
+.lv-goal { font: 14px/1.45 var(--font); color: #eaffff; margin-bottom: 10px; }
+.lv-bar { height: 6px; background: rgba(var(--hud-rgb), .12); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+.lv-bar div { height: 100%; background: linear-gradient(90deg, rgba(var(--hud-rgb), .6), var(--hud)); box-shadow: 0 0 10px rgba(var(--hud-rgb), .6); transition: width .4s; }
+.lv-pct { font-size: 11px; letter-spacing: .1em; color: rgba(var(--hud-rgb), .7); margin-bottom: 10px; }
+.lv-ps { display: flex; gap: 8px; padding: 4px 0; font: 13px/1.4 var(--font); color: #b9d4e6; }
+.lv-ps i { font-style: normal; width: 14px; flex: none; text-align: center; font-family: var(--mono); }
+.lv-ps.done { color: #8fb3a6; } .lv-ps.done i { color: var(--ok); }
+.lv-ps.doing { color: #eaffff; } .lv-ps.doing i { color: var(--hud); animation: hudblink 1.2s ease-in-out infinite; }
+.lv-ps.failed i { color: var(--danger); }
+.lv-cols.over .lv-ps.doing i { animation: none; }
+.lv-ps small { color: rgba(var(--hud-rgb), .6); }
+.lv-steps { max-height: 60vh; overflow-y: auto; }
+.lv-step { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 8px 0; border-top: 1px solid rgba(var(--hud-rgb), .08); animation: slidein .3s ease-out; }
+.lv-step:first-of-type { border-top: 0; }
+.lv-step .ic { width: 16px; height: 16px; margin-top: 2px; display: grid; place-items: center; font-size: 13px; }
+.lv-step.running .ic::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(var(--hud-rgb), .25); border-top-color: var(--hud); animation: spin .8s linear infinite; }
+.lv-step.ok .ic { color: var(--ok); } .lv-step.error .ic { color: var(--danger); } .lv-step.declined .ic { color: var(--faint); }
+.lv-step.waiting .ic { color: var(--warn); }
+.lv-step .w { font: 13px/1.4 var(--font); color: #eaffff; }
+.lv-step .w small { display: block; color: #86a3bd; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-step.waiting .w { color: #ffe2b0; }
+.lv-step .who { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 3px; font: 10px/1.6 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ag, var(--hud)); border: 1px solid currentColor; vertical-align: 1px; }
+.lv-step .tm { font-size: 11px; color: rgba(var(--hud-rgb), .7); padding-top: 2px; white-space: nowrap; }
+.lv-none { font: 13px var(--font); color: #86a3bd; }
+@media (max-width: 760px) {
+  .live-top { padding: 12px 14px; }
+  .live-top .hud-brand { font-size: 13px; letter-spacing: .25em; }
+  .live-body { flex-direction: column; }
+  .live-runs { width: auto; display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 10px 12px; border-right: 0; border-bottom: 1px solid rgba(var(--hud-rgb), .12); flex: none; scrollbar-width: none; }
+  .live-runs h6, .lv-up { display: none; }
+  .lv-run { width: 220px; flex: none; margin: 0; }
+  .live-main { padding: 14px 14px 24px; }
+  .lv-req { font-size: 16px; }
+  .lv-graph { flex-direction: column; gap: 22px; padding: 16px 12px; }
+  .lv-col { flex-direction: row; flex-wrap: wrap; justify-content: center; width: 100%; }
+  .lv-node { max-width: none; flex: 1 1 140px; }
+  .lv-node.lv-core { flex: 0 1 200px; }
+  .lv-cols { grid-template-columns: minmax(0, 1fr); }
+  .lv-steps { max-height: none; }
+}
+@media (prefers-reduced-motion: reduce) { .ring, .lv-edge.on, .lv-node.on { animation: none !important; } }
 </style>
 </head>
 <body>
@@ -417,6 +547,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
       <button class="icon-btn" id="menuBtn" title="Меню"><svg class="i"><use href="#i-menu"/></svg></button>
       <h2 id="chatTitle">Нов разговор</h2>
       <span class="status"><span class="dot" id="netDot"></span><span class="txt" id="netText">На линия</span></span>
+      <button class="live-open" id="liveBtn" title="Какво прави Jarvis в момента, стъпка по стъпка"><span class="ld"></span><span>На живо</span><b id="liveCount"></b></button>
       <button class="hud-open" id="hudBtn" title="Jarvis режим: говори с него с глас"><span class="reactor" style="--s:18px"></span><span>Jarvis режим</span></button>
       <button class="icon-btn" id="speakBtn" title="Чети отговорите на глас"><svg class="i"><use href="#i-speaker"/></svg></button>
     </header>
@@ -488,8 +619,21 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
     <button class="hud-btn" id="hudMic" title="Слуша постоянно; кажи „Джарвис…“"><svg class="i"><use href="#i-mic"/></svg><span>Слушам</span></button>
     <button class="hud-btn" id="hudScreen" title="Jarvis вижда екрана ти"><svg class="i"><use href="#i-devices"/></svg><span>Виж екрана</span></button>
     <button class="hud-btn" id="hudCamBtn" title="Jarvis те вижда през камерата"><svg class="i"><use href="#i-user"/></svg><span>Виж ме</span></button>
+    <button class="hud-btn" id="hudLive" title="Работата на Jarvis стъпка по стъпка"><svg class="i"><use href="#i-pulse"/></svg><span>На живо</span></button>
     <button class="hud-btn" id="hudLook" title="Смени вида: светеща сфера или реактор"><span class="reactor" style="--s:14px"></span><span id="hudLookName">Сфера</span></button>
     <form id="hudForm"><input id="hudInput" placeholder="или напиши на Jarvis…" autocomplete="off"></form>
+  </div>
+</div>
+<div id="live" class="hidden" role="dialog" aria-label="Работа на живо">
+  <div class="grid"></div>
+  <div class="live-top">
+    <div class="hud-brand">РАБОТА НА ЖИВО<small id="liveSum">НИЩО НЕ РАБОТИ</small></div>
+    <span class="sp"></span>
+    <button class="icon-btn" id="liveClose" title="Затвори (Esc)"><svg class="i"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="live-body">
+    <nav class="live-runs" id="liveRuns"></nav>
+    <section class="live-main" id="liveMain"></section>
   </div>
 </div>
 <div id="settings" class="modal hidden">
@@ -525,6 +669,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
 </svg>
 
@@ -668,6 +813,7 @@ async function start() {
     document.addEventListener("click", () => Notification.requestPermission().catch(() => {}), { once: true });
   }
   if (!state.polling) { state.polling = true; pollEvents(); }
+  liveLoad();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
@@ -780,7 +926,7 @@ async function send() {
     addMessage("user", text);
     const pend = document.createElement("div");
     pend.className = "msg assistant";
-    pend.innerHTML = `<div class="reactor spin pulse"></div><div class="body"><div class="name">JARVIS</div><div class="thinking"><span class="dots"><span></span><span></span><span></span></span><span class="label">Мисли…</span></div><div class="steps"></div></div>`;
+    pend.innerHTML = `<div class="reactor spin pulse"></div><div class="body"><div class="name">JARVIS</div><div class="thinking"><span class="dots"><span></span><span></span><span></span></span><span class="label">Мисли…</span><button type="button" class="live-link" data-live>на живо</button></div><div class="steps"></div></div>`;
     $("messages").appendChild(pend);
     state.pending = { chat: chatId, el: pend, steps: [] };
     scrollDown(true);
@@ -905,8 +1051,9 @@ async function pollEvents() {
     if (!state.me) { await sleep(1500); continue; }
     try {
       const data = await api("/api/events?after=" + state.lastEvent);
+      if (state.missed) { state.missed = false; liveLoad(); }  // the work may have moved on while the line was down
       for (const ev of data.events) { state.lastEvent = Math.max(state.lastEvent, ev.id); handleEvent(ev); }
-    } catch (e) { await sleep(e.status === 401 ? 3000 : 2500); }
+    } catch (e) { state.missed = true; await sleep(e.status === 401 ? 3000 : 2500); }
   }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -931,6 +1078,8 @@ function handleEvent(ev) {
     if (hud.open) hudShowConfirm();
   }
   if (ev.kind === "brain") { setBrain(ev.brain); toast(`Вече мисля с ${ev.name}.`, "Нов мозък"); hudLog("Мозък: " + ev.name); }
+  if (ev.kind === "work") workEvent(ev);
+  if (live.open && (ev.kind === "confirm" || ev.kind === "confirm_closed")) liveRender();
   if (hud.open) hudEvent(ev);
 }
 
@@ -1024,8 +1173,21 @@ function hudIdle() {
 function hudLog(text) {
   if (!hud.open || hud.steps[hud.steps.length - 1] === text) return;
   hud.steps = hud.steps.concat(text).slice(-6);
-  $("hudLog").innerHTML = "<h6>ПРОТОКОЛ</h6>" + hud.steps.map((s) => `<div>› ${esc(s)}</div>`).join("");
+  hudRenderLog();
 }
+// The protocol: the level and what he looks at, then each step of the current request with how it went.
+function hudWork(run) {
+  if (!hud.open || !hud.busy || run.chat !== hud.pendingChat) return;
+  hud.work = run;
+  hudRenderLog();
+}
+function hudRenderLog() {
+  const lines = hud.steps.map((s) => `<div>› ${esc(s)}</div>`).concat((hud.work ? hud.work.steps : []).map((s) =>
+    `<div class="st-${esc(s.state)}">${STEP_ICON[s.state] || "›"} ${esc(s.label)}${s.state === "waiting" ? " · чака" : ""}</div>`));
+  $("hudLog").innerHTML = "<h6>ПРОТОКОЛ</h6>" + lines.slice(-7).join("")
+    + (hud.work ? `<button type="button" class="live-link" id="hudLogLive">виж всичко на живо ›</button>` : "");
+}
+$("hudLog").addEventListener("click", (e) => { if (e.target.id === "hudLogLive") openLive(hud.work ? hud.work.id : null); });
 function hudClock() {
   const now = new Date();
   $("hudClock").innerHTML = `<b>${now.toLocaleTimeString("bg-BG", { hour12: false }).replace(/\s*ч\.?$/, "")}</b>${esc(now.toLocaleDateString("bg-BG", { weekday: "long", day: "numeric", month: "long" }))}`;
@@ -1226,7 +1388,7 @@ function grab(video) {
 
 async function hudAsk(text) {
   if (hud.busy || !text) return;
-  hud.busy = true; hud.awake = false; hud.awakeUntil = 0; hud.steps = [];
+  hud.busy = true; hud.awake = false; hud.awakeUntil = 0; hud.steps = []; hud.work = null;
   $("hudLog").innerHTML = "<h6>ПРОТОКОЛ</h6>";
   $("hudYou").textContent = text; $("hudAnswer").innerHTML = "";
   hudIdle();
@@ -1350,13 +1512,13 @@ async function hudStats() {
 }
 
 function hudEvent(ev) {
-  if (ev.kind === "progress" && ev.chat === hud.pendingChat) hudLog(ev.label);
+  if (ev.kind === "progress" && ev.chat === hud.pendingChat && ev.tool.startsWith("level:")) hudLog(ev.label);
   if (ev.kind === "notify" && !hud.busy && !hud.speaking) hudSpeak(ev.text);
 }
 
 async function openHud() {
   if (hud.open) return;
-  hud.open = true; hud.dirty = false; hud.steps = []; hud.awakeUntil = 0;
+  hud.open = true; hud.dirty = false; hud.steps = []; hud.work = null; hud.awakeUntil = 0;
   $("hud").classList.remove("hidden");
   $("hudYou").textContent = ""; $("hudAnswer").innerHTML = ""; $("hudLog").innerHTML = "<h6>ПРОТОКОЛ</h6>";
   setBrain(state.brain); setLook(hud.look);
@@ -1407,7 +1569,7 @@ function closeHud() {
 
 $("hudBtn").addEventListener("click", openHud);
 $("hudClose").addEventListener("click", closeHud);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && hud.open && $("settings").classList.contains("hidden")) closeHud(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && hud.open && !live.open && $("settings").classList.contains("hidden")) closeHud(); });
 $("hudMic").addEventListener("click", () => hudListen(!hud.listening));
 $("hudLook").addEventListener("click", () => setLook(hud.look === "orb" ? "reactor" : "orb"));
 document.querySelector("#hud .core-wrap").addEventListener("click", () => {  // tap the reactor instead of saying his name
@@ -1452,6 +1614,243 @@ $("hudCamBtn").addEventListener("click", async () => {
     if (!hud.open) { stopTracks(stream); return; }
     hud.cam = stream; v.srcObject = stream; v.classList.remove("hidden"); $("hudCamBtn").classList.add("on"); hudLog("Виждам те");
   } catch (e) { toast("Няма достъп до камерата. Разреши я в браузъра.", "Jarvis режим", "warn"); }
+});
+
+// ---------- "На живо": Jarvis's work, step by step ----------
+// Every request and scheduled job as it happens: which level answers it, the specialists working on it, the
+// plan and each step with its timer. "work" events keep it current; /api/work gives the picture on opening.
+const LEVELS = { 1: "Ниво 1 · без AI", 2: "Ниво 2 · бърз модел", 3: "Ниво 3 · пълен агент" };
+const STEP_ICON = { ok: "✓", error: "✗", declined: "⊘", waiting: "⏸", running: "" };
+const PLAN_ICON = { todo: "○", doing: "✱", done: "✓", failed: "✗", skipped: "–" };
+const AGENT_COLORS = ["177, 140, 255", "61, 220, 151", "255, 181, 71", "255, 126, 182", "138, 180, 255", "94, 230, 208"];  // r, g, b
+const live = { open: false, runs: new Map(), sel: null, picked: false, offset: 0, tick: null, upcoming: [], edges: [] };
+
+const liveNow = () => Date.now() / 1000 + live.offset;
+function clockText(s) {
+  s = Math.max(0, s);
+  if (s < 0.1) return "<0.1 с";
+  if (s < 10) return s.toFixed(1) + " с";
+  if (s < 60) return Math.floor(s) + " с";
+  const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = String(Math.floor(s) % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+const timer = (since, ended) => `<span class="tm" data-since="${since}"${ended ? ` data-ended="${ended}"` : ""}>${clockText((ended || liveNow()) - since)}</span>`;
+const runState = (r) => r.state === "working" ? (r.waiting ? "waiting" : "working") : r.state;
+const byStepId = (a, b) => {
+  const x = a.id.split(".").map(Number), y = b.id.split(".").map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? -1) - (y[i] ?? -1); if (d) return d; }
+  return 0;
+};
+
+function workEvent(ev) {
+  if (!ev.run) return;
+  if (ev.time) live.offset = ev.time - Date.now() / 1000;
+  live.runs.set(ev.run.id, ev.run);
+  const done = [...live.runs.values()].filter((r) => r.state !== "working").sort((a, b) => b.ended - a.ended);
+  done.slice(10).forEach((r) => live.runs.delete(r.id));
+  liveBadge();
+  hudWork(ev.run);
+  if (live.open) liveRender();
+}
+async function liveLoad() {
+  try {
+    const w = await api("/api/work");
+    live.offset = w.t - Date.now() / 1000;
+    live.runs = new Map([...w.running, ...w.recent].map((r) => [r.id, r]));
+  } catch (e) { return; }
+  liveBadge();
+  if (live.open) liveRender();
+}
+function liveSorted() {
+  const runs = [...live.runs.values()];
+  return runs.filter((r) => r.state === "working").sort((a, b) => b.since - a.since)
+    .concat(runs.filter((r) => r.state !== "working").sort((a, b) => b.ended - a.ended));
+}
+function liveBadge() {
+  const working = [...live.runs.values()].filter((r) => r.state === "working");
+  $("liveBtn").classList.toggle("busy", working.length > 0);
+  $("liveBtn").classList.toggle("wait", working.some((r) => r.waiting));
+  $("liveCount").textContent = working.length || "";
+  $("liveSum").textContent = working.length ? `РАБОТИ ПО ${working.length} ${working.length === 1 ? "ЗАДАЧА" : "ЗАДАЧИ"}` : "НИЩО НЕ РАБОТИ";
+}
+
+async function openLive(runId) {
+  $("settings").classList.add("hidden");
+  live.picked = Boolean(runId);
+  if (runId) live.sel = runId;
+  if (!live.open) {
+    live.open = true;
+    $("live").classList.remove("hidden");
+    live.tick = setInterval(liveTick, 1000);
+    window.addEventListener("resize", liveEdges);
+  }
+  liveRender();
+  await liveLoad();
+  if (state.me && state.me.role === "owner") {
+    try { live.upcoming = (await api("/api/now")).upcoming.slice(0, 6); } catch (e) { live.upcoming = []; }
+    if (live.open) liveRender();
+  }
+}
+function closeLive() {
+  if (!live.open) return;
+  live.open = false;
+  clearInterval(live.tick);
+  window.removeEventListener("resize", liveEdges);
+  $("live").classList.add("hidden");
+}
+function liveTick() {
+  document.querySelectorAll("#live .tm[data-since]:not([data-ended])").forEach((el) => {
+    el.textContent = clockText(liveNow() - Number(el.dataset.since));
+  });
+}
+
+function liveRender() {
+  const runs = liveSorted();
+  if (!live.picked || !live.runs.has(live.sel)) { live.picked = false; live.sel = runs.length ? runs[0].id : null; }
+  const working = runs.filter((r) => r.state === "working"), finished = runs.filter((r) => r.state !== "working");
+  const item = (r) => `<button class="lv-run ${r.id === live.sel ? "sel" : ""}" data-run="${r.id}"><span class="t">${esc(r.text)}</span>
+    <span class="m"><span class="lv-st ${runState(r)}"></span>${esc(r.kind === "job" ? "по график" : r.who)}${r.level ? " · ниво " + r.level : ""}${timer(r.since, r.ended)}</span></button>`;
+  const when = (iso) => new Date(iso).toLocaleString("bg-BG", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  $("liveRuns").innerHTML = (working.length ? "<h6>РАБОТИ СЕГА</h6>" + working.map(item).join("") : "")
+    + (finished.length ? "<h6>СКОРО СВЪРШЕНИ</h6>" + finished.map(item).join("") : "")
+    + (live.upcoming.length ? "<h6>ПРЕДСТОИ</h6>" + live.upcoming.map((u) => `<div class="lv-up">${esc(u.text)}<small>${esc(when(u.at))}</small></div>`).join("") : "");
+
+  const main = $("liveMain"), old = main.querySelector(".lv-steps"), oldTop = old ? old.scrollTop : 0, mainTop = main.scrollTop;
+  const run = live.runs.get(live.sel);
+  if (!run) {
+    live.edges = [];
+    main.innerHTML = liveAsk() + `<div class="lv-empty"><div class="reactor pulse" style="--s:56px"></div>Jarvis не работи по нищо в момента.<br>
+      Когато му дадеш задача или стане време за рутина, тук виждаш всяка стъпка: кое ниво отговаря, кой от екипа работи, плана и колко време отнема всяко нещо.</div>`;
+    return;
+  }
+  const colors = {};
+  run.agents.forEach((a, i) => { colors[a.name] = AGENT_COLORS[i % AGENT_COLORS.length]; });
+  const st = runState(run);
+  const stateLabel = { working: "работи", waiting: "чака теб", done: "готово", error: "грешка" }[st];
+  const steps = run.steps.length;
+  main.innerHTML = liveAsk() + `
+    <div class="lv-head"><div class="lv-req">${esc(run.text)}</div>
+      <div class="lv-meta"><span class="lv-badge ${run.level ? "l" + run.level : ""}">${run.level ? LEVELS[run.level] : "разпознава"}</span>
+        <span class="lv-badge ${st === "working" ? "" : st}">${stateLabel}</span>
+        <span>${esc(run.kind === "job" ? "по график" : run.who)}</span><span>${steps} ${steps === 1 ? "стъпка" : "стъпки"}</span>
+        <span class="lv-clock">${timer(run.since, run.ended)}</span></div></div>
+    ${liveGraph(run, colors)}
+    <div class="lv-cols ${run.plan ? "" : "one"} ${run.state === "working" ? "" : "over"}">${run.plan ? livePlan(run.plan) : ""}${liveSteps(run, colors)}</div>`;
+  const list = main.querySelector(".lv-steps");
+  if (list) list.scrollTop = oldTop;
+  main.scrollTop = mainTop;
+  liveEdges();
+}
+
+// The confirmation Jarvis waits for, answerable right here.
+function liveAsk() {
+  const holder = state.confirms.find((h) => !h.dataset.answered);
+  if (!holder) return "";
+  return `<div class="lv-ask" data-id="${holder.ev.id}"><div class="what"><b>ЧАКА ТВОЕТО „ДА“</b>${esc(holder.ev.text)}</div>
+    <button class="hud-btn on" data-yes="1">Да</button>${holder.ev.always ? `<button class="hud-btn" data-yes="1" data-always="1">Винаги</button>` : ""}<button class="hud-btn" data-yes="0">Не</button></div>`;
+}
+
+// Request → Jarvis (at its level) → the specialists or the step being done → the answer.
+function liveGraph(run, colors) {
+  const finished = run.state !== "working";
+  const node = (id, cls, name, detail, color) =>
+    `<div class="lv-node ${cls}" data-node="${id}"${color ? ` style="--hud:rgb(${color});--hud-rgb:${color}"` : ""}><div class="n">${esc(name)}</div><div class="d" title="${esc(detail)}">${esc(detail)}</div></div>`;
+  const lastOf = (agent) => [...run.steps].reverse().find((s) => s.agent === agent);
+  const stepCls = (s) => !s ? "" : s.state === "waiting" ? "wait" : s.state === "running" ? "on" : s.state === "error" ? "bad" : "ok";
+  const edges = [["req", "jarvis", "ok"]];
+  const workers = [];
+  if (run.agents.length) {
+    run.agents.forEach((a, i) => {
+      const last = lastOf(a.name);
+      const cls = last && last.state === "waiting" ? "wait" : a.state === "running" ? "on" : a.state === "error" ? "bad" : "ok";
+      workers.push(node("w" + i, cls, a.name, a.state === "running" ? (last && last.state !== "ok" ? last.label : "мисли…") : a.state === "error" ? "не успя" : "готов", colors[a.name]));
+      edges.push(["jarvis", "w" + i, cls === "bad" ? "" : cls], ["w" + i, "answer", finished ? "ok" : ""]);
+    });
+  } else {
+    const last = run.steps[run.steps.length - 1];
+    let cls = stepCls(last), name = "Действие", detail = last ? last.label : "";
+    if (!last) {
+      cls = finished ? "ok" : "on";
+      name = run.level === 1 ? "Команда" : run.level === 2 ? "Бърз модел" : "Мисли";
+      detail = finished ? "без инструменти" : run.level ? "…" : "разпознава заявката";
+    } else if (!finished && last.state !== "running" && last.state !== "waiting") {
+      cls = "on"; name = "Мисли"; detail = `след „${last.label}“`;
+    }
+    workers.push(node("w0", cls, name, detail));
+    edges.push(["jarvis", "w0", cls === "bad" ? "" : cls], ["w0", "answer", finished ? "ok" : ""]);
+  }
+  live.edges = edges;
+  const jarvisCls = finished ? (run.state === "error" ? "bad" : "ok") : run.waiting && !run.agents.some((a) => a.state === "running") ? "wait" : "on";
+  const mine = lastOf("Jarvis");
+  const jarvisDetail = !finished && mine && (mine.state === "running" || mine.state === "waiting") && run.agents.length ? mine.label
+    : run.level ? "ниво " + run.level : "избира ниво";
+  const answer = finished ? (run.state === "error" ? "bad" : "ok") : "";
+  return `<div class="lv-graph"><svg aria-hidden="true"></svg>
+    <div class="lv-col">${node("req", "ok", run.kind === "job" ? "По график" : "Заявка", run.kind === "job" ? run.text : run.who)}</div>
+    <div class="lv-col">${node("jarvis", "lv-core " + jarvisCls, "Jarvis", jarvisDetail)}</div>
+    <div class="lv-col">${workers.join("")}</div>
+    <div class="lv-col">${node("answer", answer, "Отговор", finished ? (run.state === "error" ? "грешка" : "за " + clockText(run.ended - run.since)) : "предстои")}</div>
+  </div>`;
+}
+function liveEdges() {
+  const g = document.querySelector("#liveMain .lv-graph");
+  if (!g) return;
+  const box = g.getBoundingClientRect(), vertical = getComputedStyle(g).flexDirection === "column";
+  g.querySelector("svg").innerHTML = live.edges.map(([a, b, cls]) => {
+    const A = g.querySelector(`[data-node="${a}"]`), B = g.querySelector(`[data-node="${b}"]`);
+    if (!A || !B) return "";
+    const p = A.getBoundingClientRect(), q = B.getBoundingClientRect();
+    let d;
+    if (vertical) {
+      const x1 = p.left + p.width / 2 - box.left, y1 = p.bottom - box.top, x2 = q.left + q.width / 2 - box.left, y2 = q.top - box.top, m = (y1 + y2) / 2;
+      d = `M${x1},${y1} C${x1},${m} ${x2},${m} ${x2},${y2}`;
+    } else {
+      const x1 = p.right - box.left, y1 = p.top + p.height / 2 - box.top, x2 = q.left - box.left, y2 = q.top + q.height / 2 - box.top, m = (x1 + x2) / 2;
+      d = `M${x1},${y1} C${m},${y1} ${m},${y2} ${x2},${y2}`;
+    }
+    return `<path class="lv-edge ${cls}" d="${d}"/>`;
+  }).join("");
+}
+function livePlan(plan) {
+  const steps = [...plan.steps].sort(byStepId);
+  const done = steps.filter((s) => ["done", "skipped", "failed"].includes(s.status)).length;
+  const pct = steps.length ? Math.round(100 * done / steps.length) : 0;
+  return `<div class="lv-card"><h6>ПЛАН</h6><div class="lv-goal">${esc(plan.goal)}</div>
+    <div class="lv-bar"><div style="width:${pct}%"></div></div><div class="lv-pct">${done} от ${steps.length} · ${pct}%</div>
+    ${steps.map((s) => `<div class="lv-ps ${esc(s.status)}" style="padding-left:${(s.id.split(".").length - 1) * 18}px"><i>${PLAN_ICON[s.status] || "○"}</i>
+      <span>${esc(s.id)} ${esc(s.title)}${s.note ? ` <small>· ${esc(s.note)}</small>` : ""}</span></div>`).join("")}</div>`;
+}
+function liveSteps(run, colors) {
+  const rows = [...run.steps].reverse().map((s) => {
+    const who = s.agent && s.agent !== "Jarvis" ? `<span class="who" style="--ag:${colors[s.agent] ? `rgb(${colors[s.agent]})` : "var(--hud)"}">${esc(s.agent)}</span>` : "";
+    const label = s.label + (s.state === "waiting" ? " · чака твоето „да“" : s.state === "declined" ? " · отказано" : "");
+    return `<div class="lv-step ${esc(s.state)}"><span class="ic">${STEP_ICON[s.state] || ""}</span>
+      <div class="w">${who}${esc(label)}${s.detail ? `<small title="${esc(s.detail)}">${esc(s.detail)}</small>` : ""}</div>${timer(s.since, s.ended)}</div>`;
+  }).join("");
+  const none = run.state === "working" ? (run.level === 2 ? "Отговаря направо, без инструменти…" : "Мисли…")
+    : run.level === 2 ? "Отговори направо, без инструменти и без да харчи кредити за тях." : "Без стъпки.";
+  return `<div class="lv-card"><h6>СТЪПКИ</h6><div class="lv-steps">${rows || `<div class="lv-none">${none}</div>`}</div></div>`;
+}
+
+$("liveBtn").addEventListener("click", () => openLive());
+$("hudLive").addEventListener("click", () => openLive(hud.work && hud.work.state === "working" ? hud.work.id : null));
+$("liveClose").addEventListener("click", closeLive);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && live.open) closeLive(); });
+$("liveRuns").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-run]");
+  if (b) { live.sel = Number(b.dataset.run); live.picked = true; liveRender(); }
+});
+$("liveMain").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-yes]");
+  if (!b) return;
+  const holder = state.confirms.find((h) => String(h.ev.id) === b.closest(".lv-ask").dataset.id);
+  if (holder) await answerConfirm(holder, b.dataset.yes === "1", b.dataset.always === "1");
+  if (live.open) liveRender();
+});
+$("messages").addEventListener("click", (e) => {  // "на живо" under the answer being worked on
+  if (!e.target.closest("[data-live]")) return;
+  const run = [...live.runs.values()].find((r) => r.state === "working" && state.pending && r.chat === state.pending.chat);
+  openLive(run ? run.id : null);
 });
 
 // ---------- Drawer (phones) ----------
@@ -1656,8 +2055,8 @@ async function tabActivity() {
   const KIND = { routine: "рутина", job: "задача", reminder: "напомняне" };
   const REPEAT = { hourly: "всеки час", daily: "всеки ден", weekdays: "делнични дни", weekly: "всяка седмица", monthly: "всеки месец", yearly: "всяка година" };
   const head = `
-    <div class="section"><h5>В момента</h5>${now.running.length ? now.running.map((r) => `
-      <div class="act"><div class="when">${ago(r.seconds)}</div>
+    <div class="section"><h5>В момента <button class="btn ghost small" id="actLive" style="margin-left:auto">${icon("pulse")}Виж на живо</button></h5>${now.running.length ? now.running.map((r) => `
+      <div class="act" data-run="${r.id}" style="cursor:pointer" title="Виж стъпките на живо"><div class="when">${ago(r.seconds)}</div>
         <div class="what"><b>${esc(r.who)}</b> · ${esc(r.text)}<small>${r.step ? "Сега: " + esc(r.step) : "Мисли…"}</small></div>
         <span class="badge ok">работи</span></div>`).join("") : `<div class="hint">Jarvis не работи по нищо в момента.</div>`}</div>
     ${now.upcoming.length ? `<div class="section"><h5>Предстои</h5>${now.upcoming.map((r) => `
@@ -1672,6 +2071,8 @@ async function tabActivity() {
         <span class="badge ${r.ok ? "" : "warn"}">${r.ok ? "готово" : "грешка"}</span>
       </div>`).join("")}
     </div>` : `<div class="hint">Още няма свършени действия.</div>`);
+  $("actLive").addEventListener("click", () => openLive());
+  $("tabBody").querySelectorAll(".act[data-run]").forEach((el) => el.addEventListener("click", () => openLive(Number(el.dataset.run))));
 }
 
 async function tabUsage() {

@@ -95,7 +95,7 @@ def test_tasks_tab_shows_what_runs_now_and_what_comes_next(settings, ctx, regist
     assert now["running"][0]["text"] == "Сутрешен брифинг" and now["running"][0]["step"] == "Чете календара"
     kinds = {r["text"]: r["kind"] for r in now["upcoming"]}
     assert kinds == {"Сутрешен брифинг": "routine", "Провери цената на тока": "job"}
-    hub.running.pop(run_id)
+    hub.board.finish(run_id)
     assert json.loads(call(port, "/api/now")[1])["running"] == []
     usage = json.loads(call(port, "/api/usage")[1])
     assert usage["today"] == {"cost": 0, "requests": 0} and len(usage["days"]) == 14

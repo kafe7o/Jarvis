@@ -4,20 +4,23 @@ this computer. Simple requests never reach it: see router.py for the three level
 from __future__ import annotations
 
 import contextvars
+import itertools
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Callable
 
 import anthropic
 
-from . import core_files, gemini, local, router, usage
+from . import core_files, gemini, local, router, usage, work
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
 
 log = logging.getLogger("jarvis.brain")
 
-# The request being answered (user, confirmer, progress callback), so a tool such as delegate can
+# The request being answered (user, confirmer, progress callbacks), so a tool such as delegate can
 # start specialist agents that ask the same person and report to the same window.
 TURN: contextvars.ContextVar[dict | None] = contextvars.ContextVar("jarvis_turn", default=None)
 
@@ -131,6 +134,7 @@ class Jarvis:
         self.gemini = gemini_brain or gemini.GeminiBrain()
         self.local = local_brain or local.LocalBrain()
         self.on_progress = on_progress or (lambda _msg: None)
+        self._step_ids = itertools.count(1)
 
     def system_prompt(self, user=None) -> str:
         return self._base_prompt(user) + self._clock()
@@ -295,18 +299,21 @@ class Jarvis:
         on_progress: Callable[[str], None] | None = None,
         images: list[tuple[str, str]] | None = None,
         route: bool | None = None,
+        on_step: Callable[[dict], None] | None = None,
     ) -> str:
         """Handle one user message end to end and return Jarvis's final answer.
 
         ``user`` (an accounts.User) limits the tools to that account's permissions. ``images`` are
         (media type, base64) pairs, e.g. a frame of the screen or the camera the user is sharing.
         ``route`` (default: the JARVIS_ROUTER setting) first tries the two cheap levels of router.py, a
-        command done without AI or a quick answer; scheduled jobs and check-ins pass False.
+        command done without AI or a quick answer; scheduled jobs and check-ins pass False. ``on_step`` hears
+        every step as it happens (work.Board shows them on the app's "На живо" screen).
         """
         confirmer = confirmer or self.confirmer
         on_progress = on_progress or self.on_progress
+        on_step = on_step or (lambda _event: None)
         if (self.settings.router if route is None else route) and not images:
-            answer = self.cheap_answer(text, conversation, confirmer, user, on_progress)
+            answer = self.cheap_answer(text, conversation, confirmer, user, on_progress, on_step)
             if answer is not None:
                 self.store.add_message(conversation, "user", text)
                 self.store.add_message(conversation, "assistant", answer)
@@ -320,7 +327,8 @@ class Jarvis:
         # "помисли добре": this one request thinks harder than the everyday setting
         effort = "max" if router.think_harder(text) else None
         on_progress("level:3")
-        answer = self._loop(messages, confirmer, user, on_progress, effort=effort)
+        on_step({"type": "level", "level": 3})
+        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step)
         self.count(3)
         self.store.add_message(conversation, "user", text)
         self.store.add_message(conversation, "assistant", answer)
@@ -342,21 +350,25 @@ class Jarvis:
 
     # --- the two cheap levels (router.py) -------------------------------------------------------------
 
-    def cheap_answer(self, text: str, conversation: str, confirmer: Confirmer, user=None, on_progress=None) -> str | None:
+    def cheap_answer(self, text: str, conversation: str, confirmer: Confirmer, user=None, on_progress=None,
+                     on_step=None) -> str | None:
         """Level 1 (a command, no AI) or level 2 (a quick answer); None when the full agent is needed."""
-        answer = self.command(text, conversation, confirmer, user, on_progress)
+        answer = self.command(text, conversation, confirmer, user, on_progress, on_step)
         if answer is not None:
             self.count(1)
             return answer
         if router.quick(text):
             (on_progress or self.on_progress)("level:2")
+            if on_step:
+                on_step({"type": "level", "level": 2})
             answer = self.quick_answer(text, conversation, user)
             if answer is not None:
                 self.count(2)
                 return answer
         return None
 
-    def command(self, text: str, conversation: str, confirmer: Confirmer, user=None, on_progress=None) -> str | None:
+    def command(self, text: str, conversation: str, confirmer: Confirmer, user=None, on_progress=None,
+                on_step=None) -> str | None:
         """Level 1: do a command found by the rules, through the same tools, permissions and confirmations."""
         steps = router.match(text, self.router_info(conversation, user))
         if not steps:
@@ -368,7 +380,9 @@ class Jarvis:
                 return None  # not something this person may do: the agent explains
         on_progress = on_progress or self.on_progress
         on_progress("level:1")
-        TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "depth": 0})
+        if on_step:
+            on_step({"type": "level", "level": 1})
+        TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "on_step": on_step, "depth": 0})
         said: list[str] = []
         for i, step in enumerate(steps):
             if step.tool is None:
@@ -447,13 +461,43 @@ class Jarvis:
         if ask_groups is None and user is not None:
             ask_groups = user.ask_groups()
         trust_local = self.settings.trust_local_actions and (user is None or user.is_owner)
-        output, is_error = self.registry.run(name, args, confirmer, trust_local, allowed, ask_groups)
+        report = (TURN.get() or {}).get("on_step") or (lambda _event: None)
+        step = next(self._step_ids)
+        report({"type": "step", "id": step, "agent": agent, "tool": name, "state": "running",
+                "detail": work.detail(self.registry.tools.get(name), args)})
+
+        def confirm(summary: str) -> bool:  # the live view shows that the step waits for the person's yes
+            report({"type": "step", "id": step, "state": "waiting"})
+            try:
+                return confirmer(summary)
+            finally:
+                report({"type": "step", "id": step, "state": "running"})
+
+        output, is_error = self.registry.run(name, args, confirm, trust_local, allowed, ask_groups)
         log.info("tool %s -> %s", name, output[:200] if isinstance(output, str) else "[image]")
         self.log_activity(user, agent, name, args, is_error)
+        declined = is_error and isinstance(output, str) and output.startswith("The user declined")
+        report({"type": "step", "id": step, "state": "declined" if declined else "error" if is_error else "ok"})
+        if not is_error and name in ("make_plan", "update_plan_step"):
+            self.report_plan(report, args.get("plan_id") if name == "update_plan_step" else output)
         return output, is_error
 
+    def report_plan(self, report: Callable[[dict], None], plan) -> None:
+        """The plan's task tree, for the live view (``plan`` is its id, or make_plan's answer, which names it)."""
+        if isinstance(plan, str):
+            found = re.search(r"\d+", plan)
+            plan = found and found.group()
+        try:
+            rows = self.store.query("SELECT * FROM plans WHERE id=?", (int(plan),))
+        except (TypeError, ValueError):
+            return
+        if rows:
+            report({"type": "plan", "plan": {"id": rows[0]["id"], "goal": rows[0]["goal"], "status": rows[0]["status"],
+                                             "steps": json.loads(rows[0]["steps"])}})
+
     def _loop(self, messages: list, confirmer: Confirmer, user=None, on_progress=None, persona: str = "",
-              groups: set | None = None, agent: str = "Jarvis", depth: int = 0, effort: str | None = None) -> str:
+              groups: set | None = None, agent: str = "Jarvis", depth: int = 0, effort: str | None = None,
+              on_step: Callable[[dict], None] | None = None) -> str:
         """The tool loop. Specialists (see plugins/team.py) pass a ``persona``, the permission
         ``groups`` they work with (never more than the user's own) and their ``agent`` name."""
         on_progress = on_progress or self.on_progress
@@ -465,7 +509,8 @@ class Jarvis:
         # clock, so tools, personality and memories are cached from one message to the next.
         system = [{"type": "text", "text": self._base_prompt(user) + persona, "cache_control": {"type": "ephemeral"}},
                   {"type": "text", "text": self._clock().strip()}]
-        TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "depth": depth, "effort": effort})
+        TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "on_step": on_step, "depth": depth,
+                  "effort": effort})
         texts: list[str] = []
         for _ in range(self.settings.max_tool_rounds):
             response = self._request(messages, user, system, allowed)
@@ -511,5 +556,15 @@ class Jarvis:
         if turn.get("depth", 0) >= 1:
             raise RuntimeError("Specialists cannot hand work to other specialists; do it yourself.")
         messages = [{"role": "user", "content": task}]
-        return contextvars.copy_context().run(self._loop, messages, turn.get("confirmer") or self.confirmer, turn.get("user"), turn.get("on_progress"),
-                          persona=persona, groups=set(groups) - {"team"}, agent=agent, depth=turn.get("depth", 0) + 1)
+        report = turn.get("on_step") or (lambda _event: None)
+        report({"type": "agent", "agent": agent, "task": task, "state": "running"})
+        try:
+            answer = contextvars.copy_context().run(
+                self._loop, messages, turn.get("confirmer") or self.confirmer, turn.get("user"), turn.get("on_progress"),
+                persona=persona, groups=set(groups) - {"team"}, agent=agent, depth=turn.get("depth", 0) + 1,
+                on_step=turn.get("on_step"))
+        except Exception:
+            report({"type": "agent", "agent": agent, "state": "error"})
+            raise
+        report({"type": "agent", "agent": agent, "state": "done"})
+        return answer

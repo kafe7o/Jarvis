@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .accounts import GROUPS, SESSION_DAYS, TOKEN_USER, Accounts, User, check_password, conversation_id
 from .tools import Tool, asking
+from .work import Board
 
 log = logging.getLogger("jarvis.hub")
 
@@ -134,7 +135,7 @@ class EventLog:
     Each event has a ``to``: a user id, or None for every owner.
     """
 
-    def __init__(self, keep: int = 300):
+    def __init__(self, keep: int = 600):
         self.keep = keep
         self.events: list[dict] = []
         self._ids = itertools.count(1)
@@ -393,8 +394,8 @@ class Hub:
         self.devices = DeviceHub(ctx.jarvis.registry)
         self.chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         self.busy = 0  # requests being answered right now; updates wait for 0
-        self.running: dict[int, dict] = {}  # what Jarvis is doing right now, for Settings > Activity
-        self.run_ids = itertools.count(1)
+        # what Jarvis is doing right now and just did, step by step: the "На живо" screen and Settings > Задачи
+        self.board = Board(label=lambda name: tool_label(ctx.jarvis.registry, name), publish=self.publish_work)
         self.updating = threading.Lock()
         self.failures: dict[str, list[float]] = defaultdict(list)
         ctx.hub = self
@@ -439,25 +440,46 @@ class Hub:
 
         with self.chat_locks[chat_id or 0]:
             self.busy += 1
-            run_id, run = self.track(user.name, text)
-            model = self.ctx.settings.model
+            run_id, run = self.track(user.name, text, chat=chat_id, to=None if user.is_owner else user.id)
+            model, ok = self.ctx.settings.model, False
             try:
-                return self.ctx.jarvis.ask(
+                answer = self.ctx.jarvis.ask(
                     text, conversation=conversation, user=user, on_progress=progress,
                     confirmer=lambda summary: self.confirmer(summary, user, chat_id), images=images,
+                    on_step=self.board.reporter(run_id),
                 )
+                ok = True
+                return answer
             finally:
                 self.busy -= 1
-                self.running.pop(run_id, None)
+                self.board.finish(run_id, ok)
                 if self.ctx.settings.model != model and self.ctx.settings.model.startswith("gemini"):
                     # Claude ran out of credit and Gemini took over: tell the app (colour, toast).
                     self.events.add("brain", brain="gemini", name="Gemini (безплатно)")
 
-    def track(self, who: str, text: str) -> tuple[int, dict]:
-        """Note a piece of work in progress (shown in Settings > Activity until it is done)."""
-        run_id = next(self.run_ids)
-        self.running[run_id] = {"who": who, "text": text[:200], "since": time.time(), "step": ""}
-        return run_id, self.running[run_id]
+    def track(self, who: str, text: str, kind: str = "request", chat: int | None = None,
+              to: int | None = None) -> tuple[int, dict]:
+        """Note a piece of work in progress; ``board.finish`` ends it. ``to``: a member whose work this is."""
+        return self.board.start(who, text, kind=kind, chat=chat, to=to)
+
+    @property
+    def running(self) -> dict[int, dict]:
+        return self.board.running
+
+    def publish_work(self, run: dict, to: int | None) -> None:
+        """Every change to a piece of work goes to the owners' apps, and a member's own work to them as well."""
+        shown = {**run, "steps": run["steps"][-40:]}
+        self.events.add("work", run=shown)
+        if to is not None:
+            self.events.add("work", to=to, run=shown)
+
+    def work_for(self, user: User) -> dict:
+        """The "На живо" screen: owners see all the work, a member only their own."""
+        snap = self.board.snapshot()
+        if not user.is_owner:
+            snap["running"] = [r for r in snap["running"] if r["to"] == user.id]
+            snap["recent"] = [r for r in snap["recent"] if r["to"] == user.id]
+        return snap
 
     def job_conversation(self, title: str) -> str | None:
         """The owner's chat named ``title`` (made if missing), where a routine writes its result."""
@@ -617,6 +639,8 @@ class Hub:
             if after < 0:  # a client starting up only wants new events
                 return 200, {"events": [], "last": self.events.last_id()}
             return 200, {"events": self.events.after(after, user)}
+        if p == "/api/work" and m == "GET":  # the "На живо" screen
+            return 200, self.work_for(user)
         if p == "/api/weather" and m == "GET":  # for the greeting in Jarvis mode
             from .plugins.daily import short_weather
 
