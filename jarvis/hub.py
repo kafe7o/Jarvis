@@ -69,6 +69,7 @@ TOOL_LABELS = {
     "vault_read": "Чете от паметта", "play_youtube": "Пуска от YouTube", "weather": "Гледа времето",
     "media_control": "Управлява музиката", "lock_computer": "Заключва компютъра",
     "auto_reply": "Отговаря вместо теб", "phone_reply": "Праща отговор от телефона",
+    "find_leads": "Търси клиенти без сайт", "build_website": "Прави сайт",
 }
 GROUP_LABELS = {key: label for key, label, _desc, _sensitive in GROUPS}
 
