@@ -1546,7 +1546,13 @@ function hudShowConfirm(fresh) {
       (ev.always ? `<button class="hud-btn" data-yes="1" data-always="1">Винаги</button>` : "") +
       `<button class="hud-btn" data-yes="0">Не</button>` +
       `<div class="hint" style="flex-basis:100%;color:#ffe2b0;opacity:.8">Кажи ${money ? "„потвърждавам“" : ev.always ? "„да“, „винаги“" : "„да“"} или „не“.</div>`;
-    if (fresh || changed) { chime(false); hudSpeak(money ? "Трябва ми разрешение за плащане. Потвърдете." : "Трябва ми разрешение. Потвърдете."); }
+    // A reply to a message on the phone („отговаряй вместо мен“) is read out: who wrote, what, and the reply.
+    const reply = ev.text.match(/^ОТГОВОР в (.+?) до (.+)\nПиса: „([\s\S]*)“\nОтговор: „([\s\S]*)“$/);
+    if (fresh || changed) {
+      chime(false);
+      hudSpeak(reply ? `${reply[2]} ти писа в ${reply[1]}: ${reply[3]} Да отговоря ли: ${reply[4]}`
+        : money ? "Трябва ми разрешение за плащане. Потвърдете." : "Трябва ми разрешение. Потвърдете.");
+    }
   }
   hudIdle();
 }
@@ -1561,6 +1567,7 @@ const SKILLS = [
   { label: "План за утре", text: "Направи ми план за утре от задачите, напомнянията и срещите ми, подреден по часове, с почивки. Кратко. Запиши плана в паметта (output)." },
   { label: "Проучи тема", ask: "Проучи подробно и запиши доклад в паметта: " },
   { label: "Подреди паметта", text: "Подреди паметта: прочети новите бележки в raw, разпредели ги в wiki по теми (обнови или създай бележки), обнови wiki/_master-index.md и маркирай обработените с vault_done. Накрая ми кажи накратко какво подреди." },
+  { label: "Отговаряй вместо мен", text: "отговаряй вместо мен" },
   { label: "Седмичен преглед", text: "Седмичен преглед: какво свършихме тази седмица, какво остава, какво предстои следващата седмица, колко струваше и трите най-важни неща за фокус. Запиши го в паметта (output)." },
 ];
 $("hudSkills").innerHTML = SKILLS.map((s, i) => `<button class="hud-skill" data-i="${i}">${esc(s.label)}</button>`).join("");

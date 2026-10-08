@@ -1,7 +1,8 @@
 """Three levels of answering, so that simple things cost nothing (the routing idea from the owner's video).
 
 1. Commands, with no AI at all: the time and date, the weather, music and videos, media keys and volume,
-   opening sites and programs (also on the phone), locking the computer, reminders, greetings and spending.
+   opening sites and programs (also on the phone), locking the computer, reminders, greetings, spending and
+   switching „отговаряй вместо мен“ on and off.
    Matched by rules here and done at once through the normal tools, so permissions and confirmations apply.
 2. A quick answer: a short question goes to the cheapest model with a short prompt and no tools. If it needs
    tools after all, the model says ESCALATE and level 3 takes over (see brain.Jarvis.quick_answer).
@@ -95,6 +96,10 @@ HOW_ARE_YOU = rx(r"^(?:как си(?: днес)?|как я караш|как в�
 GOOD_NIGHT = rx(r"^лека нощ(?: (?:джарвис|jarvis))?$")
 SPENDING = rx(r"^(?:колко (?:похарчих|похарчи|харча|харчиш|струва(?:ше)?|ми струва)(?: днес| досега| тази седмица)?|"
               r"разход(?:ът)?(?: днес)?|колко кредити (?:похарчих|похарчи|остават))$")
+REPLY_ON = rx(r"^(?:отговаряй|отговарай) (?:вместо мен|на съобщенията(?: вместо мен)?)$|"
+              r"^(?:включи|пусни) (?:автоматичните )?отговори(?:те)?(?: на съобщенията)?$")
+REPLY_OFF = rx(r"^(?:спри|престани|изключи) (?:да отговаряш|автоматичните отговори|отговорите)(?: вместо мен| на съобщенията)?$|"
+               r"^не отговаряй (?:вместо мен|на съобщенията)$")
 SPLIT = rx(r"\s*,?\s+(?:и после|после|след това|и)\s+")
 
 # Sites and programs that "отвори …" opens without asking the AI. Keys are regular expressions (Bulgarian
@@ -230,6 +235,8 @@ def _talk(s: str, info: Info) -> Step | None:
         return Step(lambda _o: f"Лека нощ, {name}. Ще бъда тук.")
     if SPENDING.match(s) and info.owner:
         return Step(lambda _o: info.spending() or "Днес не съм похарчил нищо.")
+    if (REPLY_ON.match(s) or REPLY_OFF.match(s)) and info.owner:  # „отговаряй вместо мен“ (replies.py)
+        return Step(lambda out: out, "auto_reply", {"action": "on" if REPLY_ON.match(s) else "off"})
     return None
 
 

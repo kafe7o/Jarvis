@@ -68,6 +68,7 @@ TOOL_LABELS = {
     "vault_search": "Търси в паметта", "vault_note": "Записва в паметта", "vault_write": "Подрежда паметта",
     "vault_read": "Чете от паметта", "play_youtube": "Пуска от YouTube", "weather": "Гледа времето",
     "media_control": "Управлява музиката", "lock_computer": "Заключва компютъра",
+    "auto_reply": "Отговаря вместо теб", "phone_reply": "Праща отговор от телефона",
 }
 GROUP_LABELS = {key: label for key, label, _desc, _sensitive in GROUPS}
 
@@ -362,6 +363,10 @@ EXTRA_SETTINGS = [
         ("JARVIS_GROQ_MODEL", "Модел в Groq (празно = openai/gpt-oss-120b; другите безплатни се ползват, когато той е зает)"),
         ("JARVIS_LOCAL_MODEL", "Мозък на лаптопа в Ollama, без лимит (празно = най-добрият инсталиран, напр. qwen3:4b)"),
         ("JARVIS_VAULT", "Папка-памет за бележки (празно = Документи\\Jarvis Vault)"),
+    ]),
+    ("Съобщения", "", [
+        ("JARVIS_AUTO_REPLY", "Отговаряй вместо мен: предлага отговор на новите съобщения в телефона и го праща само след твоето „да“ (1 = да, 0 = не)"),
+        ("JARVIS_REPLY_STYLE", "Как пишеш, за отговорите (напр. кратко, на ти, без емоджита)"),
     ]),
     ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
         ("JARVIS_TTS_VOICE", "Безплатен глас на български (bg-BG-BorislavNeural)"),

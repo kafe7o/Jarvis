@@ -20,6 +20,7 @@ import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from xml.etree import ElementTree
 
 from ..procs import run_capture
@@ -237,6 +238,9 @@ def register(registry: ToolRegistry, ctx) -> None:
         from .system import allowed_path
 
         return allowed_path(path, ctx.settings.allowed_roots)
+
+    # The same hands for other plugins (replies.py answers messages with them).
+    ctx.android = SimpleNamespace(devices=devices_from_env, shell=shell, elements=elements, type_text=type_text)
 
     @registry.tool("List the Android phones and TVs Jarvis can control.", obj({}))
     def android_devices():

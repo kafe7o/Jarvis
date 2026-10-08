@@ -46,7 +46,7 @@ class FakeClient:
 @pytest.fixture
 def settings(tmp_path, monkeypatch):
     for var in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "STRIPE_API_KEY", "JARVIS_PUBLIC_URL",
-                "GROQ_API_KEY", "JARVIS_GROQ_MODEL"]:
+                "GROQ_API_KEY", "JARVIS_GROQ_MODEL", "JARVIS_AUTO_REPLY", "JARVIS_REPLY_STYLE"]:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("JARVIS_PHONE_NEURAL", "0")
     s = Settings()

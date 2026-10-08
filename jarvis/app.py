@@ -34,6 +34,8 @@ def start_background(ctx: Context, restartable: bool = False) -> None:
     ``restartable``: the process runs without a console (autostart), so the app may restart it.
     """
     ctx.scheduler.start()
+    if getattr(ctx, "replies", None):
+        ctx.replies.start()  # „отговаряй вместо мен“: idle until it is switched on
     import os
 
     if os.environ.get("JARVIS_PUBLIC_URL"):
