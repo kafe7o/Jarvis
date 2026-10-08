@@ -78,7 +78,7 @@ def test_out_of_credit_claude_hands_over_to_gemini(settings, ctx, registry, monk
     claude.beta.messages.create = broke
     jarvis, fake = make(settings, ctx, registry, [reply(types.Part(text="На линия съм, сър."))], claude=claude)
     assert jarvis.ask("здравей") == "На линия съм, сър."
-    assert settings.model == gemini.DEFAULT_MODEL and fake.requests[0]["model"] == gemini.SMART_MODELS[0]
+    assert settings.model == gemini.DEFAULT_MODEL and fake.requests[0]["model"] == gemini.DEFAULT_MODEL
 
 
 def test_without_a_gemini_key_the_credit_error_is_explained(settings, ctx, registry, monkeypatch):
@@ -138,44 +138,26 @@ def daily(model):
                                               "details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}})
 
 
-def test_real_work_gets_the_strongest_free_models_first():
-    brain = gemini.GeminiBrain(None)
-    assert brain.models(gemini.DEFAULT_MODEL) == gemini.FREE_MODELS  # quick answers: the light model first
-    work = brain.models(gemini.DEFAULT_MODEL, smart=True)
-    assert work[:2] == gemini.SMART_MODELS and sorted(work) == sorted(gemini.FREE_MODELS)
-
-
 def test_when_a_free_model_is_used_up_for_the_day_the_next_one_answers(settings, ctx, registry):
     settings.model = gemini.DEFAULT_MODEL
-    order = gemini.GeminiBrain(None).models(gemini.DEFAULT_MODEL, smart=True)
     jarvis, fake = make(settings, ctx, registry, [
-        daily(order[0]), reply(types.Part(text="Тук съм.")), reply(types.Part(text="Пак съм тук.")),
+        daily(gemini.FREE_MODELS[0]), reply(types.Part(text="Тук съм.")), reply(types.Part(text="Пак съм тук.")),
     ])
     assert jarvis.ask("здравей") == "Тук съм."
-    assert [r["model"] for r in fake.requests] == order[:2]  # no waiting on a daily limit
+    assert [r["model"] for r in fake.requests] == gemini.FREE_MODELS[:2]  # no waiting on a daily limit
     assert jarvis.ask("още ли си там") == "Пак съм тук."
-    assert fake.requests[-1]["model"] == order[1]  # the used-up model is skipped until tomorrow
+    assert fake.requests[-1]["model"] == gemini.FREE_MODELS[1]  # the used-up model is skipped until tomorrow
 
 
-def test_minute_limit_moves_on_and_the_last_model_waits_as_long_as_google_says(settings, ctx, registry):
-    import time
-
+def test_minute_limit_waits_as_long_as_google_says(settings, ctx, registry):
     settings.model = gemini.DEFAULT_MODEL
     waits = []
     busy = errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "per minute",
                                               "details": [{"retryDelay": "12s"}]}})
     fake = FakeGemini([busy, reply(types.Part(text="Готово."))])
-    brain = gemini.GeminiBrain(fake, wait=waits.append)
-    order = brain.models(gemini.DEFAULT_MODEL, smart=True)
-    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]), gemini_brain=brain)
-    assert jarvis.ask("здравей") == "Готово." and waits == []  # the next free model answers at once
-    assert [r["model"] for r in fake.requests] == order[:2] and brain.spent[order[0]] > time.time()
-
-    for model in order[:-1]:
-        brain.spent[model] = time.time() + 3600
-    fake.replies += [busy, reply(types.Part(text="Пак съм тук."))]
-    assert jarvis.ask("още ли си там") == "Пак съм тук." and waits == [12.0]  # nothing else is left: it waits
-    assert fake.requests[-1]["model"] == order[-1]
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]),
+                    gemini_brain=gemini.GeminiBrain(fake, wait=waits.append))
+    assert jarvis.ask("здравей") == "Готово." and waits == [12.0]
 
 
 def test_all_free_models_used_up_says_when_they_come_back(settings, ctx, registry):
@@ -202,17 +184,3 @@ def test_claude_can_take_over_in_the_middle_of_a_gemini_turn(settings, ctx, regi
     sent = claude.requests[0]["messages"]
     json.dumps(sent)  # the real SDK serializes this; Block objects used to crash it
     assert sent[1]["content"][0] == {"type": "tool_use", "id": "c1", "name": "switch_brain", "input": {"brain": "haiku"}}
-
-
-def test_without_a_chosen_brain_jarvis_starts_on_a_free_one(monkeypatch):
-    from jarvis.config import Settings
-
-    for name in ("JARVIS_MODEL", "GEMINI_API_KEY", "GROQ_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
-    assert Settings().model == "claude-opus-5-5"  # no free key: the paid brain is all there is
-    monkeypatch.setenv("GROQ_API_KEY", "g")
-    assert Settings().model == "groq"
-    monkeypatch.setenv("GEMINI_API_KEY", "x")
-    assert Settings().model == gemini.DEFAULT_MODEL
-    monkeypatch.setenv("JARVIS_MODEL", "claude-sonnet-5-5")
-    assert Settings().model == "claude-sonnet-5-5"  # only when the owner chose Claude

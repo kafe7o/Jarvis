@@ -36,20 +36,10 @@ def silence_seconds() -> float:
     return min(max(seconds, 0.5), 10.0)
 
 
-def default_brain() -> str:
-    """No brain chosen (JARVIS_MODEL empty): a free one that is set up, Gemini then Groq; Claude (paid) only
-    when there is neither."""
-    if _env("GEMINI_API_KEY"):
-        return "gemini-3.5-flash-lite"
-    if _env("GROQ_API_KEY"):
-        return "groq"
-    return "claude-opus-5-5"
-
-
 @dataclass
 class Settings:
     # Brain
-    model: str = field(default_factory=lambda: _env("JARVIS_MODEL") or default_brain())
+    model: str = field(default_factory=lambda: _env("JARVIS_MODEL", "claude-opus-5-5"))
     effort: str = field(default_factory=lambda: _env("JARVIS_EFFORT", "xhigh"))
     max_tokens: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOKENS", "16000")))
     refusal_fallback: bool = field(default_factory=lambda: _flag("JARVIS_REFUSAL_FALLBACK", True))
@@ -60,8 +50,6 @@ class Settings:
     # Saving (see router.py): commands without AI and a quick lane for short questions, the model for that lane
     # (empty = the cheapest one), a daily cap in US dollars for paid brains, and the model on this computer.
     router: bool = field(default_factory=lambda: _flag("JARVIS_ROUTER", True))
-    # an answer to a request for action with no tool used gets one more look (brain.ACT_CHECK)
-    act_check: bool = field(default_factory=lambda: _flag("JARVIS_ACT_CHECK", True))
     fast_model: str = field(default_factory=lambda: _env("JARVIS_FAST_MODEL", ""))
     daily_budget: str = field(default_factory=lambda: _env("JARVIS_DAILY_BUDGET", "1"))
     local_model: str = field(default_factory=lambda: _env("JARVIS_LOCAL_MODEL", ""))

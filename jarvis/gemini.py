@@ -23,8 +23,6 @@ log = logging.getLogger("jarvis.gemini")
 # 20 a day, the Flash-Lite models hundreds), so when one runs out Jarvis moves on to the next.
 FREE_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
 DEFAULT_MODEL = FREE_MODELS[0]
-# Real work (the full agent) goes to the strongest free models first, for as long as their allowance lasts.
-SMART_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash"]
 THINKING = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
 REFUSED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
 ONLY_FOR_GEMINI = {"google_search"}  # Claude searches with its own server tools
@@ -231,9 +229,7 @@ class GeminiBrain:
             self._client = make_client()
         return self._client
 
-    def create(self, *, model: str, system, messages: list, tools: list, max_tokens: int, effort: str,
-               smart: bool = False):
-        """``smart``: real work, so the strongest free models first (SMART_MODELS), then ``model`` and the rest."""
+    def create(self, *, model: str, system, messages: list, tools: list, max_tokens: int, effort: str):
         from google.genai import errors, types
 
         if not isinstance(system, str):
@@ -245,8 +241,7 @@ class GeminiBrain:
             thinking_config=types.ThinkingConfig(thinking_level=THINKING.get(effort, "medium")),
             max_output_tokens=max_tokens,
         )
-        order = self.models(model, smart)
-        for current in order:
+        for current in self.models(model):
             contents = to_contents(messages, current)
             for attempt in range(3):
                 try:
@@ -257,11 +252,6 @@ class GeminiBrain:
                         log.warning("free requests for today are used up on %s; trying the next model", current)
                         self.spent[current] = next_reset()
                         break
-                    if exc.code == 429 and current != order[-1]:
-                        # this model's requests for the minute are gone: the next one answers now instead
-                        log.warning("Gemini %s is busy for a moment; trying the next model", current)
-                        self.spent[current] = time.time() + retry_after(exc, 30)
-                        break
                     # A few requests a minute are allowed: wait as long as Google says, then try again.
                     if exc.code not in (429, 500, 503) or attempt == 2:
                         raise
@@ -269,16 +259,10 @@ class GeminiBrain:
                     self._wait(retry_after(exc, 5 * 2 ** attempt))
         raise UsedUp("The free Gemini requests for today are used up on every free model.")
 
-    def models(self, model: str, smart: bool = False) -> list[str]:
-        """The model to use and the free ones to fall back to, minus those used up for today (or resting for
-        the minute). ``smart``: the strongest free models come first."""
+    def models(self, model: str) -> list[str]:
+        """The model to use and the free ones to fall back to, minus those used up for today."""
         now = time.time()
-        first = [*SMART_MODELS, model] if smart else [model]
-        candidates = list(dict.fromkeys([*first, *FREE_MODELS]))
-        ready = [m for m in candidates if self.spent.get(m, 0) <= now]
-        if not ready:  # all resting: the one that is free again soonest, if only for the minute
-            ready = sorted((m for m in candidates if self.spent.get(m, 0) <= now + 60), key=lambda m: self.spent[m])[:1]
-        return ready
+        return [m for m in dict.fromkeys([model, *FREE_MODELS]) if self.spent.get(m, 0) <= now]
 
 
 def daily_limit(exc) -> bool:

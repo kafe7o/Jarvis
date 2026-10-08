@@ -73,7 +73,6 @@ TOOL_LABELS = {
     "find_leads": "Търси клиенти без сайт", "build_website": "Прави сайт",
     "read_own_code": "Чете собствения си код", "upgrade_self": "Надстройва се", "undo_upgrade": "Връща надстройка",
     "list_upgrades": "Преглежда надстройките си", "update_jarvis": "Обновява се",
-    "work_until": "Започва работа сам", "work_status": "Проверява работата си", "stop_work": "Спира работата си",
 }
 GROUP_LABELS = {key: label for key, label, _desc, _sensitive in GROUPS}
 
@@ -356,7 +355,7 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_MODEL", "Мозък: празно = безплатен (Gemini, после Groq), groq (безплатно, най-бързият), local (на лаптопа, без лимит); платени: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
+        ("JARVIS_MODEL", "Мозък: gemini-3.5-flash-lite (безплатно), groq (безплатно, най-бързият), local (на лаптопа, без лимит), claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),

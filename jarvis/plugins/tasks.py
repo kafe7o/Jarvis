@@ -85,17 +85,10 @@ class ReminderScheduler:
         self._stop.set()
 
     def _run(self) -> None:
-        from . import missions
-
         last_heartbeat = datetime.now()
-        awake = False
         while not self._stop.wait(self.interval):
             try:
                 self.tick()
-                working = bool(missions.active(self.ctx.store))
-                if working != awake:  # the computer must not fall asleep while Jarvis works on his own
-                    missions.hold_awake(working)
-                    awake = working
             except Exception:
                 log.exception("reminder tick failed")
             minutes = self.ctx.settings.heartbeat_minutes
@@ -112,7 +105,7 @@ class ReminderScheduler:
         answer = jarvis.ask(
             HEARTBEAT_PROMPT, conversation="heartbeat",
             confirmer=lambda summary: False,  # never act in the outside world unattended
-            route=False, insist=False,  # "nothing to say" is a fine answer here
+            route=False,
         )
         message = answer.strip()
         if message.upper().startswith("NOTIFY:"):
@@ -140,13 +133,6 @@ class ReminderScheduler:
 
     def deliver(self, rem: dict) -> None:
         channels = (rem["channels"] or "local").split(",")
-        from . import missions
-
-        found = missions.MARK.match(rem["text"] or "")
-        if JOB in channels and found:  # a round of work_until
-            threading.Thread(target=missions.run_round, args=(self.ctx, int(found[1])), name="jarvis-mission",
-                             daemon=True).start()
-            return
         if JOB in channels:
             threading.Thread(target=self.run_job, args=(rem,), name="jarvis-job", daemon=True).start()
             return
@@ -289,9 +275,8 @@ def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "Schedule a job for yourself: at the given time (optionally repeating) you will carry out the "
         "instruction on your own and report the result, e.g. 'summarize my unread e-mail', "
-        "'check the price of X and tell me if it is below 500'. To keep working on something for hours while the "
-        "user is away or asleep, use work_until instead. Actions that need approval are not taken unattended; "
-        "the user is told instead.",
+        "'check the price of X and tell me if it is below 500'. Actions that need approval are not taken "
+        "unattended; the user is told instead.",
         obj({
             "instruction": ("string", "What to do, self-contained"),
             "at": ("string", "First run, ISO 8601 local time"),

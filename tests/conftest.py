@@ -46,7 +46,7 @@ class FakeClient:
 @pytest.fixture
 def settings(tmp_path, monkeypatch):
     for var in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "STRIPE_API_KEY", "JARVIS_PUBLIC_URL",
-                "GROQ_API_KEY", "JARVIS_GROQ_MODEL", "GEMINI_API_KEY", "JARVIS_MODEL", "JARVIS_AUTO_REPLY", "JARVIS_REPLY_STYLE", "JARVIS_SILENCE"]:
+                "GROQ_API_KEY", "JARVIS_GROQ_MODEL", "JARVIS_AUTO_REPLY", "JARVIS_REPLY_STYLE", "JARVIS_SILENCE"]:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("JARVIS_PHONE_NEURAL", "0")
     s = Settings()
@@ -56,7 +56,6 @@ def settings(tmp_path, monkeypatch):
     s.twilio_sid = s.twilio_token = s.twilio_number = s.stripe_key = None
     s.owner_phone = "+359888000000"
     s.router = False  # most tests drive the full agent; test_router.py covers the cheap levels
-    s.act_check = False  # scripted answers; test_core.py covers the second look at answers without action
     s.vault = tmp_path / "vault"
     monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": []})  # no Ollama unless a test adds one
     return s
