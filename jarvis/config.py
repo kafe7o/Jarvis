@@ -36,10 +36,20 @@ def silence_seconds() -> float:
     return min(max(seconds, 0.5), 10.0)
 
 
+def default_brain() -> str:
+    """No brain chosen (JARVIS_MODEL empty): a free one that is set up, Gemini then Groq; Claude (paid) only
+    when there is neither."""
+    if _env("GEMINI_API_KEY"):
+        return "gemini-3.5-flash-lite"
+    if _env("GROQ_API_KEY"):
+        return "groq"
+    return "claude-opus-5-5"
+
+
 @dataclass
 class Settings:
     # Brain
-    model: str = field(default_factory=lambda: _env("JARVIS_MODEL", "claude-opus-5-5"))
+    model: str = field(default_factory=lambda: _env("JARVIS_MODEL") or default_brain())
     effort: str = field(default_factory=lambda: _env("JARVIS_EFFORT", "xhigh"))
     max_tokens: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOKENS", "16000")))
     refusal_fallback: bool = field(default_factory=lambda: _flag("JARVIS_REFUSAL_FALLBACK", True))

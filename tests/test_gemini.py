@@ -184,3 +184,17 @@ def test_claude_can_take_over_in_the_middle_of_a_gemini_turn(settings, ctx, regi
     sent = claude.requests[0]["messages"]
     json.dumps(sent)  # the real SDK serializes this; Block objects used to crash it
     assert sent[1]["content"][0] == {"type": "tool_use", "id": "c1", "name": "switch_brain", "input": {"brain": "haiku"}}
+
+
+def test_without_a_chosen_brain_jarvis_starts_on_a_free_one(monkeypatch):
+    from jarvis.config import Settings
+
+    for name in ("JARVIS_MODEL", "GEMINI_API_KEY", "GROQ_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    assert Settings().model == "claude-opus-5-5"  # no free key: the paid brain is all there is
+    monkeypatch.setenv("GROQ_API_KEY", "g")
+    assert Settings().model == "groq"
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    assert Settings().model == gemini.DEFAULT_MODEL
+    monkeypatch.setenv("JARVIS_MODEL", "claude-sonnet-5-5")
+    assert Settings().model == "claude-sonnet-5-5"  # only when the owner chose Claude
