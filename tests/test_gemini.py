@@ -122,8 +122,21 @@ def test_camera_frames_and_claude_history_reach_gemini():
     ]
     contents = gemini.to_contents(history)
     assert contents[0].parts[0].inline_data.mime_type == "image/jpeg" and contents[0].parts[1].text == "какво виждаш"
-    assert "recall" in contents[1].parts[0].text and contents[1].role == "model"
-    assert "без захар" in contents[2].parts[0].text and contents[2].parts[0].function_response is None
+    # another model's call is a note on the user's side, never words of its own it could copy
+    assert len(contents) == 1 and contents[0].parts[2].function_response is None
+    note = contents[0].parts[2].text
+    assert "recall" in note and "без захар" in note and "I used the tool" not in note
+
+
+def test_a_call_written_as_text_is_never_the_answer(settings, ctx, registry):
+    settings.model = "gemini-3.8-flash"
+    old = [{"role": "user", "content": "пусни музика"}, {"role": "assistant", "content": "[I used the tool look_at_screen with {}]"}]
+    assert len(gemini.to_contents(old)) == 1  # an old answer that was only a call written as text is left out
+    jarvis, fake = make(settings, ctx, registry, [
+        reply(types.Part(text="[I used the tool look_at_screen with {}]")),  # written, not made: asked again
+        reply(types.Part(text="Тук съм.")),
+    ])
+    assert jarvis.ask("здравей") == "Тук съм." and len(fake.requests) == 2
 
 
 def test_switch_to_gemini_needs_its_key(settings, ctx, registry, monkeypatch):

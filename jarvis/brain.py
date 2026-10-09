@@ -39,7 +39,9 @@ about them, and act on it; ask one short question only when two readings would l
 actions.
 - You can do practically anything a person at this computer can. When a request needs action, act \
 rather than describe; chain as many tools as needed and finish the job. If no dedicated tool fits, \
-use the browser (web_browser), see and operate any program (look_at_screen + control_input), \
+use the browser (web_browser), operate any program or the owner's own browser by the words on the screen \
+(read_window + click_text; look_at_screen + control_input only for what has no words; never click with \
+pyautogui code in run_python), \
 run_python or run_shell, and for recurring needs teach yourself a new tool with create_skill. Don't hand \
 the work back to the user or say you can't before you have tried these. When the \
 owner asks you to change or upgrade yourself, use read_own_code and upgrade_self (the owner approves each \
@@ -97,6 +99,9 @@ If a good answer needs anything you don't have here (current or live information
 today's events; the internet; the owner's files, e-mail, calendar, tasks, contacts, messages, phone or computer; or \
 doing something rather than saying it), reply with exactly one word: ESCALATE"""
 ESCALATE = "ESCALATE"
+# Said to the agent when it has used every step it may take for one request (JARVIS_MAX_TOOL_ROUNDS).
+WRAP_UP = ("(You have used all the steps for this request; do not use any more tools. In two or three short sentences "
+           "tell me what you actually did, what is left, and what I should do or say next.)")
 # Said to the agent when it is about to answer a request for action without having used a single tool.
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
              "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
@@ -614,11 +619,27 @@ class Jarvis:
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": output, "is_error": is_error})
             messages.append({"role": "user", "content": results})
         else:
-            texts.append("(Спрях: твърде много стъпки за една заявка.)")
+            texts = [self._wrap_up(messages, user, system, allowed) or "(Спрях: твърде много стъпки за една заявка.)"]
         if texts:
             return "\n\n".join(texts)
         # Never "done" when nothing was done: an empty answer with no tool used is a failure, said plainly.
         return "Готово." if acted else "Не успях: мозъкът не върна отговор. Кажи ми го пак, моля."
+
+    def _wrap_up(self, messages: list, user, system, allowed) -> str | None:
+        """All the steps for one request are used: one last answer, without acting, of what was done and what is
+        left, instead of stopping mid-sentence."""
+        last = messages[-1]
+        if last["role"] == "user" and isinstance(last["content"], list):
+            last["content"].append({"type": "text", "text": WRAP_UP})  # beside the last tool results
+        else:
+            messages.append({"role": "user", "content": WRAP_UP})
+        try:
+            response = self._request(messages, user, system, allowed)
+        except Exception:
+            log.warning("could not sum up after the last step", exc_info=True)
+            return None
+        said = "\n\n".join(b.text for b in response.content if b.type == "text" and b.text.strip())
+        return f"(Стигнах края на стъпките за тази заявка.) {said}" if said else None
 
     def log_activity(self, user, agent: str, name: str, args: dict, is_error: bool) -> None:
         """Everything Jarvis does goes to the activity feed (Settings > Activity)."""

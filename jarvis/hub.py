@@ -53,7 +53,8 @@ POLL_SECONDS = 25
 COOKIE = "jarvis_session"
 
 TOOL_LABELS = {
-    "web_browser": "Работи в браузъра", "look_at_screen": "Гледа екрана", "control_input": "Управлява мишката и клавиатурата",
+    "web_browser": "Работи в браузъра", "look_at_screen": "Гледа екрана", "read_window": "Чете прозореца", "click_text": "Натиска",
+    "control_input": "Управлява мишката и клавиатурата",
     "run_python": "Пуска код", "run_shell": "Пуска команда", "remember": "Запомня", "recall": "Спомня си",
     "search_history": "Търси в старите разговори", "make_plan": "Прави план", "update_plan_step": "Отмята стъпка от плана",
     "show_plan": "Преглежда плана", "request_approval": "Иска разрешение", "create_skill": "Учи ново умение",

@@ -11,6 +11,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+from .. import winui
 from ..procs import run_capture, run_text
 from ..tools import Image, ToolRegistry, obj
 
@@ -199,11 +200,38 @@ def register(registry: ToolRegistry, ctx) -> None:
         pyperclip.copy(text)
         return "Copied to clipboard."
 
-    screen = {"scale": 1.0}
+    screen = {"scale": 1.0, "size": None}
 
     @registry.tool(
-        "Look at the computer screen: returns a screenshot you can see. Use it to operate any program or "
-        "website visually together with control_input (look, act, look again to check).",
+        "Read a program's window the way a screen reader does: its buttons, links, fields, tabs and text by name, "
+        "numbered. Works in any program and in the owner's own browser (Avast, Chrome, Edge) with their logins "
+        "(Windows). Use it, then click_text, to work in a program or on a website: far more reliable than pixels. "
+        "Use look_at_screen when this finds nothing useful (pictures, games, canvas).",
+        obj({"window?": ("string", "Part of the window title, e.g. 'Avast' (default: the window read last, else the "
+                                   "one in front other than Jarvis)")}),
+    )
+    def read_window(window: str | None = None):
+        return winui.read(window)
+
+    @registry.tool(
+        "Click a button, link, field, tab or menu item in a program's window by its words (or its number from "
+        "read_window), and optionally type into it and press Enter. The mouse goes to the element itself, no "
+        "coordinates. Read the window again afterwards to check what happened.",
+        obj({"target": ("string", "The words on the element (as read_window shows them), or its number"),
+             "window?": ("string", "Part of the window title (default: the window read last)"),
+             "text?": ("string", "Text to type after clicking, e.g. into a field"),
+             "enter?": ("boolean", "Press Enter after typing")}),
+        confirm=True,
+        local=True,
+        summarize=lambda a: f"Натиска „{a.get('target')}“" + (f" и пише „{a['text']}“" if a.get("text") else ""),
+    )
+    def click_text(target: str, window: str | None = None, text: str | None = None, enter: bool = False):
+        return winui.click(target, window, text, enter)
+
+    @registry.tool(
+        "Look at the computer screen: returns a screenshot you can see. For buttons, links and fields use "
+        "read_window and click_text first; this with control_input is for what has no words (pictures, games, "
+        "maps): look, act, look again to check.",
         obj({"save_to?": ("string", "Also save the full-size PNG here")}),
     )
     def look_at_screen(save_to: str | None = None):
@@ -220,9 +248,12 @@ def register(registry: ToolRegistry, ctx) -> None:
         scale = min(1.0, 1280 / width)
         screen["scale"] = scale
         small = shot.resize((int(width * scale), int(height * scale))) if scale < 1 else shot
+        screen["size"] = small.size
         buf = io.BytesIO()
         small.convert("RGB").save(buf, format="PNG", optimize=True)
-        note = f"Screenshot {small.size[0]}x{small.size[1]}. Give control_input coordinates in this image's pixels."
+        note = (f"Screenshot {small.size[0]}x{small.size[1]}. Give control_input coordinates in this image's pixels "
+                f"(x 0-{small.size[0] - 1}, y 0-{small.size[1] - 1}). To press something with words on it, click_text is "
+                "more reliable.")
         return Image(buf.getvalue(), "image/png", note)
 
     @registry.tool(
@@ -250,6 +281,13 @@ def register(registry: ToolRegistry, ctx) -> None:
         def real(v):
             return None if v is None else int(v / screen["scale"])
 
+        size = screen["size"]
+        for px, py in ((x, y), (x2, y2)):
+            if size and px is not None and py is not None and not (0 <= px < size[0] and 0 <= py < size[1]):
+                raise ValueError(f"({px}, {py}) is outside the screenshot ({size[0]}x{size[1]}). Coordinates are pixels "
+                                 "of the latest look_at_screen image (not 0-1000, not the real screen). Look again, or "
+                                 "use click_text with the words on the button.")
+
         X, Y = real(x), real(y)
         if action == "click":
             pyautogui.click(X, Y)
@@ -265,14 +303,7 @@ def register(registry: ToolRegistry, ctx) -> None:
         elif action == "scroll":
             pyautogui.scroll(amount, X, Y)
         elif action == "type":
-            try:  # pyautogui.write only handles ASCII; paste anything else (e.g. Cyrillic)
-                text.encode("ascii")
-                pyautogui.write(text, interval=0.02)
-            except UnicodeEncodeError:
-                import pyperclip
-
-                pyperclip.copy(text)
-                pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
+            winui.type_text(text)
         elif action == "hotkey":
             pyautogui.hotkey(*(keys or []))
         elif action == "press":

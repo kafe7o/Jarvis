@@ -29,6 +29,8 @@ DEFAULT_MODEL = FREE_MODELS[0]
 AGENT_MODEL = "gemini-3.5-flash"
 THINKING = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
 REFUSED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
+# A tool call written out as text instead of made, the way older versions told a model about another one's calls.
+FAKE_CALL = re.compile(r"\[(?:I used the tool \w+ with \{.*?\}|Result of \w+:.*?)\]", re.S)
 ONLY_FOR_GEMINI = {"google_search"}  # Claude searches with its own server tools
 
 
@@ -96,10 +98,12 @@ def _images_of(content) -> list[tuple[str, bytes]]:
 
 def to_contents(messages: list, model: str | None = None) -> list:
     """Claude-format messages -> Gemini contents. Gemini's own replies go back as they came, unless
-    another model wrote them (signed thoughts only work with the model that made them)."""
+    another model wrote them (signed thoughts only work with the model that made them): then their tool
+    calls and results are told to it as notes on the user's side, never as its own words, so it does not
+    start writing calls as text ("[I used the tool look_at_screen with {}]") instead of making them."""
     from google.genai import types
 
-    calls: dict[str, tuple[str, str | None]] = {}  # tool_use id -> (name, Gemini's call id)
+    calls: dict[str, tuple[str, str | None, dict]] = {}  # tool_use id -> (name, Gemini's call id, input)
     out = []
     for message in messages:
         content = message["content"]
@@ -111,18 +115,17 @@ def to_contents(messages: list, model: str | None = None) -> list:
                 out.append(raw)
                 for b in content:
                     if b.type == "tool_use":
-                        calls[b.id] = (b.name, b.call_id)
+                        calls[b.id] = (b.name, b.call_id, {})
                 continue
-            # Text from history, or another model's blocks if the brain changed in the middle of a task:
-            # its tool calls are written out as text, since only a model's own calls can be sent back to it.
+            # Text from history, or another model's blocks if the brain changed in the middle of a task: only a
+            # model's own calls can be sent back to it, so the others become notes with their results (below).
             lines = []
             for b in [content] if isinstance(content, str) else content:
                 kind = "text" if isinstance(b, str) else _get(b, "type")
-                if kind == "text":
-                    lines.append(b if isinstance(b, str) else _get(b, "text", ""))
+                if kind == "text":  # (an old answer may hold a call written as text: it must not be copied)
+                    lines.append(FAKE_CALL.sub("", b if isinstance(b, str) else _get(b, "text", "")))
                 elif kind == "tool_use":
-                    calls[_get(b, "id")] = (_get(b, "name"), "")
-                    lines.append(f"[I used the tool {_get(b, 'name')} with {json.dumps(_get(b, 'input') or {}, ensure_ascii=False)}]")
+                    calls[_get(b, "id")] = (_get(b, "name"), "", dict(_get(b, "input") or {}))
             if any(line.strip() for line in lines):
                 out.append(types.Content(role="model", parts=[types.Part(text="\n".join(lines))]))
             continue
@@ -136,10 +139,13 @@ def to_contents(messages: list, model: str | None = None) -> list:
                 for mime, data in _images_of([b]):
                     parts.append(types.Part.from_bytes(data=data, mime_type=mime))
             elif kind == "tool_result":
-                name, call_id = calls.get(_get(b, "tool_use_id"), ("tool", None))
+                name, call_id, args = calls.get(_get(b, "tool_use_id"), ("tool", None, {}))
                 result = _text_of(_get(b, "content"))
-                if call_id == "":  # a call Claude made: answer it as text too
-                    parts.append(types.Part(text=f"[Result of {name}: {result}]"))
+                if call_id == "":  # a call another model made: a note of what was done, pictures included
+                    done = "failed" if _get(b, "is_error") else "returned"
+                    parts.append(types.Part(text=f"(Step already done in this task: the tool {name} with "
+                                                 f"{json.dumps(args, ensure_ascii=False)} {done}: {result[:4000]})"))
+                    parts.extend(types.Part.from_bytes(data=d, mime_type=m) for m, d in _images_of(_get(b, "content")))
                     continue
                 pictures = [types.FunctionResponsePart(inline_data=types.FunctionResponseBlob(mime_type=m, data=d))
                             for m, d in _images_of(_get(b, "content"))]
@@ -147,7 +153,10 @@ def to_contents(messages: list, model: str | None = None) -> list:
                     id=call_id, name=name, response={"error" if _get(b, "is_error") else "result": result},
                     parts=pictures or None)))
         if parts:
-            out.append(types.Content(role="user", parts=parts))
+            if out and out[-1].role == "user":  # after another model's calls there is no model turn in between
+                out[-1] = types.Content(role="user", parts=[*out[-1].parts, *parts])
+            else:
+                out.append(types.Content(role="user", parts=parts))
     return out
 
 
@@ -204,8 +213,8 @@ def from_response(response, model: str | None = None) -> Answer:
             call = part.function_call
             blocks.append(Block("tool_use", id=call.id or f"call_{uuid.uuid4().hex[:12]}", name=call.name,
                                 input=dict(call.args or {}), call_id=call.id))
-        elif part.text:
-            blocks.append(Block("text", text=part.text))
+        elif part.text and FAKE_CALL.sub("", part.text).strip():
+            blocks.append(Block("text", text=FAKE_CALL.sub("", part.text).strip()))
     reason = str(getattr(candidate.finish_reason, "name", candidate.finish_reason) or "")
     if any(b.type == "tool_use" for b in blocks):
         stop = "tool_use"

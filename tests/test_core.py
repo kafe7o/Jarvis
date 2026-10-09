@@ -386,3 +386,15 @@ def test_an_empty_answer_is_never_reported_as_done(settings, ctx, registry):
     client = FakeClient([response()])
     answer = Jarvis(settings, ctx.store, registry, Approver(), client=client).ask("пусни ми нещо")
     assert answer != "Готово." and "Не успях" in answer
+
+
+def test_at_the_step_limit_he_says_what_he_did_and_what_is_left(settings, ctx, registry):
+    from jarvis.brain import WRAP_UP
+
+    settings.max_tool_rounds = 2
+    client = FakeClient([response(tool_block("list_tasks", {}), stop="tool_use"),
+                         response(tool_block("list_tasks", {}, id="tu_2"), stop="tool_use"),
+                         response(text_block("Прегледах задачите два пъти; остава да ги подредя."))])
+    answer = Jarvis(settings, ctx.store, registry, Approver(), client=client).ask("подреди ми задачите")
+    assert answer.startswith("(Стигнах края на стъпките") and "остава да ги подредя" in answer
+    assert client.requests[2]["messages"][-1]["content"][-1] == {"type": "text", "text": WRAP_UP}
