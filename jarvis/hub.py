@@ -100,7 +100,7 @@ def lan_ip() -> str:
 
 def friendly_error(exc: Exception) -> str:
     from .brain import BudgetReached
-    from .gemini import UsedUp, next_reset
+    from .gemini import Busy, UsedUp, next_reset
     from .freeapi import PROVIDERS
     from .freeapi import UsedUp as FreeUsedUp
     from .groq import UsedUp as GroqUsedUp
@@ -111,6 +111,9 @@ def friendly_error(exc: Exception) -> str:
         back = datetime.fromtimestamp(next_reset()).strftime("%H:%M")
         return (f"Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. Връщат се в {back}. "
                 "За да не спирам никога, инсталирай мозъка на лаптопа (Ollama): виж „Пестене“ в Настройки > Връзки.")
+    if isinstance(exc, Busy):
+        return ("Gemini е претоварен и не отговори навреме на нито един безплатен модел. Опитай пак след минута; "
+                "с безплатен ключ за NVIDIA, OpenRouter или Groq (Настройки > Връзки) те поемат в такъв момент.")
     if isinstance(exc, GroqUsedUp):
         return ("Безплатните модели на Groq са заети или изчерпани за момента. Опитай пак след минута, "
                 "или сложи и безплатен Gemini ключ, за да поема той.")

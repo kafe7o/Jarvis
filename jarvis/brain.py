@@ -32,10 +32,16 @@ How you work:
 - {language_rule} Address the user as "{user}". Be concise, warm and dryly witty, like Jarvis \
 from Iron Man.
 - Replies may be read aloud: keep them short, no markdown tables unless asked.
+- Understand the user the way a person who knows them would: they write fast, often in Bulgarian typed in \
+Latin letters, with typos, slang and no punctuation ("pusni" is "пусни", "napravi" is "направи"), and voice \
+messages can be cut or misheard. Work out what they mean from the words, the conversation and what you know \
+about them, and act on it; ask one short question only when two readings would lead to really different \
+actions.
 - You can do practically anything a person at this computer can. When a request needs action, act \
 rather than describe; chain as many tools as needed and finish the job. If no dedicated tool fits, \
 use the browser (web_browser), see and operate any program (look_at_screen + control_input), \
-run_python or run_shell, and for recurring needs teach yourself a new tool with create_skill. When the \
+run_python or run_shell, and for recurring needs teach yourself a new tool with create_skill. Don't hand \
+the work back to the user or say you can't before you have tried these. When the \
 owner asks you to change or upgrade yourself, use read_own_code and upgrade_self (the owner approves each \
 change; a backup is kept and a change that breaks the code is undone); update_jarvis installs your newest version.
 - You can act on the owner's other devices: tools named <device>__<tool> run on another computer, and \
@@ -54,6 +60,13 @@ and keep it updated with update_plan_step; adapt the plan when something fails i
 the obvious next step. When the user refers to something from the past, use search_history and recall.
 - For work that should happen later or regularly on its own ("every morning check my mail"), use \
 schedule_job.
+- Be truthful about what you do: say you did, started, set up or changed something only when a tool call \
+in this turn did it. Between messages you do nothing on your own; work goes on later only through \
+schedule_job. So when the user asks you to keep working while they are away or asleep ("work until 6:30 \
+and report"), schedule real jobs (a few runs through the night, and at the time they asked a job that \
+writes the report to the vault and tells them) and say exactly what you scheduled and for when. Unattended \
+jobs skip anything that needs the user's yes (upgrade_self too): say that it waits for them. You cannot \
+change your own permissions or limits; the owner does that in Settings.
 - Actions that spend money or reach other people (calls, SMS, e-mail, payments, refunds) ask the \
 user for confirmation automatically before they run; just call the tool with complete, exact details. \
 If the user declines, accept it and do not retry.
@@ -84,6 +97,11 @@ If a good answer needs anything you don't have here (current or live information
 today's events; the internet; the owner's files, e-mail, calendar, tasks, contacts, messages, phone or computer; or \
 doing something rather than saying it), reply with exactly one word: ESCALATE"""
 ESCALATE = "ESCALATE"
+# Said to the agent when it is about to answer a request for action without having used a single tool.
+ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
+             "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
+             "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
+             "If my message needs no action, give your answer again unchanged.)")
 
 SERVER_TOOLS = [
     {"type": "web_search_20260209", "name": "web_search"},
@@ -272,7 +290,7 @@ class Jarvis:
             try:
                 answer = brain.create(model=model, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
                                       effort=effort)
-            except (groq.UsedUp, gemini.UsedUp, freeapi.UsedUp) as exc:
+            except (groq.UsedUp, gemini.UsedUp, gemini.Busy, freeapi.UsedUp) as exc:
                 log.warning("%s; the next free brain answers", exc)
                 used_up = exc
                 continue
@@ -349,6 +367,7 @@ class Jarvis:
         images: list[tuple[str, str]] | None = None,
         route: bool | None = None,
         on_step: Callable[[dict], None] | None = None,
+        insist: bool | None = None,
     ) -> str:
         """Handle one user message end to end and return Jarvis's final answer.
 
@@ -356,7 +375,8 @@ class Jarvis:
         (media type, base64) pairs, e.g. a frame of the screen or the camera the user is sharing.
         ``route`` (default: the JARVIS_ROUTER setting) first tries the two cheap levels of router.py, a
         command done without AI or a quick answer; scheduled jobs and check-ins pass False. ``on_step`` hears
-        every step as it happens (work.Board shows them on the app's "На живо" screen).
+        every step as it happens (work.Board shows them on the app's "На живо" screen). ``insist`` (default: a
+        request for action, with JARVIS_ACT_CHECK on) gives an answer without any tool used one more look.
         """
         confirmer = confirmer or self.confirmer
         on_progress = on_progress or self.on_progress
@@ -377,7 +397,9 @@ class Jarvis:
         effort = "max" if router.think_harder(text) else None
         on_progress("level:3")
         on_step({"type": "level", "level": 3})
-        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step)
+        if insist is None:
+            insist = self.settings.act_check and router.wants_action(text)
+        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step, insist=insist)
         self.count(3)
         self.store.add_message(conversation, "user", text)
         self.store.add_message(conversation, "assistant", answer)
@@ -547,8 +569,9 @@ class Jarvis:
 
     def _loop(self, messages: list, confirmer: Confirmer, user=None, on_progress=None, persona: str = "",
               groups: set | None = None, agent: str = "Jarvis", depth: int = 0, effort: str | None = None,
-              on_step: Callable[[dict], None] | None = None) -> str:
-        """The tool loop. Specialists (see plugins/team.py) pass a ``persona``, the permission
+              on_step: Callable[[dict], None] | None = None, insist: bool = False) -> str:
+        """The tool loop. ``insist``: the message asks for action, so an answer with no tool used gets one
+        more look (ACT_CHECK) before it counts. Specialists (see plugins/team.py) pass a ``persona``, the permission
         ``groups`` they work with (never more than the user's own) and their ``agent`` name."""
         on_progress = on_progress or self.on_progress
         allowed = user.allowed_groups() if user is not None else None
@@ -562,6 +585,7 @@ class Jarvis:
         TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "on_step": on_step, "depth": depth,
                   "effort": effort})
         texts: list[str] = []
+        acted = False
         for _ in range(self.settings.max_tool_rounds):
             response = self._request(messages, user, system, allowed)
             texts = [b.text for b in response.content if b.type == "text" and b.text.strip()] or texts
@@ -569,6 +593,11 @@ class Jarvis:
             if response.stop_reason == "refusal":
                 return "Съжалявам, не мога да помогна с това."
             if response.stop_reason not in ("tool_use", "pause_turn"):
+                if insist and not acted:  # asked to do something, did nothing: once more, for real
+                    insist = False
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": ACT_CHECK})
+                    continue
                 break
             messages.append({"role": "assistant", "content": response.content})
             if response.stop_reason == "pause_turn":
@@ -578,6 +607,7 @@ class Jarvis:
             for block in response.content:
                 if block.type != "tool_use":
                     continue
+                acted = True
                 on_progress(block.name)
                 output, is_error = self.run_tool(block.name, dict(block.input or {}), confirmer, user, agent,
                                                  allowed, ask_groups)
@@ -585,7 +615,10 @@ class Jarvis:
             messages.append({"role": "user", "content": results})
         else:
             texts.append("(Спрях: твърде много стъпки за една заявка.)")
-        return "\n\n".join(texts) if texts else "Готово."
+        if texts:
+            return "\n\n".join(texts)
+        # Never "done" when nothing was done: an empty answer with no tool used is a failure, said plainly.
+        return "Готово." if acted else "Не успях: мозъкът не върна отговор. Кажи ми го пак, моля."
 
     def log_activity(self, user, agent: str, name: str, args: dict, is_error: bool) -> None:
         """Everything Jarvis does goes to the activity feed (Settings > Activity)."""

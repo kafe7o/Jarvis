@@ -153,6 +153,10 @@ NEEDS_TOOLS = rx(r"файл|папк|екран|снимк|телефон|смс
                  r"потърси|търси|намери|провери|новин|днес|сега|вчера|утре|тази седмица|цена|цени|курс|борс|"
                  r"биткойн|bitcoin|резултат|мач|времето|градус|последн|актуал|в момента|моя|моят|моите|мойта|"
                  r"моето|паметта|youtube|ютюб|https?://|www\.|\.com\b|\.bg\b")
+SMALL_TALK = rx(r"^(?:благодаря|мерси|сенкс|thanks?|thank you|здрасти|здравей|здрасе|здр|хей|ехо|ало|добро утро|"
+                r"добър ден|добър вечер|лека нощ|чао|до скоро|ок|окей|ok|okay|добре|ясно|разбрах|супер|страхотно|"
+                r"браво|евала|да|не|аха|хаха|нищо|няма нужда|забрави|остави)(?:\s+(?:ти|ви|много|бе|де|брат|"
+                r"джарвис|jarvis|сър))*$")
 THINK_HARDER = rx(r"помисли (?:добре|задълбочено|сериозно|внимателно)|задълбочено|в детайли|подробен анализ|"
                   r"think hard|ultrathink")
 
@@ -427,6 +431,15 @@ def quick(text: str) -> bool:
     """True when a question can go to the quick level (level 2): it asks something to know, not to do."""
     said = clean(text)
     return bool(said) and words(said) <= 40 and bool(QUESTION.match(said)) and not NEEDS_TOOLS.search(said)
+
+
+def wants_action(text: str) -> bool:
+    """True unless the message only asks something to know or is small talk ("благодаря", "здрасти"): then an
+    answer in words is all it needs (see brain.ACT_CHECK)."""
+    said = clean(text)
+    if not said or SMALL_TALK.match(said):
+        return False
+    return not (QUESTION.match(said) and not NEEDS_TOOLS.search(said))
 
 
 def think_harder(text: str) -> bool:

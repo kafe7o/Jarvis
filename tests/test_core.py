@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from conftest import Approver, FakeClient, response, text_block, tool_block
+from conftest import Approver, FakeClient, response, system_text, text_block, tool_block
 
 from jarvis.brain import Jarvis
 from jarvis.confirm import is_yes
@@ -341,3 +341,48 @@ def test_jarvis_waits_for_a_pause_before_acting(settings, ctx, registry, monkeyp
         assert silence_seconds() == seconds
     _hub, port = make_hub(settings, ctx, registry, [])
     assert json.loads(call(port, "/api/me")[1])["silence"] == 2.0
+
+
+def test_jarvis_is_told_to_claim_only_what_his_tools_did(settings, ctx, registry):
+    client = FakeClient([response(text_block("Добре."))])
+    Jarvis(settings, ctx.store, registry, Approver(), client=client).ask("работи сам до 6:30 и ми пиши доклад")
+    instructions = system_text(client.requests[0])
+    assert "only when a tool call" in instructions and "Between messages you do nothing on your own" in instructions
+    assert "keep working while the user" in registry.tools["schedule_job"].description
+
+
+def test_asked_to_act_he_acts_instead_of_only_talking(settings, ctx, registry):
+    from jarvis.brain import ACT_CHECK
+
+    settings.act_check = True
+    client = FakeClient([
+        response(text_block("Добре, ще ги прегледам.")),  # only talk: he gets one more look
+        response(tool_block("list_tasks", {}), stop="tool_use"),
+        response(text_block("Нямаш отворени задачи.")),
+    ])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert jarvis.ask("pogledni mi zadachite") == "Нямаш отворени задачи."
+    assert len(client.requests) == 3 and client.requests[1]["messages"][-1]["content"] == ACT_CHECK
+    assert ACT_CHECK not in str(ctx.store.history("main", 10))  # the nudge is not kept in the conversation
+
+    client.responses = [response(tool_block("list_tasks", {}), stop="tool_use"), response(text_block("Готово."))]
+    client.requests.clear()
+    assert jarvis.ask("виж ми задачите") == "Готово." and len(client.requests) == 2  # he acted: no nudge
+
+    for text in ["Защо небето е синьо?", "благодаря ти", "здрасти джарвис"]:  # knowing or small talk needs no tools
+        client.responses = [response(text_block("Добре."))]
+        client.requests.clear()
+        jarvis.ask(text)
+        assert len(client.requests) == 1, text
+
+    ctx.jarvis = jarvis
+    client.responses = [response(text_block("NOTHING"))]
+    client.requests.clear()
+    ctx.scheduler.heartbeat()  # a check-in with nothing to say is not pushed to act
+    assert len(client.requests) == 1
+
+
+def test_an_empty_answer_is_never_reported_as_done(settings, ctx, registry):
+    client = FakeClient([response()])
+    answer = Jarvis(settings, ctx.store, registry, Approver(), client=client).ask("пусни ми нещо")
+    assert answer != "Готово." and "Не успях" in answer

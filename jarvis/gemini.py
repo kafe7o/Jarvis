@@ -23,6 +23,10 @@ log = logging.getLogger("jarvis.gemini")
 # 20 a day, the Flash-Lite models hundreds), so when one runs out Jarvis moves on to the next.
 FREE_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
 DEFAULT_MODEL = FREE_MODELS[0]
+# Real work (the full agent, with tools) starts on the stronger Flash: Flash-Lite is quick and has the most free
+# requests, so it keeps short answers, but with dozens of tools it often talks instead of acting. When Flash's
+# free requests run out for the day, the others follow in FREE_MODELS order.
+AGENT_MODEL = "gemini-3.5-flash"
 THINKING = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
 REFUSED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
 ONLY_FOR_GEMINI = {"google_search"}  # Claude searches with its own server tools
@@ -184,10 +188,13 @@ def usage_of(response) -> dict:
 
 
 def from_response(response, model: str | None = None) -> Answer:
+    """Gemini's answer in Claude's shape. stop_reason "empty": nothing usable came back (a broken tool call,
+    MALFORMED_FUNCTION_CALL, or no parts), so GeminiBrain.create asks again."""
     candidate = (response.candidates or [None])[0]
     if candidate is None or candidate.content is None:
         blocked = getattr(getattr(response, "prompt_feedback", None), "block_reason", None)
-        return Answer(Reply(), "refusal" if blocked else "end_turn", model, usage_of(response))
+        reason = str(getattr(getattr(candidate, "finish_reason", None), "name", "") or "")
+        return Answer(Reply(), "refusal" if blocked or reason in REFUSED else "empty", model, usage_of(response))
     blocks = Reply()
     blocks.raw, blocks.model = candidate.content, model
     for part in candidate.content.parts or []:
@@ -206,6 +213,8 @@ def from_response(response, model: str | None = None) -> Answer:
         stop = "refusal"
     elif reason == "MAX_TOKENS":
         stop = "max_tokens"
+    elif not blocks:
+        stop = "empty"
     else:
         stop = "end_turn"
     return Answer(blocks, stop, model, usage_of(response))
@@ -215,6 +224,14 @@ class UsedUp(RuntimeError):
     """Every free Gemini model has used up its requests for today."""
 
 
+class Busy(RuntimeError):
+    """Gemini's free models are overloaded or too slow right now (the next free brain answers)."""
+
+
+def timed_out(exc: Exception) -> bool:
+    return "timeout" in type(exc).__name__.lower() or "timed out" in str(exc).lower()
+
+
 class GeminiBrain:
     """Answers Claude-format requests (see brain.Jarvis._request) with Gemini."""
 
@@ -222,6 +239,7 @@ class GeminiBrain:
         self._client = client
         self._wait = wait
         self.spent: dict[str, float] = {}  # model -> when its free daily requests come back
+        self.resting: dict[str, float] = {}  # model -> when it may be asked again after being busy or too slow
 
     @property
     def client(self):
@@ -241,28 +259,59 @@ class GeminiBrain:
             thinking_config=types.ThinkingConfig(thinking_level=THINKING.get(effort, "medium")),
             max_output_tokens=max_tokens,
         )
-        for current in self.models(model):
+        busy = empty = None
+        for current in self.models(model, agent=bool(tools)):
             contents = to_contents(messages, current)
             for attempt in range(3):
                 try:
                     response = self.client.models.generate_content(model=current, contents=contents, config=config)
-                    return from_response(response, current)
                 except errors.APIError as exc:
                     if exc.code == 429 and daily_limit(exc):
                         log.warning("free requests for today are used up on %s; trying the next model", current)
                         self.spent[current] = next_reset()
                         break
-                    # A few requests a minute are allowed: wait as long as Google says, then try again.
-                    if exc.code not in (429, 500, 503) or attempt == 2:
+                    if exc.code == 404 and current != model:  # a fallback model this key cannot use: skip it today
+                        log.warning("Gemini has no %s for this key, trying the next model: %s", current, exc)
+                        self.spent[current] = next_reset()
+                        break
+                    if exc.code not in (429, 500, 502, 503, 504):
                         raise
+                    if exc.code == 504 or attempt == 2:  # too slow (DEADLINE_EXCEEDED) or still busy: the next one
+                        log.warning("Gemini %s on %s, trying the next model: %s", exc.code, current, exc)
+                        self.resting[current], busy = time.time() + 120, exc
+                        break
+                    # A few requests a minute are allowed: wait as long as Google says, then try again.
                     log.warning("Gemini %s, retrying: %s", exc.code, exc)
                     self._wait(retry_after(exc, 5 * 2 ** attempt))
+                    continue
+                except Exception as exc:
+                    if not timed_out(exc):
+                        raise
+                    log.warning("Gemini did not answer in time on %s, trying the next model: %s", current, exc)
+                    self.resting[current], busy = time.time() + 120, exc
+                    break
+                answer = from_response(response, current)
+                if answer.stop_reason != "empty":
+                    return answer
+                # A broken tool call (MALFORMED_FUNCTION_CALL) or no answer at all: once more, then the next model.
+                log.warning("Gemini %s gave an empty or broken answer (try %d)", current, attempt + 1)
+                empty = answer
+                if attempt:
+                    break
+        if empty is not None:
+            empty.stop_reason = "end_turn"
+            return empty
+        if busy is not None:
+            raise Busy(f"Gemini is overloaded or too slow right now: {busy}")
         raise UsedUp("The free Gemini requests for today are used up on every free model.")
 
-    def models(self, model: str) -> list[str]:
-        """The model to use and the free ones to fall back to, minus those used up for today."""
+    def models(self, model: str, agent: bool = False) -> list[str]:
+        """The model to use and the free ones to fall back to, minus those used up for today or busy for a moment.
+        Real work (``agent``: a request with tools) on the default model starts on AGENT_MODEL."""
         now = time.time()
-        return [m for m in dict.fromkeys([model, *FREE_MODELS]) if self.spent.get(m, 0) <= now]
+        first = [AGENT_MODEL, model] if agent and model == DEFAULT_MODEL else [model]
+        return [m for m in dict.fromkeys([*first, *FREE_MODELS])
+                if self.spent.get(m, 0) <= now and self.resting.get(m, 0) <= now]
 
 
 def daily_limit(exc) -> bool:

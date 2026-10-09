@@ -57,6 +57,7 @@ def settings(tmp_path, monkeypatch):
     s.twilio_sid = s.twilio_token = s.twilio_number = s.stripe_key = None
     s.owner_phone = "+359888000000"
     s.router = False  # most tests drive the full agent; test_router.py covers the cheap levels
+    s.act_check = False  # scripted answers; test_core.py covers the second look at answers without action
     s.vault = tmp_path / "vault"
     monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": []})  # no Ollama unless a test adds one
     return s

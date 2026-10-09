@@ -78,7 +78,7 @@ def test_out_of_credit_claude_hands_over_to_gemini(settings, ctx, registry, monk
     claude.beta.messages.create = broke
     jarvis, fake = make(settings, ctx, registry, [reply(types.Part(text="На линия съм, сър."))], claude=claude)
     assert jarvis.ask("здравей") == "На линия съм, сър."
-    assert settings.model == gemini.DEFAULT_MODEL and fake.requests[0]["model"] == gemini.DEFAULT_MODEL
+    assert settings.model == gemini.DEFAULT_MODEL and fake.requests[0]["model"] == gemini.AGENT_MODEL  # real work: Flash
 
 
 def test_without_a_gemini_key_the_credit_error_is_explained(settings, ctx, registry, monkeypatch):
@@ -141,12 +141,13 @@ def daily(model):
 def test_when_a_free_model_is_used_up_for_the_day_the_next_one_answers(settings, ctx, registry):
     settings.model = gemini.DEFAULT_MODEL
     jarvis, fake = make(settings, ctx, registry, [
-        daily(gemini.FREE_MODELS[0]), reply(types.Part(text="Тук съм.")), reply(types.Part(text="Пак съм тук.")),
+        daily(gemini.AGENT_MODEL), reply(types.Part(text="Тук съм.")), reply(types.Part(text="Пак съм тук.")),
     ])
     assert jarvis.ask("здравей") == "Тук съм."
-    assert [r["model"] for r in fake.requests] == gemini.FREE_MODELS[:2]  # no waiting on a daily limit
+    # real work starts on the stronger Flash; its daily limit hands over at once to Flash-Lite
+    assert [r["model"] for r in fake.requests] == [gemini.AGENT_MODEL, gemini.DEFAULT_MODEL]
     assert jarvis.ask("още ли си там") == "Пак съм тук."
-    assert fake.requests[-1]["model"] == gemini.FREE_MODELS[1]  # the used-up model is skipped until tomorrow
+    assert fake.requests[-1]["model"] == gemini.DEFAULT_MODEL  # the used-up model is skipped until tomorrow
 
 
 def test_minute_limit_waits_as_long_as_google_says(settings, ctx, registry):
@@ -198,3 +199,59 @@ def test_without_a_chosen_brain_jarvis_starts_on_a_free_one(monkeypatch):
     assert Settings().model == gemini.DEFAULT_MODEL
     monkeypatch.setenv("JARVIS_MODEL", "claude-sonnet-5-5")
     assert Settings().model == "claude-sonnet-5-5"  # only when the owner chose Claude
+
+
+def test_real_work_runs_on_flash_and_short_answers_on_flash_lite(settings, ctx, registry):
+    settings.model = gemini.DEFAULT_MODEL
+    fake = FakeGemini([reply(types.Part(text="Париж.")), reply(types.Part(text="Тук съм."))])
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]),
+                    gemini_brain=gemini.GeminiBrain(fake, wait=lambda s: None))
+    assert jarvis.quick_answer("коя е столицата на Франция?", "main") == "Париж."
+    assert jarvis.ask("здравей") == "Тук съм."
+    assert [r["model"] for r in fake.requests] == [gemini.DEFAULT_MODEL, gemini.AGENT_MODEL]
+    assert fake.requests[0]["config"].tools is None and fake.requests[1]["config"].tools
+
+
+def test_a_slow_or_broken_answer_goes_to_the_next_model_instead_of_an_error(settings, ctx, registry):
+    settings.model = gemini.DEFAULT_MODEL
+    slow = errors.ServerError(504, {"error": {"code": 504, "status": "DEADLINE_EXCEEDED", "message": "Deadline expired"}})
+    jarvis, fake = make(settings, ctx, registry, [
+        slow,  # Flash too slow: Flash-Lite at once, no waiting
+        reply(finish="MALFORMED_FUNCTION_CALL"),  # a broken tool call: asked once more
+        reply(call("remember", {"topic": "кафе", "fact": "без захар"})),
+        reply(types.Part(text="Запомних.")),
+    ])
+    assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних."
+    assert [r["model"] for r in fake.requests] == [gemini.AGENT_MODEL] + [gemini.DEFAULT_MODEL] * 3
+    assert ctx.store.query("SELECT fact FROM facts")[0]["fact"] == "без захар"
+    assert jarvis.gemini.models(gemini.DEFAULT_MODEL, agent=True)[0] == gemini.DEFAULT_MODEL  # Flash rests a moment
+    assert not jarvis.gemini.spent  # a slow moment is not a used-up day
+
+
+def test_a_model_this_key_cannot_use_is_skipped(settings, ctx, registry):
+    settings.model = gemini.DEFAULT_MODEL
+    missing = errors.ClientError(404, {"error": {"code": 404, "status": "NOT_FOUND", "message": "model not found"}})
+    jarvis, fake = make(settings, ctx, registry, [missing, reply(types.Part(text="Тук съм."))])
+    assert jarvis.ask("здравей") == "Тук съм."
+    assert [r["model"] for r in fake.requests] == [gemini.AGENT_MODEL, gemini.DEFAULT_MODEL]
+
+
+def test_when_gemini_is_overloaded_another_free_brain_answers(settings, ctx, registry, monkeypatch):
+    from jarvis import groq
+    from jarvis.hub import friendly_error
+
+    settings.model = gemini.DEFAULT_MODEL
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    overloaded = errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "overloaded"}})
+    google = FakeGemini([overloaded] * 12)
+    answers = [{"choices": [{"message": {"content": "Тук съм, през Groq."}, "finish_reason": "stop"}], "usage": {}}]
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]),
+                    gemini_brain=gemini.GeminiBrain(google, wait=lambda s: None),
+                    groq_brain=groq.GroqBrain(lambda body: answers.pop(0)))
+    with pytest.raises(gemini.Busy) as caught:  # no other free brain yet: says Gemini is overloaded, not used up
+        jarvis.ask("здравей")
+    assert "претоварен" in friendly_error(caught.value)
+    jarvis.gemini.resting.clear()
+    google.replies = [overloaded] * 12
+    monkeypatch.setenv("GROQ_API_KEY", "free-key")
+    assert jarvis.ask("здравей") == "Тук съм, през Groq."

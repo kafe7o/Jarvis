@@ -106,6 +106,7 @@ class ReminderScheduler:
             HEARTBEAT_PROMPT, conversation="heartbeat",
             confirmer=lambda summary: False,  # never act in the outside world unattended
             route=False,
+            insist=False,  # a check-in with nothing worth saying is not pushed to act
         )
         message = answer.strip()
         if message.upper().startswith("NOTIFY:"):
@@ -275,8 +276,9 @@ def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "Schedule a job for yourself: at the given time (optionally repeating) you will carry out the "
         "instruction on your own and report the result, e.g. 'summarize my unread e-mail', "
-        "'check the price of X and tell me if it is below 500'. Actions that need approval are not taken "
-        "unattended; the user is told instead.",
+        "'check the price of X and tell me if it is below 500'. Also the way to keep working while the user "
+        "is away or asleep: schedule each run, and a last job at the time they asked that writes the report "
+        "(vault_write) and tells them. Actions that need approval are not taken unattended; the user is told instead.",
         obj({
             "instruction": ("string", "What to do, self-contained"),
             "at": ("string", "First run, ISO 8601 local time"),

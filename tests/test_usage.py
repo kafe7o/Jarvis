@@ -38,9 +38,9 @@ def test_free_gemini_requests_are_counted_per_model(settings, ctx, registry):
     jarvis.ask("здравей")
     jarvis.gemini.spent["gemini-3.8-flash"] = time.time() + 3600
     summary = usage.summary(ctx.store, jarvis.gemini.spent)
-    lite = next(g for g in summary["gemini"] if g["model"] == gemini.DEFAULT_MODEL)
+    worker = next(g for g in summary["gemini"] if g["model"] == gemini.AGENT_MODEL)  # real work runs on Flash
     flash = next(g for g in summary["gemini"] if g["model"] == "gemini-3.8-flash")
-    assert lite == {"model": gemini.DEFAULT_MODEL, "today": 1, "used_up": False, "back_at": None}
+    assert worker == {"model": gemini.AGENT_MODEL, "today": 1, "used_up": False, "back_at": None}
     assert flash["used_up"] and flash["back_at"]
     assert summary["today"]["cost"] == 0 and summary["models"][0] | {"tokens": 5100} == summary["models"][0]
 
