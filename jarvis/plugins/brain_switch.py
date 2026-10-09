@@ -1,4 +1,5 @@
-"""Switch Jarvis's brain (Claude, Gemini, Groq or the one on this computer) by asking: "switch to Fable", "use Gemini".
+"""Switch Jarvis's brain (Claude, Gemini, Groq, NVIDIA, OpenRouter or the one on this computer) by asking:
+"switch to Fable", "use Gemini".
 
 Only the owner can switch; the choice is saved in .env and the app changes colour to match.
 """
@@ -7,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-from .. import gemini, groq, local
+from .. import freeapi, gemini, groq, local
 from ..tools import ToolRegistry, obj
 
 # key: (model id, name, what it is for)
@@ -18,6 +19,10 @@ BRAINS = {
     "haiku": ("claude-haiku-5-5", "Haiku 5.5", "the fastest and cheapest, for simple things"),
     "gemini": ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Google's model, free within Google's daily limits; needs GEMINI_API_KEY"),
     "groq": ("groq", "Groq", "free (no card) and the fastest; simpler, with the most useful tools only; needs GROQ_API_KEY"),
+    "nvidia": ("nvidia", "NVIDIA", "free (no card) strong open models such as Kimi and DeepSeek, with every tool; "
+               "slower than Groq; needs NVIDIA_API_KEY"),
+    "openrouter": ("openrouter", "OpenRouter", "free models (about 50 requests a day), with every tool; "
+                   "needs OPENROUTER_API_KEY"),
     "local": ("local", "the brain on this computer (Ollama)", "free with no daily limit and works offline, but slower "
               "and simpler; needs Ollama installed"),
 }
@@ -30,6 +35,8 @@ def brain_key(model: str) -> str:
         return "local"
     if groq.is_groq(model):
         return "groq"
+    if freeapi.is_free_api(model):
+        return freeapi.provider_of(model).key
     return next((key for key, (mid, _n, _d) in BRAINS.items() if mid == model), "custom")
 
 
@@ -55,6 +62,10 @@ def register(registry: ToolRegistry, ctx) -> None:
         if key == "groq" and not groq.available():
             raise ValueError("Groq needs a free key: the owner adds GROQ_API_KEY in Settings > Connections "
                              "(get it at console.groq.com/keys, no card needed).")
+        if key in freeapi.PROVIDERS and not freeapi.available(key):
+            p = freeapi.PROVIDERS[key]
+            raise ValueError(f"{p.name} needs a free key: the owner adds {p.env} in Settings > Connections "
+                             f"(get it at {p.site}).")
         if key == "local" and not local.available():
             raise ValueError("Ollama is not running on this computer. The owner installs it once in PowerShell: "
                              "winget install Ollama.Ollama, then: ollama pull qwen3:4b")

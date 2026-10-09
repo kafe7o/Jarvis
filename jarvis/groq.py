@@ -95,25 +95,27 @@ def trim(chat: list[dict], room: int) -> list[dict]:
     return [system, *rest[start:]]
 
 
-def to_tools(tools: list) -> list[dict]:
+def to_tools(tools: list, only: set | None = LOCAL_TOOLS) -> list[dict]:
+    """Claude-format tools -> OpenAI-style functions; ``only`` keeps just those (None = every tool)."""
     return [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),
                                               "parameters": t.get("input_schema") or {"type": "object", "properties": {}}}}
-            for t in tools if "input_schema" in t and t["name"] in LOCAL_TOOLS]
+            for t in tools if "input_schema" in t and (only is None or t["name"] in only)]
 
 
-def from_reply(data: dict, model: str) -> Answer:
+def from_reply(data: dict, model: str, prefix: str = "groq") -> Answer:
     choice = (data.get("choices") or [{}])[0]
     message = choice.get("message") or {}
     blocks = Reply()
-    blocks.model = "groq:" + model
+    blocks.model = f"{prefix}:{model}"
     text = re.sub(r"<think>.*?</think>", "", message.get("content") or "", flags=re.S).strip()
     if text:
         blocks.append(Block("text", text=text))
     for call in message.get("tool_calls") or []:
         fn = call.get("function") or {}
         try:
-            args = json.loads(fn.get("arguments") or "{}")
-        except ValueError:
+            args = fn.get("arguments") or "{}"
+            args = args if isinstance(args, dict) else json.loads(args)
+        except (TypeError, ValueError):
             args = {}
         blocks.append(Block("tool_use", id=call.get("id") or f"call_{uuid.uuid4().hex[:12]}", name=fn.get("name", ""),
                             input=args if isinstance(args, dict) else {}))
@@ -122,7 +124,7 @@ def from_reply(data: dict, model: str) -> Answer:
     used = data.get("usage") or {}
     usage = {"input": int(used.get("prompt_tokens") or 0), "output": int(used.get("completion_tokens") or 0),
              "cache_read": 0, "cache_write": 0}
-    return Answer(blocks, stop, "groq:" + model, usage)
+    return Answer(blocks, stop, blocks.model, usage)
 
 
 class GroqBrain:

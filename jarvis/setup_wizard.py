@@ -13,6 +13,8 @@ STEPS = [
     ("Мозъкът: Claude (платен)", "console.anthropic.com > API Keys", [("ANTHROPIC_API_KEY", "Claude API ключ")]),
     ("Мозъкът: Gemini (безплатен)", "aistudio.google.com/apikey > Create API key", [("GEMINI_API_KEY", "Gemini API ключ")]),
     ("Бърз безплатен мозък: Groq", "console.groq.com/keys > Create API Key (без карта)", [("GROQ_API_KEY", "Groq API ключ")]),
+    ("Безплатни силни модели: NVIDIA", "build.nvidia.com > Get API Key (без карта)", [("NVIDIA_API_KEY", "NVIDIA API ключ")]),
+    ("Безплатни модели: OpenRouter", "openrouter.ai/keys > Create API Key", [("OPENROUTER_API_KEY", "OpenRouter API ключ")]),
     ("Как да се обръща към теб", "", [("JARVIS_USER_NAME", "Обръщение (напр. сър, шефе, Анастас)")]),
     ("Обаждания и SMS", "twilio.com > Console (купи номер)", [
         ("TWILIO_ACCOUNT_SID", "Account SID"), ("TWILIO_AUTH_TOKEN", "Auth Token"),

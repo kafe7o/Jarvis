@@ -37,12 +37,16 @@ def silence_seconds() -> float:
 
 
 def default_brain() -> str:
-    """No brain chosen (JARVIS_MODEL empty): a free one that is set up, Gemini then Groq; Claude (paid) only
-    when there is neither."""
+    """No brain chosen (JARVIS_MODEL empty): a free one that is set up, Gemini, Groq, NVIDIA, then OpenRouter;
+    Claude (paid) only when there is none."""
     if _env("GEMINI_API_KEY"):
         return "gemini-3.5-flash-lite"
     if _env("GROQ_API_KEY"):
         return "groq"
+    if _env("NVIDIA_API_KEY"):
+        return "nvidia"
+    if _env("OPENROUTER_API_KEY"):
+        return "openrouter"
     return "claude-opus-5-5"
 
 

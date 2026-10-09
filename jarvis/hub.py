@@ -101,6 +101,8 @@ def lan_ip() -> str:
 def friendly_error(exc: Exception) -> str:
     from .brain import BudgetReached
     from .gemini import UsedUp, next_reset
+    from .freeapi import PROVIDERS
+    from .freeapi import UsedUp as FreeUsedUp
     from .groq import UsedUp as GroqUsedUp
 
     text = f"{type(exc).__name__}: {exc}"
@@ -114,6 +116,12 @@ def friendly_error(exc: Exception) -> str:
                 "или сложи и безплатен Gemini ключ, за да поема той.")
     if "groq" in low and ("key" in low or "401" in low):
         return "Groq ключът е грешен или липсва. Вземи нов от console.groq.com/keys и го сложи в Настройки > Връзки."
+    if isinstance(exc, FreeUsedUp):
+        return ("Безплатните модели са заети или изчерпани за момента. Опитай пак след минута, "
+                "или сложи още един безплатен ключ (Gemini, Groq, NVIDIA или OpenRouter) в Настройки > Връзки.")
+    for p in PROVIDERS.values():
+        if p.name.lower() in low and ("key" in low or "401" in low):
+            return f"{p.name} ключът е грешен или липсва. Вземи нов от {p.site} и го сложи в Настройки > Връзки."
     if isinstance(exc, BudgetReached):
         return ("Днешният таван за Claude е достигнат, а безплатен мозък няма. Сложи безплатен Gemini или Groq ключ "
                 "(Настройки > Връзки) или вдигни тавана в „Пестене“.")
@@ -355,7 +363,7 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_MODEL", "Мозък: празно = безплатен (Gemini, после Groq), groq (безплатно, най-бързият), local (на лаптопа, без лимит); платени: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
+        ("JARVIS_MODEL", "Мозък: празно = безплатен (Gemini, после Groq), groq (безплатно, най-бързият), nvidia или openrouter (безплатни силни модели), local (на лаптопа, без лимит); платени: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
@@ -365,6 +373,8 @@ EXTRA_SETTINGS = [
         ("JARVIS_ROUTER", "Простите команди без AI и кратките въпроси с бърз модел (1 = да, 0 = не)"),
         ("JARVIS_FAST_MODEL", "Модел за кратките въпроси (празно = безплатният Groq, ако има ключ, иначе Gemini)"),
         ("JARVIS_GROQ_MODEL", "Модел в Groq (празно = openai/gpt-oss-120b; другите безплатни се ползват, когато той е зает)"),
+        ("JARVIS_NVIDIA_MODEL", "Модел в NVIDIA (празно = най-силният безплатен, напр. Kimi или DeepSeek)"),
+        ("JARVIS_OPENROUTER_MODEL", "Модел в OpenRouter (празно = най-силният безплатен с „:free“)"),
         ("JARVIS_LOCAL_MODEL", "Мозък на лаптопа в Ollama, без лимит (празно = най-добрият инсталиран, напр. qwen3:4b)"),
         ("JARVIS_VAULT", "Папка-памет за бележки (празно = Документи\\Jarvis Vault)"),
     ]),
@@ -474,10 +484,13 @@ class Hub:
                 self.busy -= 1
                 self.board.finish(run_id, ok)
                 now = self.ctx.settings.model
-                if now != model and (now.startswith("gemini") or now.startswith("groq")):
+                if now != model and now.startswith(("gemini", "groq", "nvidia", "openrouter")):
                     # Claude ran out of credit and a free brain took over: tell the app (colour, toast).
-                    self.events.add("brain", brain="gemini" if now.startswith("gemini") else "groq",
-                                    name="Gemini (безплатно)" if now.startswith("gemini") else "Groq (безплатно)")
+                    from .plugins.brain_switch import brain_key
+
+                    key = brain_key(now)
+                    names = {"gemini": "Gemini", "groq": "Groq", "nvidia": "NVIDIA", "openrouter": "OpenRouter"}
+                    self.events.add("brain", brain=key, name=f"{names[key]} (безплатно)")
 
     def track(self, who: str, text: str, kind: str = "request", chat: int | None = None,
               to: int | None = None) -> tuple[int, dict]:

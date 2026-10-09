@@ -13,7 +13,7 @@ from typing import Callable
 
 import anthropic
 
-from . import core_files, gemini, groq, local, router, usage, work
+from . import core_files, freeapi, gemini, groq, local, router, usage, work
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -102,6 +102,22 @@ class BudgetReached(RuntimeError):
     """Claude's daily spending cap (JARVIS_DAILY_BUDGET) is reached and no free brain is set up."""
 
 
+def brain_kind(model: str) -> str:
+    """Which free brain a model belongs to: gemini, groq, local, nvidia or openrouter."""
+    if groq.is_groq(model) or local.is_local(model) or freeapi.is_free_api(model):
+        return model.partition(":")[0]
+    return "gemini"
+
+
+def free_brain() -> str | None:
+    """The first free brain that is set up: Gemini, Groq, NVIDIA, OpenRouter (None when there is none)."""
+    if gemini.available():
+        return gemini.DEFAULT_MODEL
+    if groq.available():
+        return groq.DEFAULT_MODEL
+    return next((key for key in freeapi.PROVIDERS if freeapi.available(key)), None)
+
+
 def strip_thinking(messages: list) -> bool:
     """Remove thinking blocks from assistant turns in place. Returns True if any were removed."""
     removed = False
@@ -128,6 +144,7 @@ class Jarvis:
         gemini_brain: gemini.GeminiBrain | None = None,
         local_brain: local.LocalBrain | None = None,
         groq_brain: groq.GroqBrain | None = None,
+        free_brains: dict[str, freeapi.FreeBrain] | None = None,
     ):
         self.settings = settings
         self.store = store
@@ -137,6 +154,7 @@ class Jarvis:
         self.gemini = gemini_brain or gemini.GeminiBrain()
         self.local = local_brain or local.LocalBrain()
         self.groq = groq_brain or groq.GroqBrain()
+        self.free_apis = {key: (free_brains or {}).get(key) or freeapi.FreeBrain(key) for key in freeapi.PROVIDERS}
         self.on_progress = on_progress or (lambda _msg: None)
         self._step_ids = itertools.count(1)
 
@@ -199,9 +217,14 @@ class Jarvis:
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
         if groq.is_groq(model):
-            return self._ask_free([model, gemini.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort)
+            return self._ask_free([model, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"], system, messages, tools,
+                                  max_tokens, effort)
         if model.startswith("gemini"):
-            return self._ask_free([model, groq.DEFAULT_MODEL, "local"], system, messages, tools, max_tokens, effort)
+            return self._ask_free([model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"], system, messages, tools,
+                                  max_tokens, effort)
+        if freeapi.is_free_api(model):
+            return self._ask_free([model, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"], system,
+                                  messages, tools, max_tokens, effort)
         free = self.free_instead()
         if free:
             log.info("Claude's daily cap is reached; %s answers instead", free)
@@ -214,10 +237,10 @@ class Jarvis:
             usage.record(self.store, answer, model)
             return answer
         except Exception as exc:
-            takeover = gemini.DEFAULT_MODEL if gemini.available() else groq.DEFAULT_MODEL if groq.available() else None
+            takeover = free_brain()
             if takeover is None or not claude_unusable(exc):
                 raise
-            # No credit or no key for Claude: a free brain (Gemini, else Groq) takes over instead of failing.
+            # No credit or no key for Claude: a free brain (Gemini, Groq, NVIDIA, OpenRouter) takes over instead.
             log.warning("Claude is unavailable, switching to %s: %s", takeover, exc)
             s.model = takeover
             return self._request(messages, user, system, allowed, model=s.model, **again)
@@ -227,30 +250,29 @@ class Jarvis:
         cap = self.settings.budget()
         if cap is None or usage.spent_today(self.store) < cap:
             return None
-        if gemini.available():
-            return gemini.DEFAULT_MODEL
-        if groq.available():
-            return groq.DEFAULT_MODEL
-        if local.available():
-            return "local"
+        free = free_brain() or ("local" if local.available() else None)
+        if free:
+            return free
         raise BudgetReached(f"Claude's daily cap of ${cap:g} is reached and no free brain is set up.")
 
     def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
         """The free brains in ``order``: the first one asked for, then the others that are set up, each taking
         over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day)."""
-        used_up = None
+        used_up, asked = None, set()
         for i, model in enumerate(order):
-            ready = (groq.available() if groq.is_groq(model) else local.available() if local.is_local(model)
-                     else gemini.available())
-            if i and not ready:
+            kind = brain_kind(model)
+            ready = (groq.available() if kind == "groq" else local.available() if kind == "local"
+                     else freeapi.available(model) if kind in self.free_apis else gemini.available())
+            if kind in asked or (i and not ready):
                 continue
-            if local.is_local(model):
+            asked.add(kind)
+            if kind == "local":
                 return self._ask_local(model, system, messages, tools, max_tokens, effort)
-            brain = self.groq if groq.is_groq(model) else self.gemini
+            brain = self.groq if kind == "groq" else self.free_apis.get(kind) or self.gemini
             try:
                 answer = brain.create(model=model, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
                                       effort=effort)
-            except (groq.UsedUp, gemini.UsedUp) as exc:
+            except (groq.UsedUp, gemini.UsedUp, freeapi.UsedUp) as exc:
                 log.warning("%s; the next free brain answers", exc)
                 used_up = exc
                 continue
@@ -269,7 +291,7 @@ class Jarvis:
 
     def fast_model(self) -> str:
         """The model for the quick lane: the owner's choice (JARVIS_FAST_MODEL), else free Groq (the fastest),
-        else free Gemini, else the brain on this computer, else Claude's cheapest."""
+        else free Gemini, else NVIDIA or OpenRouter, else the brain on this computer, else Claude's cheapest."""
         s = self.settings
         if s.fast_model:
             return s.fast_model
@@ -279,7 +301,9 @@ class Jarvis:
             return groq.DEFAULT_MODEL
         if s.model.startswith("gemini") or gemini.available():
             return gemini.DEFAULT_MODEL
-        return "claude-haiku-5-5"
+        if freeapi.is_free_api(s.model):
+            return s.model
+        return free_brain() or "claude-haiku-5-5"
 
     def _ask_claude(self, messages: list, system, tools: list, model: str | None = None, effort: str | None = None,
                     max_tokens: int | None = None) -> object:

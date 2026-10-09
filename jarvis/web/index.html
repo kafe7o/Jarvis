@@ -268,6 +268,8 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 :root[data-brain="gemini"] { --hud: #8ab4ff; --hud-rgb: 138, 180, 255; }
 :root[data-brain="local"] { --hud: #e6edf5; --hud-rgb: 230, 237, 245; }
 :root[data-brain="groq"] { --hud: #ff8a5c; --hud-rgb: 255, 138, 92; }
+:root[data-brain="nvidia"] { --hud: #76b900; --hud-rgb: 118, 185, 0; }
+:root[data-brain="openrouter"] { --hud: #ff6fb5; --hud-rgb: 255, 111, 181; }
 #hud { position: fixed; inset: 0; z-index: 60; color: #dff6ff; font-family: var(--mono); overflow: hidden;
   background: radial-gradient(900px 700px at 50% 45%, rgba(var(--hud-rgb), .10), transparent 60%), #02050b; --lvl: 0; }
 #hud.hidden { display: none; }
@@ -1244,7 +1246,7 @@ function finishConfirm(holder, text) {
 // ---------- Jarvis mode: full-screen voice HUD ----------
 // Says "Джарвис…" (or anything right after he spoke), answers aloud, takes "да/не" for permissions,
 // sees the shared screen or camera, and glows in the colour of the brain he is running on.
-const BRAINS = { opus: "OPUS 5.5", fable: "FABLE 5.1", sonnet: "SONNET 5.5", haiku: "HAIKU 5.5", gemini: "GEMINI", groq: "GROQ", local: "ЛАПТОП" };
+const BRAINS = { opus: "OPUS 5.5", fable: "FABLE 5.1", sonnet: "SONNET 5.5", haiku: "HAIKU 5.5", gemini: "GEMINI", groq: "GROQ", nvidia: "NVIDIA", openrouter: "OPENROUTER", local: "ЛАПТОП" };
 const WAKE = /(?<!\p{L})(?:хей\s+)?(?:джарвис|джарвиз|жарвис|дарвис|чарвис|джервис|джарви|jarvis|jervis)(?!\p{L})[\s,.!?]*/iu;
 const STOP = /(?<!\p{L})(?:стоп|спри|тихо|млъкни|достатъчно|stop)(?!\p{L})/iu;
 const SAY_NO = /(?<!\p{L})(?:не|недей|откажи|отказвам|отказ|спри|no)(?!\p{L})/iu;
