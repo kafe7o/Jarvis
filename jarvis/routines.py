@@ -45,6 +45,16 @@ ROUTINES = {
                        "language), keep wiki/_master-index.md listing every topic note with one line about it, then "
                        "mark each processed raw note with vault_done. Report in two sentences what you filed.",
     },
+    "growth": {
+        "title": "Самоусъвършенстване",
+        "desc": "Всеки ден Jarvis преглежда грешките си, записва си уроци и предлага как да стане по-добър.",
+        "time": "11:00", "repeat": "daily",
+        "instruction": "Daily self-review: call review_myself for the last day. For every mistake that happened more "
+                       "than once, or that the owner corrected, write a lesson with learn (skip what your lessons "
+                       "already say). If a change to your own code would clearly make you better, describe it in one or "
+                       "two sentences in the report so the owner can say yes (do not call upgrade_self now). Report in "
+                       "three short sentences what you learned.",
+    },
 }
 MARK = re.compile(r"^\[routine:(\w+)\]\s*")
 

@@ -154,3 +154,17 @@ def test_without_gemini_or_groq_a_free_key_still_makes_jarvis_free(settings, ctx
     monkeypatch.delenv("NVIDIA_API_KEY")
     out, err = registry.run("switch_brain", {"brain": "nvidia"}, Approver())
     assert err and "build.nvidia.com" in out
+
+
+def test_when_geminis_strong_model_is_used_up_nvidia_does_the_real_work(settings, ctx, registry, nvidia_key,
+                                                                         monkeypatch):
+    settings.model = gemini.DEFAULT_MODEL
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    google = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **kw: (_ for _ in ()).throw(
+        AssertionError("Flash-Lite should not do the real work"))))
+    brain = gemini.GeminiBrain(google, wait=lambda s: None)
+    brain.spent[gemini.AGENT_MODEL] = gemini.next_reset()  # Flash's free requests for today are gone
+    fake = FakeAPI([said("Свърших го през NVIDIA.")])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]), gemini_brain=brain,
+                    free_brains={"nvidia": freeapi.FreeBrain("nvidia", post=fake, get=lambda: NVIDIA_LIST)})
+    assert jarvis.ask("направи го") == "Свърших го през NVIDIA."

@@ -444,6 +444,15 @@ def wants_action(text: str) -> bool:
     return not (QUESTION.match(said) and not NEEDS_TOOLS.search(said))
 
 
+CORRECTS = rx(r"(?:^|\s)(?:не (?:така|това|е така|е това|си разбрал|ме разбра|ме слушаш|стана|работи|го направи)|"
+              r"грешно|сбърка|казах ти|пак не|отново не|защо не|не правиш|не върши)(?=\s|$|[,.!?])")
+
+
+def corrects(text: str) -> bool:
+    """The owner says Jarvis got something wrong ("не така", "казах ти", "пак не стана"): worth a lesson."""
+    return bool(CORRECTS.search(clean(text)))
+
+
 def stops_work(text: str) -> bool:
     """"спри", "спри всичко", "stop": end the work in progress and drop what waits after it (heard at once, even
     while a task runs). "спри музиката" and the like are not this (they pause the music)."""

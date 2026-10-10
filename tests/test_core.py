@@ -414,3 +414,43 @@ def test_at_the_step_limit_he_says_what_he_did_and_what_is_left(settings, ctx, r
     answer = Jarvis(settings, ctx.store, registry, Approver(), client=client).ask("подреди ми задачите")
     assert answer.startswith("(Стигнах края на стъпките") and "остава да ги подредя" in answer
     assert client.requests[2]["messages"][-1]["content"][-1] == {"type": "text", "text": WRAP_UP}
+
+
+def test_jarvis_learns_a_lesson_from_a_failed_task_and_follows_it(settings, ctx, registry):
+    from conftest import FakeClient, response, system_text, text_block, tool_block
+    from jarvis import core_files
+    from jarvis.brain import Jarvis
+
+    settings.learn = True
+    client = FakeClient([
+        response(tool_block("run_shell", {"command": "nosuchprogram"}), stop="tool_use"),
+        response(text_block("Не успях, сър.")),
+    ])
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=client)
+    jarvis.reflect_later = lambda *args: None  # looked back at below, not in the background
+    steps = []
+    jarvis._loop([{"role": "user", "content": "пусни програмата"}], lambda s: True, steps=steps)
+    assert steps and steps[0][0] == "run_shell"
+    client.responses.append(response(text_block("Когато програма липсва, първо провери дали е инсталирана.")))
+    lesson = jarvis.reflect("пусни програмата", [("run_shell", {}, "not found", True)], "Не успях, сър.")
+    assert lesson and "провери дали е инсталирана" in core_files.read(settings.home, "LESSONS.md")
+    client.responses.append(response(text_block("NONE")))
+    assert jarvis.reflect("пак", [("run_shell", {}, "not found", True)], "Не успях.") is None  # nothing new
+    client.responses.append(response(text_block("Добре.")))
+    jarvis.ask("здрасти")
+    assert "провери дали е инсталирана" in system_text(client.requests[-1])  # every request carries the lessons
+
+
+def test_review_myself_shows_what_failed_and_learn_keeps_lessons(settings, ctx, registry):
+    from conftest import Approver
+    from jarvis.brain import Jarvis
+
+    ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver())
+    ctx.jarvis.log_activity(None, "Jarvis", "click_text", {"target": "OK"}, True)
+    ctx.jarvis.log_activity(None, "Jarvis", "click_text", {"target": "OK"}, False)
+    out, err = registry.run("review_myself", {}, Approver())
+    assert not err and "click_text (1 failed of 2)" in out and "failed: 1" in out
+    out, err = registry.run("learn", {"lesson": "Когато бутонът няма име, ползвай look_at_screen."}, Approver())
+    assert not err and "kept" in out
+    out, _ = registry.run("learn", {"lesson": "когато бутонът няма име, ползвай look_at_screen"}, Approver())
+    assert "Already" in out

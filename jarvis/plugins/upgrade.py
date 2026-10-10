@@ -95,6 +95,56 @@ def register(registry: ToolRegistry, ctx) -> None:
         record = upgrades.undo(ctx.settings.home, upgrade_id)
         return f"Върнах надстройка {record['id']} („{record['what']}“). {restart_soon(bulgarian=True)}"
 
+    def owner_only() -> None:
+        from ..brain import TURN
+
+        user = (TURN.get() or {}).get("user")
+        if user is not None and not user.is_owner:
+            raise PermissionError("Only the owner's Jarvis learns lessons.")
+
+    @registry.tool(
+        "Write down a lesson for next time in LESSONS.md (it goes with every request from now on): when the owner "
+        "corrects you, when something failed and you found what works, or a better way to do a recurring task. "
+        "One concrete line in Bulgarian, e.g. \"Когато ..., ...\".",
+        obj({"lesson": ("string", "The lesson, one line")}),
+    )
+    def learn(lesson: str):
+        from .. import core_files
+
+        owner_only()
+        if not core_files.learn(ctx.settings.home, lesson):
+            return "Already among your lessons (or too short); nothing added."
+        return "Lesson kept. You will follow it from now on."
+
+    @registry.tool(
+        "Look at yourself to get better: the steps that failed lately (from the activity log), which tools fail "
+        "most, your lessons and your upgrades. Use it when the owner asks you to improve yourself, then write "
+        "lessons with learn and, if a code change would clearly help, propose it with upgrade_self.",
+        obj({"days?": ("integer", "How many days back (default 7)")}),
+    )
+    def review_myself(days: int = 7):
+        from datetime import datetime, timedelta
+
+        from .. import core_files
+
+        owner_only()
+        since = (datetime.now() - timedelta(days=max(1, int(days)))).replace(microsecond=0).isoformat()
+        rows = ctx.store.query("SELECT tool, summary, ok, created FROM activity WHERE created >= ? ORDER BY id DESC "
+                               "LIMIT 400", (since,))
+        failed = [r for r in rows if not r["ok"]]
+        counts: dict[str, list[int]] = {}
+        for r in rows:
+            counts.setdefault(r["tool"], [0, 0])[0 if r["ok"] else 1] += 1
+        worst = sorted(((bad, good, tool) for tool, (good, bad) in counts.items() if bad), reverse=True)[:10]
+        lines = [f"Steps in the last {days} days: {len(rows)}, failed: {len(failed)}."]
+        if worst:
+            lines.append("Tools that failed most: " + ", ".join(f"{t} ({b} failed of {b + g})" for b, g, t in worst))
+        lines += ["Latest failed steps:"] + [f"- {r['created']} {r['tool']}: {r['summary'][:200]}" for r in failed[:25]]
+        lines.append("Your lessons (LESSONS.md):\n" + (core_files.read(ctx.settings.home, "LESSONS.md") or "(none yet)"))
+        made = upgrades.records(ctx.settings.home)
+        lines.append("Your upgrades: " + ("; ".join(upgrades.describe(r) for r in made[-5:]) or "none yet"))
+        return "\n".join(lines)
+
     @registry.tool("List the upgrades you have made to yourself, newest first.", obj({}))
     def list_upgrades():
         made = upgrades.records(ctx.settings.home)

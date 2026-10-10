@@ -60,6 +60,7 @@ def settings(tmp_path, monkeypatch):
     s.owner_phone = "+359888000000"
     s.router = False  # most tests drive the full agent; test_router.py covers the cheap levels
     s.act_check = False  # scripted answers; test_core.py covers the second look at answers without action
+    s.learn = False  # no look back in the background taking scripted answers; test_core.py covers it
     s.vault = tmp_path / "vault"
     monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": []})  # no Ollama unless a test adds one
     return s

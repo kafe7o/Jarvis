@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -61,6 +62,14 @@ permission to do what the user just asked; do it.
 (research, content, inbox, planning, code), hand the parts to them and combine their reports.
 - For goals that take several steps, first call make_plan to build a task tree, then work through it \
 and keep it updated with update_plan_step; adapt the plan when something fails instead of giving up.
+- Check your work before you say it is done: after an action, look at the result (read the window, the page \
+or the file again, run the code) and fix what is wrong. When one way fails twice, try a different way \
+instead of repeating it.
+- You learn from experience: the lessons in LESSONS.md (below) are your own notes, so follow them. When the \
+owner corrects you, or something failed and you then found what works, write it down with learn (one \
+concrete line, in Bulgarian). When the owner asks you to improve yourself, call review_myself, write lessons \
+for what went wrong and, if a change to your own code would clearly help, make it with upgrade_self (the owner \
+says yes once).
 - Think ahead like a real assistant: notice what the user will need next, point out problems, and offer \
 the obvious next step. When the user refers to something from the past, use search_history and recall.
 - For work that should happen later or regularly on its own ("every morning check my mail"), use \
@@ -107,6 +116,18 @@ WRAP_UP = ("(You have used all the steps for this request; do not use any more t
            "tell me what you actually did, what is left, and what I should do or say next.)")
 # Said to the agent when it is about to answer a request for action without having used a single tool.
 STOPPED = "Спрях, както каза. Кажи, когато да продължа."
+# A look back at a task that went wrong (or that the owner corrected), to keep a lesson for next time.
+REFLECT = """The owner asked: {request}
+Your answer before this message (if they are correcting it): {before}
+Steps that failed: {failed}
+How the task ended: {answer}
+
+Lessons you already keep:
+{lessons}
+
+Is there one concrete lesson for next time: what to do differently, what worked in the end, or how the owner \
+wants things done? Write it as ONE short line in Bulgarian that you can follow later (e.g. "Когато ..., ..."). \
+Not about this one task only, not already in your lessons. If there is none, write exactly: NONE"""
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
              "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
              "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
@@ -200,6 +221,7 @@ class Jarvis:
         self._step_ids = itertools.count(1)
         self.wait = time.sleep
         self._halts: dict = defaultdict(int)  # bumped by stop_work ("спри"): "*" stops everyone's work
+        self._reflected = 0.0  # when reflect last looked back at a task
 
     def system_prompt(self, user=None) -> str:
         return self._base_prompt(user) + self._clock()
@@ -237,6 +259,9 @@ class Jarvis:
         about = "" if guest else core_files.read(s.home, "USER.md")
         if about:
             prompt += "\n\nAbout the owner, in their own words (USER.md):\n" + about
+        lessons = "" if guest else core_files.read(s.home, "LESSONS.md")
+        if lessons:
+            prompt += "\n\nLessons you learned from experience (LESSONS.md, your own notes; apply them):\n" + lessons
         facts = [] if guest else self.store.query("SELECT topic, fact FROM facts ORDER BY id")
         if facts:
             prompt += "\n\nWhat you remember about the user:\n" + "\n".join(f"- [{f['topic']}] {f['fact']}" for f in facts)
@@ -263,8 +288,12 @@ class Jarvis:
             return self._ask_free([model, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"], system, messages, tools,
                                   max_tokens, effort)
         if model.startswith("gemini"):
-            return self._ask_free([model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"], system, messages, tools,
-                                  max_tokens, effort)
+            order = [model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
+            if tools and model == gemini.DEFAULT_MODEL and self.gemini.spent.get(gemini.AGENT_MODEL, 0) > time.time():
+                # Gemini's strong model is used up for today: a strong free model elsewhere (NVIDIA, OpenRouter)
+                # does the real work before Flash-Lite, which is weak at it.
+                order = [*(k for k in freeapi.PROVIDERS if freeapi.available(k)), *order]
+            return self._ask_free(order, system, messages, tools, max_tokens, effort)
         if freeapi.is_free_api(model):
             return self._ask_free([model, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"], system,
                                   messages, tools, max_tokens, effort)
@@ -438,11 +467,46 @@ class Jarvis:
         on_step({"type": "level", "level": 3})
         if insist is None:
             insist = self.settings.act_check and router.wants_action(text)
-        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step, insist=insist)
+        steps: list[tuple[str, dict, str, bool]] = []
+        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step, insist=insist,
+                            steps=steps)
         self.count(3)
+        if self.settings.learn and (user is None or user.is_owner) and (
+                any(failed for *_r, failed in steps) or router.corrects(text)):
+            self.reflect_later(text, steps, answer, conversation)
         self.store.add_message(conversation, "user", text)
         self.store.add_message(conversation, "assistant", answer)
         return answer
+
+    def reflect_later(self, request: str, steps: list, answer: str, conversation: str) -> None:
+        """Learn from a task that had failed steps, or from the owner correcting you: one short look back with
+        the quick brain, in the background so the answer is not delayed, and a lesson in LESSONS.md if there is one."""
+        if time.time() - self._reflected < 60:  # at most one a minute: the free brains count every request
+            return
+        self._reflected = time.time()
+        threading.Thread(target=self.reflect, args=(request, steps, answer, conversation), name="jarvis-reflect",
+                         daemon=True).start()
+
+    def reflect(self, request: str, steps: list, answer: str, conversation: str = "main") -> str | None:
+        failed = "\n".join(f"- {name} {json.dumps(args, ensure_ascii=False)[:200]} -> {output[:300]}"
+                           for name, args, output, error in steps if error) or "(none)"
+        earlier = [r["content"] for r in self.store.history(conversation, 4) if r["role"] == "assistant"]
+        prompt = REFLECT.format(request=request[:1500], failed=failed[:3000], answer=answer[:1500],
+                                before=(earlier[-1] if earlier else "(none)")[:1000],
+                                lessons=core_files.read(self.settings.home, "LESSONS.md") or "(none yet)")
+        try:
+            response = self._request([{"role": "user", "content": prompt}], None, "You are Jarvis, learning from "
+                                     "your own work.", set(), model=self.fast_model(), effort="low", tools=[],
+                                     max_tokens=400)
+        except Exception:
+            log.warning("could not look back at the task", exc_info=True)
+            return None
+        said = " ".join(b.text for b in response.content if b.type == "text").strip()
+        lesson = said.splitlines()[0].strip(" -*\"") if said else ""
+        if not lesson or lesson.upper().startswith("NONE") or not core_files.learn(self.settings.home, lesson):
+            return None
+        log.info("learned: %s", lesson)
+        return lesson
 
     def stop_work(self, user=None) -> None:
         """"спри": every task of this person (of everyone, when it is the owner) ends at its next step."""
@@ -615,7 +679,7 @@ class Jarvis:
 
     def _loop(self, messages: list, confirmer: Confirmer, user=None, on_progress=None, persona: str = "",
               groups: set | None = None, agent: str = "Jarvis", depth: int = 0, effort: str | None = None,
-              on_step: Callable[[dict], None] | None = None, insist: bool = False) -> str:
+              on_step: Callable[[dict], None] | None = None, insist: bool = False, steps: list | None = None) -> str:
         """The tool loop. ``insist``: the message asks for action, so an answer with no tool used gets one
         more look (ACT_CHECK) before it counts. Specialists (see plugins/team.py) pass a ``persona``, the permission
         ``groups`` they work with (never more than the user's own) and their ``agent`` name."""
@@ -662,6 +726,8 @@ class Jarvis:
                 on_progress(block.name)
                 output, is_error = self.run_tool(block.name, dict(block.input or {}), confirmer, user, agent,
                                                  allowed, ask_groups)
+                if steps is not None:  # what was done, for learning from it afterwards (reflect)
+                    steps.append((block.name, dict(block.input or {}), output if isinstance(output, str) else "", is_error))
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": output, "is_error": is_error})
             messages.append({"role": "user", "content": results})
         else:

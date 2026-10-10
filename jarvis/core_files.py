@@ -16,7 +16,10 @@ FILES = {
                 "- Отговаря кратко. Първо прави, после докладва.\n- Сутрин ми казва най-важното за деня."),
     "USER.md": ("За мен", "Каквото Jarvis трябва да знае за теб.\n\nНапример:\n- Казвам се Анастас, живея в София.\n"
                 "- Телефонът ми е Xiaomi, лаптопът е с Windows.\n- Важни хора: ..."),
+    "LESSONS.md": ("Какво е научил Jarvis", "Уроци, които Jarvis сам си записва от опит: грешки, твоите поправки, "
+                   "какво е проработило. Следва ги във всяка задача. Можеш да ги поправяш или триеш."),
 }
+MAX_LESSONS = 40  # the newest are kept: they go with every request
 
 
 def path(home: Path, name: str) -> Path:
@@ -36,3 +39,23 @@ def write(home: Path, name: str, text: str) -> None:
     target = path(home, name)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text((text or "").strip()[:LIMIT] + "\n", encoding="utf-8")
+
+
+def norm(text: str) -> str:
+    return " ".join(text.lower().replace("-", " ").split()).strip(" .")
+
+
+def learn(home: Path, lesson: str) -> bool:
+    """Add a lesson to LESSONS.md (one line, the newest last); False when it is empty or already there."""
+    lesson = " ".join(str(lesson or "").split()).strip(" -")[:300]
+    if len(lesson) < 8:
+        return False
+    lines = [line for line in read(home, "LESSONS.md").splitlines() if line.strip()]
+    known = [norm(line) for line in lines]
+    if any(norm(lesson) in k or k.endswith(norm(lesson)) for k in known):
+        return False
+    lessons = [line for line in lines if line.startswith("- ")]
+    others = [line for line in lines if not line.startswith("- ")]
+    write(home, "LESSONS.md", "\n".join(others + (lessons + [f"- {lesson}"])[-MAX_LESSONS:]))
+    return True
+
