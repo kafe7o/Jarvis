@@ -99,3 +99,27 @@ def test_tasks_tab_shows_what_runs_now_and_what_comes_next(settings, ctx, regist
     assert json.loads(call(port, "/api/now")[1])["running"] == []
     usage = json.loads(call(port, "/api/usage")[1])
     assert usage["today"] == {"cost": 0, "requests": 0} and len(usage["days"]) == 14
+
+
+def test_the_app_gets_its_answer_as_an_event_even_after_the_connection_dropped(settings, ctx, registry):
+    hub, port = make_hub(settings, ctx, registry, [response(text_block("Готово, сър."), stop="end_turn")])
+    chat = json.loads(call(port, "/api/chats", {})[1])["chat"]
+    start = json.loads(call(port, "/api/events?after=-1")[1])
+    job = json.loads(call(port, f"/api/chats/{chat['id']}/ask", {"text": "здрасти", "background": True})[1])["job"]
+    found, after = None, start["last"]
+    while found is None:  # the request itself returned at once; the answer comes when the work is done
+        data = json.loads(call(port, f"/api/events?after={after}")[1])
+        found = next((e for e in data["events"] if e["kind"] == "answer" and e["job"] == job), None)
+        after = max([after] + [e["id"] for e in data["events"]])
+    assert found["answer"] == "Готово, сър." and not found["error"] and data["boot"] == start["boot"]
+
+
+def test_event_ids_keep_growing_after_a_restart(settings, ctx, registry):
+    from jarvis.hub import EventLog
+
+    before = EventLog()
+    seen = before.add("notify", text="преди рестарта")
+    time.sleep(0.01)
+    after = EventLog()  # a new process
+    assert after.add("notify", text="след рестарта") > seen  # an open window that saw ``seen`` still gets it
+    assert [e["text"] for e in after.after(seen, wait=0)] == ["след рестарта"]

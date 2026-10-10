@@ -783,7 +783,7 @@ async function api(path, body) {
   try {
     res = await fetch(path, { method: body === undefined ? "GET" : "POST", headers, credentials: "same-origin",
                               body: body === undefined ? undefined : JSON.stringify(body) });
-  } catch (e) { setOnline(false); throw new ApiError(0, "Няма връзка с Jarvis."); }
+  } catch (e) { setOnline(false); throw new ApiError(0, "Jarvis не отговаря в момента (рестартира се или е спрян). Опитай пак след малко."); }
   setOnline(true);
   let data = {};
   try { data = await res.json(); } catch (e) {}
@@ -794,7 +794,7 @@ async function api(path, body) {
 
 function setOnline(on) {
   $("netDot").classList.toggle("off", !on);
-  $("netText").textContent = on ? "На линия" : "Няма връзка";
+  $("netText").textContent = on ? "На линия" : "Свързвам се…";
 }
 
 function toast(text, title = "Jarvis", kind = "") {
@@ -1017,7 +1017,7 @@ async function send() {
     state.pending = { chat: chatId, el: pend, steps: [] };
     scrollDown(true);
     let data;
-    try { data = await api(`/api/chats/${chatId}/ask`, { text }); }
+    try { data = await askJarvis(chatId, { text }); }
     catch (err) { data = { answer: err.message, error: true }; }
     pend.remove(); state.pending = null;
     if (state.chat && state.chat.id === chatId) {
@@ -1154,13 +1154,28 @@ $("mic").addEventListener("click", () => {
   rec.start();
 });
 
-// ---------- Live events: progress, confirmations, notifications ----------
+// ---------- Live events: progress, confirmations, notifications, answers ----------
+// A request goes on by itself on Jarvis's side and its answer comes as an event, so a connection that drops
+// during a long task (sleep, antivirus, Jarvis restarting) loses nothing: the events catch up when it is back.
+const answers = new Map();  // job -> resolve
+async function askJarvis(chatId, body) {
+  const { job } = await api(`/api/chats/${chatId}/ask`, { ...body, background: true });
+  return new Promise((resolve) => answers.set(String(job), resolve));
+}
+
+function jarvisRestarted() {  // whatever he was doing when his process stopped is gone: say so, don't wait forever
+  for (const done of answers.values()) done({ answer: "Jarvis се рестартира, докато работеше по това. Кажи ми го пак, моля.", error: true });
+  answers.clear();
+}
+
 async function pollEvents() {
-  try { state.lastEvent = (await api("/api/events?after=-1")).last || 0; } catch (e) {}
+  try { const first = await api("/api/events?after=-1"); state.lastEvent = first.last || 0; state.boot = first.boot; } catch (e) {}
   for (;;) {
     if (!state.me) { await sleep(1500); continue; }
     try {
       const data = await api("/api/events?after=" + state.lastEvent);
+      if (state.boot && data.boot && data.boot !== state.boot) jarvisRestarted();
+      state.boot = data.boot || state.boot;
       if (state.missed) { state.missed = false; liveLoad(); }  // the work may have moved on while the line was down
       for (const ev of data.events) { state.lastEvent = Math.max(state.lastEvent, ev.id); handleEvent(ev); }
     } catch (e) { state.missed = true; await sleep(e.status === 401 ? 3000 : 2500); }
@@ -1169,6 +1184,7 @@ async function pollEvents() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function handleEvent(ev) {
+  if (ev.kind === "answer" && answers.has(String(ev.job))) { answers.get(String(ev.job))(ev); answers.delete(String(ev.job)); }
   if (ev.kind === "progress" && state.pending && state.pending.chat === ev.chat) {
     const el = state.pending.el;
     el.querySelector(".label").textContent = ev.label + "…";
@@ -1552,7 +1568,7 @@ async function hudAsk(text) {
     if (hud.screen) hudLog("Гледам екрана");
     if (hud.cam) hudLog("Гледам камерата");
     let data;
-    try { data = await api(`/api/chats/${chatId}/ask`, images.length ? { text, images } : { text }); }
+    try { data = await askJarvis(chatId, images.length ? { text, images } : { text }); }
     catch (err) { data = { answer: err.message, error: true }; }
     hud.jobs.delete(chatId);
     hud.dirty = true;

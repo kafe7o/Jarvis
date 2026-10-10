@@ -59,6 +59,10 @@ def recovering():
         if upgrades.recover(settings.home) is None:
             raise
         logging.getLogger("jarvis").exception("Jarvis could not start after an upgrade; it was undone")
+        from . import keeper
+
+        if keeper.kept():
+            os._exit(keeper.RESTART)  # the keeper starts him again
         flags = 0x08000000 if sys.platform.startswith("win") else 0  # CREATE_NO_WINDOW
         subprocess.Popen([sys.executable, "-m", "jarvis", *sys.argv[1:]], cwd=os.getcwd(), creationflags=flags)
         os._exit(1)
@@ -156,11 +160,14 @@ def open_window(url: str) -> None:
 
 
 def app(window: bool = True) -> None:
-    """The Jarvis app: the hub on this computer plus a window for it. Running it again only opens
-    another window."""
+    """The Jarvis app. Run by the keeper (keeper.py) it is Jarvis himself, the hub on this computer. Run by a
+    person or the desktop icon, it starts the keeper unless Jarvis already runs, waits for him and opens the
+    window; that PowerShell window may then be closed."""
     import secrets
     import threading
+    import time
 
+    from . import keeper
     from .setup_wizard import env_path, read_env, write_env
     from .updater import answering
 
@@ -174,9 +181,20 @@ def app(window: bool = True) -> None:
         os.environ["JARVIS_WEB_TOKEN"] = token
     port = int(os.environ.get("JARVIS_WEB_PORT", "8770"))
     url = f"http://localhost:{port}/"
-    if answering(port):
+    if not keeper.kept():
+        if not answering(port):
+            keeper.start()  # (if one already runs, e.g. while it restarts Jarvis, the new one ends at once)
+            print("Пускам Jarvis…", flush=True)
+            end = time.time() + 120
+            while not answering(port):
+                if time.time() > end:
+                    print(f"Jarvis още не отговаря. Какво става пише в {settings.home / 'jarvis.log'}")
+                    return
+                time.sleep(1)
         if window:
             open_window(url)
+        print(f"Jarvis работи във фона: {url}  (от телефона: http://<IP-на-този-компютър>:{port}/)\n"
+              "Този прозорец вече може да се затвори. Спиране на Jarvis: jarvis stop")
         return
 
     holder: dict = {}
@@ -192,10 +210,23 @@ def app(window: bool = True) -> None:
         from .interfaces import telegram
 
         threading.Thread(target=telegram.run, args=((ctx.jarvis, ctx),), name="jarvis-telegram", daemon=True).start()
-    if window:
-        open_window(url)
-    print(f"Jarvis работи: {url}  (от телефона: http://<IP-на-този-компютър>:{port}/)")
+    print(f"Jarvis работи: {url}", flush=True)
     threading.Event().wait()
+
+
+def stop() -> None:
+    """`jarvis stop`: Jarvis stops, and his keeper does not start him again."""
+    import json
+    import urllib.request
+
+    port = os.environ.get("JARVIS_WEB_PORT", "8770")
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/stop", data=json.dumps({}).encode(), headers={
+        "Authorization": f"Bearer {os.environ.get('JARVIS_WEB_TOKEN', '')}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5):
+            print("Jarvis спира.")
+    except Exception:
+        print("Jarvis не работи (или не отговаря).")
 
 
 def owner() -> None:
@@ -224,7 +255,7 @@ def owner() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
-    parser.add_argument("mode", nargs="?", default="chat", choices=["app", "owner", "shortcut", "update", "undo", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
+    parser.add_argument("mode", nargs="?", default="chat", choices=["app", "stop", "keeper", "owner", "shortcut", "update", "undo", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
                                  "enroll-voice", "google-login"])
     parser.add_argument("text", nargs="*", help="Въпрос за режим ask")
     parser.add_argument("--hub", help="node: адрес на главния Jarvis, напр. http://192.168.1.10:8770")
@@ -234,14 +265,21 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     level = logging.INFO if args.verbose else logging.WARNING
     settings.home.mkdir(parents=True, exist_ok=True)
-    if sys.stderr is None:  # pythonw (desktop icon, autostart, a restart): no console, log to a file
+    from . import keeper
+
+    if args.mode == "keeper":
+        pass  # it writes its own notes in jarvis.log
+    elif keeper.kept():  # the keeper's Jarvis: what he prints already goes to jarvis.log
+        logging.basicConfig(level=level, format="%(asctime)s %(name)s: %(message)s")
+        faulthandler.enable()  # if Python itself crashes, where it was
+    elif sys.stderr is None:  # pythonw (desktop icon, autostart): no console, log to a file
         logging.basicConfig(filename=settings.home / "jarvis.log", level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
         CRASH["file"] = open(settings.home / "crash.log", "a", encoding="utf-8")
         faulthandler.enable(CRASH["file"])  # if Python itself crashes, where it was
     else:
         logging.basicConfig(level=level, format="%(asctime)s %(name)s: %(message)s")
         faulthandler.enable()
-        if args.mode in ("app", "serve", "daemon", "web"):  # the warnings also stay in a file, to read after a stop
+        if args.mode in ("serve", "daemon", "web"):  # the warnings also stay in a file, to read after a stop
             kept = logging.handlers.RotatingFileHandler(settings.home / "jarvis.log", maxBytes=1_000_000, backupCount=1,
                                                         encoding="utf-8")
             kept.setLevel(logging.WARNING)
@@ -250,6 +288,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.mode == "app":
         app(window=not args.no_window)
+    elif args.mode == "stop":
+        stop()
+    elif args.mode == "keeper":
+        keeper.run(settings.home)
     elif args.mode == "owner":
         owner()
     elif args.mode == "update":

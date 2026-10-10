@@ -161,7 +161,10 @@ class EventLog:
     def __init__(self, keep: int = 600):
         self.keep = keep
         self.events: list[dict] = []
-        self._ids = itertools.count(1)
+        # Ids go on growing across restarts (they start at the clock), so an open app window that last saw
+        # event N before a restart still gets the new ones; ``boot`` tells it Jarvis restarted.
+        self._ids = itertools.count(int(time.time() * 1000))
+        self.boot = f"{os.getpid()}-{int(time.time())}"
         self._cond = threading.Condition()
 
     def add(self, kind: str, to: int | None = None, **data) -> int:
@@ -432,6 +435,7 @@ class Hub:
         self._thought: deque[int] = deque(maxlen=50)  # requests already shown thinking with the memory
         self.updating = threading.Lock()
         self.failures: dict[str, list[float]] = defaultdict(list)
+        self._jobs = itertools.count(int(time.time() * 1000))  # requests answered in the background (the app)
         ctx.hub = self
         ctx.notifiers.append(lambda text: self.events.add("notify", text=text))
 
@@ -641,8 +645,29 @@ class Hub:
             if getattr(before, f.name) != getattr(after, f.name):
                 setattr(current, f.name, getattr(after, f.name))
 
+    def stop(self) -> None:
+        """`jarvis stop`: this process ends and the keeper does not start it again."""
+        from . import keeper
+
+        log.warning("stopping (jarvis stop)")
+        self._end(keeper.STOP)
+
+    def _end(self, code: int) -> None:
+        def go():
+            time.sleep(0.5)  # the answer to the request still goes out
+            os._exit(code)
+
+        threading.Thread(target=go, daemon=True).start()
+
     def restart(self) -> None:
-        """A new Jarvis starts in the background (without a console window) and this one ends."""
+        """Start again with the newest code. Under the keeper (keeper.py) this process ends and the keeper starts
+        it again at once; otherwise a new Jarvis starts in the background and this one ends."""
+        from . import keeper
+
+        if keeper.kept():
+            log.warning("restarting")
+            self._end(keeper.RESTART)
+            return
         args = [sys.executable, "-m", "jarvis", *sys.argv[1:]]
         if "app" in args and "--no-window" not in args:
             args.append("--no-window")
@@ -722,8 +747,8 @@ class Hub:
         if p == "/api/events" and m == "GET":
             after = int((req.query.get("after") or ["0"])[0])
             if after < 0:  # a client starting up only wants new events
-                return 200, {"events": [], "last": self.events.last_id()}
-            return 200, {"events": self.events.after(after, user)}
+                return 200, {"events": [], "last": self.events.last_id(), "boot": self.events.boot}
+            return 200, {"events": self.events.after(after, user), "boot": self.events.boot}
         if p == "/api/work" and m == "GET":  # the "На живо" screen
             return 200, self.work_for(user)
         if p == "/api/weather" and m == "GET":  # for the greeting in Jarvis mode
@@ -765,13 +790,24 @@ class Hub:
                 if chat["title"] == "Нов разговор":
                     title = re.sub(r"\s+", " ", text)
                     self.accounts.rename_chat(user.id, chat_id, title[:48] + ("…" if len(title) > 48 else ""))
-                try:
-                    answer, error = self.ask(text, user, chat_id, images), False
-                except Exception as exc:
-                    log.exception("ask failed")
-                    answer, error = friendly_error(exc), True
-                self.accounts.touch_chat(chat_id)
-                return 200, {"answer": answer, "error": error, "chat": self.accounts.chat(user.id, chat_id)}
+
+                def answer() -> dict:
+                    try:
+                        said, error = self.ask(text, user, chat_id, images), False
+                    except Exception as exc:
+                        log.exception("ask failed")
+                        said, error = friendly_error(exc), True
+                    self.accounts.touch_chat(chat_id)
+                    return {"answer": said, "error": error, "chat": self.accounts.chat(user.id, chat_id)}
+
+                if not b.get("background"):
+                    return 200, answer()
+                # The app: the work goes on by itself and the answer comes as an event, so a connection that
+                # drops during a long task (sleep, antivirus, a restart of the window) loses nothing.
+                job = next(self._jobs)
+                threading.Thread(target=lambda: self.events.add("answer", to=user.id or None, job=job, **answer()),
+                                 name=f"jarvis-ask-{job}", daemon=True).start()
+                return 200, {"job": job}
 
         if p == "/api/tts" and m == "POST":
             from .tts import synthesize
@@ -815,6 +851,9 @@ class Hub:
             if not self.restartable:
                 raise HTTPError(400, "Рестартирай Jarvis ръчно.")
             self.restart()
+            return 200, {"ok": True}
+        if p == "/api/stop" and m == "POST":
+            self.stop()
             return 200, {"ok": True}
         if p == "/api/core":
             from . import core_files
