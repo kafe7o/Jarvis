@@ -27,6 +27,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from concurrent.futures import Future
+from contextlib import contextmanager
 from datetime import datetime
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -192,6 +193,39 @@ class EventLog:
                 if fresh or remaining <= 0:
                     return fresh
                 self._cond.wait(remaining)
+
+
+class Turns:
+    """One person's requests, one at a time in the order they came: a second one waits until the first is done.
+    "спри" (``clear``) drops the ones still waiting."""
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._next = self._now = self._cleared = 0
+
+    @property
+    def ahead(self) -> int:
+        """Requests running or waiting right now."""
+        return self._next - self._now
+
+    @contextmanager
+    def turn(self):
+        """Wait for this request's turn; yields False when "спри" came while it waited (then it is not done)."""
+        with self._cond:
+            ticket, cleared = self._next, self._cleared
+            self._next += 1
+            while self._now != ticket:
+                self._cond.wait()
+        try:
+            yield self._cleared == cleared
+        finally:
+            with self._cond:
+                self._now += 1
+                self._cond.notify_all()
+
+    def clear(self) -> None:
+        with self._cond:
+            self._cleared += 1
 
 
 class WebConfirmer:
@@ -426,7 +460,7 @@ class Hub:
         self.confirmer = WebConfirmer(self.events, on_request=lambda s: push_notify(f"Чака потвърждение: {s}", "Jarvis"),
                                       on_always=lambda: self.save_settings({"JARVIS_TRUST_LOCAL": "1"}))
         self.devices = DeviceHub(ctx.jarvis.registry)
-        self.chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
+        self.turns: dict[int | None, Turns] = defaultdict(Turns)  # each person's requests, one after another
         self.busy = 0  # requests being answered right now; updates wait for 0
         # what Jarvis is doing right now and just did, step by step: the "На живо" screen and Settings > Задачи
         self.board = Board(label=lambda name: tool_label(ctx.jarvis.registry, name), publish=self.publish_work,
@@ -476,7 +510,15 @@ class Hub:
             run["step"] = tool_label(self.ctx.jarvis.registry, name)
             self.events.add("progress", to=to, chat=chat_id, tool=name, label=run["step"])
 
-        with self.chat_locks[chat_id or 0]:
+        from . import router
+
+        turns = self.turns[user.id]
+        if router.stops_work(text):  # heard at once, even in the middle of a task: it and what waits stop
+            turns.clear()
+            return self.ctx.jarvis.ask(text, conversation=conversation, user=user)
+        with turns.turn() as go:
+            if not go:
+                return "Не го почнах: каза ми да спра."
             self.busy += 1
             run_id, run = self.track(user.name, text, chat=chat_id, to=None if user.is_owner else user.id)
             model, ok = self.ctx.settings.model, False

@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import time
+from collections import defaultdict
 from datetime import datetime
 from typing import Callable
 
@@ -105,6 +106,7 @@ ESCALATE = "ESCALATE"
 WRAP_UP = ("(You have used all the steps for this request; do not use any more tools. In two or three short sentences "
            "tell me what you actually did, what is left, and what I should do or say next.)")
 # Said to the agent when it is about to answer a request for action without having used a single tool.
+STOPPED = "Спрях, както каза. Кажи, когато да продължа."
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
              "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
              "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
@@ -197,6 +199,7 @@ class Jarvis:
         self.on_progress = on_progress or (lambda _msg: None)
         self._step_ids = itertools.count(1)
         self.wait = time.sleep
+        self._halts: dict = defaultdict(int)  # bumped by stop_work ("спри"): "*" stops everyone's work
 
     def system_prompt(self, user=None) -> str:
         return self._base_prompt(user) + self._clock()
@@ -412,6 +415,11 @@ class Jarvis:
         confirmer = confirmer or self.confirmer
         on_progress = on_progress or self.on_progress
         on_step = on_step or (lambda _event: None)
+        if router.stops_work(text):  # "спри": the work in progress ends at its next step, no AI needed
+            self.stop_work(user)
+            self.store.add_message(conversation, "user", text)
+            self.store.add_message(conversation, "assistant", STOPPED)
+            return STOPPED
         if (self.settings.router if route is None else route) and not images:
             answer = self.cheap_answer(text, conversation, confirmer, user, on_progress, on_step)
             if answer is not None:
@@ -435,6 +443,13 @@ class Jarvis:
         self.store.add_message(conversation, "user", text)
         self.store.add_message(conversation, "assistant", answer)
         return answer
+
+    def stop_work(self, user=None) -> None:
+        """"спри": every task of this person (of everyone, when it is the owner) ends at its next step."""
+        self._halts["*" if user is None or getattr(user, "is_owner", True) else user.id] += 1
+
+    def _mark(self, user) -> tuple[int, int]:
+        return self._halts["*"], self._halts[getattr(user, "id", None)]
 
     def _messages(self, conversation: str, text: str, limit: int = 40) -> list:
         """The conversation so far plus the new message, in the alternating form the APIs need."""
@@ -617,7 +632,10 @@ class Jarvis:
                   "effort": effort})
         texts: list[str] = []
         acted = False
+        mark = self._mark(user)
         for _ in range(self.settings.max_tool_rounds):
+            if self._mark(user) != mark:  # "спри" came while working
+                return STOPPED
             response = self._request(messages, user, system, allowed)
             texts = [b.text for b in response.content if b.type == "text" and b.text.strip()] or texts
 
@@ -638,6 +656,8 @@ class Jarvis:
             for block in response.content:
                 if block.type != "tool_use":
                     continue
+                if self._mark(user) != mark:
+                    return STOPPED
                 acted = True
                 on_progress(block.name)
                 output, is_error = self.run_tool(block.name, dict(block.input or {}), confirmer, user, agent,

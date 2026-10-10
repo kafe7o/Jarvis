@@ -767,7 +767,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
 };
 
-const state = { me: null, groups: [], chats: [], chat: null, busy: false, lastEvent: 0, restartable: false, pending: null, confirms: [], speak: store.get("jarvis.speak", false) };
+const state = { me: null, groups: [], chats: [], chat: null, lastEvent: 0, restartable: false, pending: null, confirms: [], speak: store.get("jarvis.speak", false) };
 
 // A ?token= link (older setups, Siri) works as the owner for this window.
 const params = new URLSearchParams(location.search);
@@ -966,7 +966,7 @@ async function openChat(id) {
   $("messages").innerHTML = "";
   $("empty").classList.toggle("hidden", data.messages.length > 0);
   for (const m of data.messages) addMessage(m.role, m.content);
-  if (state.pending && state.pending.chat === id) $("messages").appendChild(state.pending.el);
+  for (const p of state.line) if (p.chat === id) $("messages").appendChild(p.el);
   state.confirms.forEach(maybeShowConfirm);
   renderChats();
   scrollDown(true);
@@ -996,30 +996,42 @@ input.addEventListener("input", () => { input.style.height = "auto"; input.style
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 $("composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
 
+// Messages can be sent while Jarvis works: they wait their turn on his side and are done one after another, in
+// order; "спри" is heard at once. ``state.line`` holds the requests waiting for an answer, the one being worked on
+// first (``state.pending``, which gets the progress).
+state.line = [];
+Object.defineProperty(state, "pending", { get: () => state.line[0] || null });
+
 async function send() {
   const text = input.value.trim();
-  if (!text || state.busy) return;
-  state.busy = true; $("send").disabled = true;
+  if (!text) return;
   input.value = ""; input.style.height = "auto";
+  let mine = null;
   try {
     if (!state.chat) {
-      state.chat = (await api("/api/chats", {})).chat;
-      store.set("jarvis.chat." + state.me.id, state.chat.id);
-      state.chats.unshift(state.chat); renderChats();
+      state.newChat = state.newChat || api("/api/chats", {}).then((d) => {
+        state.chat = d.chat;
+        store.set("jarvis.chat." + state.me.id, d.chat.id);
+        state.chats.unshift(d.chat); renderChats();
+      }).finally(() => { state.newChat = null; });
+      await state.newChat;
     }
     const chatId = state.chat.id;
     $("empty").classList.add("hidden");
     addMessage("user", text);
+    const waits = state.line.length > 0;
     const pend = document.createElement("div");
     pend.className = "msg assistant";
-    pend.innerHTML = `<div class="reactor spin pulse"></div><div class="body"><div class="name">JARVIS</div><div class="thinking"><span class="dots"><span></span><span></span><span></span></span><span class="label">Мисли…</span><button type="button" class="live-link" data-live>на живо</button></div><div class="steps"></div></div>`;
+    pend.innerHTML = `<div class="reactor spin pulse"></div><div class="body"><div class="name">JARVIS</div><div class="thinking"><span class="dots"><span></span><span></span><span></span></span><span class="label">${waits ? "Ще го направя, щом свърша предишното…" : "Мисли…"}</span><button type="button" class="live-link" data-live>на живо</button></div><div class="steps"></div></div>`;
     $("messages").appendChild(pend);
-    state.pending = { chat: chatId, el: pend, steps: [] };
+    mine = { chat: chatId, el: pend, steps: [] };
+    state.line.push(mine);
     scrollDown(true);
     let data;
     try { data = await askJarvis(chatId, { text }); }
     catch (err) { data = { answer: err.message, error: true }; }
-    pend.remove(); state.pending = null;
+    pend.remove();
+    state.line = state.line.filter((p) => p !== mine);  // the next one in line gets the progress now
     if (state.chat && state.chat.id === chatId) {
       addMessage("assistant", data.answer, { error: data.error });
       scrollDown(true);
@@ -1033,7 +1045,8 @@ async function send() {
   } catch (err) {
     toast(err.message, "Грешка", "err");
   } finally {
-    state.busy = false; $("send").disabled = false; input.focus();
+    if (mine) state.line = state.line.filter((p) => p !== mine);
+    input.focus();
   }
 }
 

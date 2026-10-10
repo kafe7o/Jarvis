@@ -123,3 +123,43 @@ def test_event_ids_keep_growing_after_a_restart(settings, ctx, registry):
     after = EventLog()  # a new process
     assert after.add("notify", text="след рестарта") > seen  # an open window that saw ``seen`` still gets it
     assert [e["text"] for e in after.after(seen, wait=0)] == ["след рестарта"]
+
+
+def test_tasks_are_done_one_after_another_and_stop_is_heard_at_once(settings, ctx, registry):
+    from jarvis.brain import STOPPED
+    from jarvis.tools import Tool
+
+    inside, release = threading.Event(), threading.Event()
+    registry.add(Tool("slow_job", "A long piece of work.", lambda: (inside.set(), release.wait(10)) and "свърших",
+                      {"type": "object", "properties": {}}))
+    hub, _port = make_hub(settings, ctx, registry, [
+        response(tool_block("slow_job", {}), stop="tool_use"), response(text_block("Първото е готово.")),
+        response(text_block("Второто е готово.")),
+    ])
+    client = ctx.jarvis.client
+    said = []
+    first = threading.Thread(target=lambda: said.append(hub.ask("направи първото")))
+    first.start()
+    assert inside.wait(10)
+    second = threading.Thread(target=lambda: said.append(hub.ask("направи второто")))
+    second.start()
+    time.sleep(0.3)
+    assert len(client.requests) == 1  # the second waits: it does not start beside the first
+    release.set()
+    first.join(10), second.join(10)
+    assert said == ["Първото е готово.", "Второто е готово."]  # in the order they were asked
+
+    inside.clear(), release.clear()
+    client.responses[:] = [response(tool_block("slow_job", {}), stop="tool_use"), response(text_block("Не трябва."))]
+    said.clear()
+    first = threading.Thread(target=lambda: said.append(hub.ask("направи трето")))
+    first.start()
+    assert inside.wait(10)
+    second = threading.Thread(target=lambda: said.append(hub.ask("и четвърто")))
+    second.start()
+    time.sleep(0.3)
+    assert hub.ask("спри всичко") == STOPPED  # heard at once, while the third is still working
+    release.set()
+    first.join(10), second.join(10)
+    assert sorted(said) == sorted([STOPPED, "Не го почнах: каза ми да спра."])
+    assert len(client.requests) == 4  # the third stopped at its next step; the fourth never started

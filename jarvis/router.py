@@ -157,6 +157,8 @@ SMALL_TALK = rx(r"^(?:благодаря|мерси|сенкс|thanks?|thank you
                 r"добър ден|добър вечер|лека нощ|чао|до скоро|ок|окей|ok|okay|добре|ясно|разбрах|супер|страхотно|"
                 r"браво|евала|да|не|аха|хаха|нищо|няма нужда|забрави|остави)(?:\s+(?:ти|ви|много|бе|де|брат|"
                 r"джарвис|jarvis|сър))*$")
+STOP_WORK = rx(r"^(?:спри|стоп|спирай|престани|прекрати|откажи|cancel)(?: (?:всичко|всички|това|го|ги|задачата|задачите|"
+               r"работата|да работиш|с всичко|с това|се|веднага|сега|моментално|незабавно))*$")
 THINK_HARDER = rx(r"помисли (?:добре|задълбочено|сериозно|внимателно)|задълбочено|в детайли|подробен анализ|"
                   r"think hard|ultrathink")
 
@@ -440,6 +442,12 @@ def wants_action(text: str) -> bool:
     if not said or SMALL_TALK.match(said):
         return False
     return not (QUESTION.match(said) and not NEEDS_TOOLS.search(said))
+
+
+def stops_work(text: str) -> bool:
+    """"спри", "спри всичко", "stop": end the work in progress and drop what waits after it (heard at once, even
+    while a task runs). "спри музиката" and the like are not this (they pause the music)."""
+    return bool(STOP_WORK.match(clean(text)))
 
 
 def think_harder(text: str) -> bool:
