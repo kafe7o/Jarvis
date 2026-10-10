@@ -277,6 +277,22 @@ def test_update_installs_once_and_remembers_the_version(tmp_path, monkeypatch):
     assert updater.newer(root) is None  # nothing new until GitHub has another commit
 
 
+def test_update_waits_until_the_restarted_app_answers(monkeypatch, capsys):
+    """Else a `jarvis app` typed right after it starts a second Jarvis beside the restarting one."""
+    import io
+    import time
+
+    from jarvis import updater
+
+    monkeypatch.setenv("JARVIS_WEB_TOKEN", "t")
+    asked, answers = [], iter([False, False, True])
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda req, timeout: asked.append(req) or io.BytesIO(b"{}"))
+    monkeypatch.setattr(updater, "answering", lambda port: next(answers))
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    updater.restart_running_app()
+    assert asked[0].full_url.endswith("/api/restart") and "работи с новата версия" in capsys.readouterr().out
+
+
 def test_bulgarian_voice_reads_every_answer_and_markdown_is_cleaned():
     from jarvis.tts import ENGLISH_VOICE, clean, pick_voice
 

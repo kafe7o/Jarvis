@@ -642,10 +642,13 @@ class Hub:
                 setattr(current, f.name, getattr(after, f.name))
 
     def restart(self) -> None:
+        """A new Jarvis starts in the background (without a console window) and this one ends."""
         args = [sys.executable, "-m", "jarvis", *sys.argv[1:]]
         if "app" in args and "--no-window" not in args:
             args.append("--no-window")
         flags = 0x08000000 if sys.platform.startswith("win") else 0  # CREATE_NO_WINDOW
+        log.warning("restarting in the background")
+        print("Jarvis се рестартира и продължава във фона, без този прозорец. Отваряш го с: jarvis app", flush=True)
 
         def go():
             time.sleep(0.5)

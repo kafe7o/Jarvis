@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import logging
+import logging.handlers
 import os
 import subprocess
 import sys
 from contextlib import contextmanager
 
 from .config import settings
+
+CRASH: dict = {}  # the file Python writes to if it crashes without a console (kept open while Jarvis runs)
 
 
 def check() -> None:
@@ -151,16 +155,6 @@ def open_window(url: str) -> None:
     webbrowser.open(url)
 
 
-def hub_running(port: int) -> bool:
-    import urllib.request
-
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/me", timeout=2) as resp:
-            return "needs_setup" in resp.read().decode()
-    except Exception:
-        return False
-
-
 def app(window: bool = True) -> None:
     """The Jarvis app: the hub on this computer plus a window for it. Running it again only opens
     another window."""
@@ -168,6 +162,7 @@ def app(window: bool = True) -> None:
     import threading
 
     from .setup_wizard import env_path, read_env, write_env
+    from .updater import answering
 
     token = os.environ.get("JARVIS_WEB_TOKEN")
     if not token:  # nodes, Siri and scripts use it; the app itself uses account logins
@@ -179,7 +174,7 @@ def app(window: bool = True) -> None:
         os.environ["JARVIS_WEB_TOKEN"] = token
     port = int(os.environ.get("JARVIS_WEB_PORT", "8770"))
     url = f"http://localhost:{port}/"
-    if hub_running(port):
+    if answering(port):
         if window:
             open_window(url)
         return
@@ -238,11 +233,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
     level = logging.INFO if args.verbose else logging.WARNING
-    if sys.stderr is None:  # pythonw (desktop icon, autostart): no console, log to a file
-        settings.home.mkdir(parents=True, exist_ok=True)
+    settings.home.mkdir(parents=True, exist_ok=True)
+    if sys.stderr is None:  # pythonw (desktop icon, autostart, a restart): no console, log to a file
         logging.basicConfig(filename=settings.home / "jarvis.log", level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
+        CRASH["file"] = open(settings.home / "crash.log", "a", encoding="utf-8")
+        faulthandler.enable(CRASH["file"])  # if Python itself crashes, where it was
     else:
         logging.basicConfig(level=level, format="%(asctime)s %(name)s: %(message)s")
+        faulthandler.enable()
+        if args.mode in ("app", "serve", "daemon", "web"):  # the warnings also stay in a file, to read after a stop
+            kept = logging.handlers.RotatingFileHandler(settings.home / "jarvis.log", maxBytes=1_000_000, backupCount=1,
+                                                        encoding="utf-8")
+            kept.setLevel(logging.WARNING)
+            kept.setFormatter(logging.Formatter("%(asctime)s %(name)s: %(message)s"))
+            logging.getLogger().addHandler(kept)
 
     if args.mode == "app":
         app(window=not args.no_window)

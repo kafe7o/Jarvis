@@ -48,8 +48,10 @@ def settings(tmp_path, monkeypatch):
     for var in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "STRIPE_API_KEY", "JARVIS_PUBLIC_URL",
                 "GROQ_API_KEY", "JARVIS_GROQ_MODEL", "GEMINI_API_KEY", "JARVIS_MODEL",
                 "NVIDIA_API_KEY", "JARVIS_NVIDIA_MODEL", "OPENROUTER_API_KEY", "JARVIS_OPENROUTER_MODEL", "JARVIS_AUTO_REPLY", "JARVIS_REPLY_STYLE", "JARVIS_SILENCE"]:
-        monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv(var, "")  # remembered first, so what a test sets is undone after it
+        monkeypatch.delenv(var)
     monkeypatch.setenv("JARVIS_PHONE_NEURAL", "0")
+    monkeypatch.chdir(tmp_path)  # .env is written here (e.g. when Jarvis keeps a free brain), not in the project
     s = Settings()
     s.home = tmp_path / "home"
     s.allowed_roots = [str(tmp_path)]

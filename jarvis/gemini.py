@@ -96,6 +96,18 @@ def _images_of(content) -> list[tuple[str, bytes]]:
     return out
 
 
+KEEP_FULL = 4  # the latest rounds of tool results go in full
+OLD_RESULT = 1500  # characters kept of an older tool result; its pictures are left out
+
+
+def shorten(result: str, pictures: int) -> str:
+    """An older tool result, cut to save room: every request sends the whole task again, and the free tier
+    counts every token of it (250,000 a minute)."""
+    if len(result) > OLD_RESULT:
+        result = result[:OLD_RESULT] + f" … ({len(result) - OLD_RESULT} more characters left out to save room)"
+    return result + (" (its picture is left out to save room: look again if it is needed)" if pictures else "")
+
+
 def to_contents(messages: list, model: str | None = None) -> list:
     """Claude-format messages -> Gemini contents. Gemini's own replies go back as they came, unless
     another model wrote them (signed thoughts only work with the model that made them): then their tool
@@ -104,8 +116,11 @@ def to_contents(messages: list, model: str | None = None) -> list:
     from google.genai import types
 
     calls: dict[str, tuple[str, str | None, dict]] = {}  # tool_use id -> (name, Gemini's call id, input)
+    rounds = [i for i, m in enumerate(messages) if m["role"] == "user" and not isinstance(m["content"], str)
+              and any(_get(b, "type") == "tool_result" for b in m["content"])]
+    old = set(rounds[:-KEEP_FULL])
     out = []
-    for message in messages:
+    for index, message in enumerate(messages):
         content = message["content"]
         if message["role"] == "assistant":
             raw = getattr(content, "raw", None)
@@ -140,15 +155,17 @@ def to_contents(messages: list, model: str | None = None) -> list:
                     parts.append(types.Part.from_bytes(data=data, mime_type=mime))
             elif kind == "tool_result":
                 name, call_id, args = calls.get(_get(b, "tool_use_id"), ("tool", None, {}))
-                result = _text_of(_get(b, "content"))
+                result, images = _text_of(_get(b, "content")), _images_of(_get(b, "content"))
+                if index in old:
+                    result, images = shorten(result, len(images)), []
                 if call_id == "":  # a call another model made: a note of what was done, pictures included
                     done = "failed" if _get(b, "is_error") else "returned"
                     parts.append(types.Part(text=f"(Step already done in this task: the tool {name} with "
                                                  f"{json.dumps(args, ensure_ascii=False)} {done}: {result[:4000]})"))
-                    parts.extend(types.Part.from_bytes(data=d, mime_type=m) for m, d in _images_of(_get(b, "content")))
+                    parts.extend(types.Part.from_bytes(data=d, mime_type=m) for m, d in images)
                     continue
                 pictures = [types.FunctionResponsePart(inline_data=types.FunctionResponseBlob(mime_type=m, data=d))
-                            for m, d in _images_of(_get(b, "content"))]
+                            for m, d in images]
                 parts.append(types.Part(function_response=types.FunctionResponse(
                     id=call_id, name=name, response={"error" if _get(b, "is_error") else "result": result},
                     parts=pictures or None)))
@@ -236,6 +253,10 @@ class UsedUp(RuntimeError):
 class Busy(RuntimeError):
     """Gemini's free models are overloaded or too slow right now (the next free brain answers)."""
 
+    def __init__(self, text: str, retry_in: float = 0.0):
+        super().__init__(text)
+        self.retry_in = retry_in  # seconds until one of them may be asked again (0: not known)
+
 
 def timed_out(exc: Exception) -> bool:
     return "timeout" in type(exc).__name__.lower() or "timed out" in str(exc).lower()
@@ -285,13 +306,16 @@ class GeminiBrain:
                         break
                     if exc.code not in (429, 500, 502, 503, 504):
                         raise
-                    if exc.code == 504 or attempt == 2:  # too slow (DEADLINE_EXCEEDED) or still busy: the next one
-                        log.warning("Gemini %s on %s, trying the next model: %s", exc.code, current, exc)
-                        self.resting[current], busy = time.time() + 120, exc
+                    pause = retry_after(exc, 5 * 2 ** attempt)
+                    # Too slow (DEADLINE_EXCEEDED), still busy, or this minute's share is used up (e.g. 250,000
+                    # tokens of input a minute) with a long wait: the next free model answers now instead.
+                    if exc.code == 504 or attempt == 2 or (exc.code == 429 and pause > 10):
+                        log.warning("Gemini %s on %s, trying the next model: %s", exc.code, current, brief(exc))
+                        self.resting[current], busy = time.time() + (pause if exc.code == 429 else 120), exc
                         break
-                    # A few requests a minute are allowed: wait as long as Google says, then try again.
-                    log.warning("Gemini %s, retrying: %s", exc.code, exc)
-                    self._wait(retry_after(exc, 5 * 2 ** attempt))
+                    # A short wait (a few requests a minute are allowed): as long as Google says, then again.
+                    log.warning("Gemini %s, retrying in %.0f s: %s", exc.code, pause, brief(exc))
+                    self._wait(pause)
                     continue
                 except Exception as exc:
                     if not timed_out(exc):
@@ -310,17 +334,31 @@ class GeminiBrain:
         if empty is not None:
             empty.stop_reason = "end_turn"
             return empty
-        if busy is not None:
-            raise Busy(f"Gemini is overloaded or too slow right now: {busy}")
+        now = time.time()
+        resting = [self.resting[m] - now for m in self.candidates(model, bool(tools))
+                   if self.spent.get(m, 0) <= now and self.resting.get(m, 0) > now]
+        if busy is not None or resting:
+            raise Busy(f"Gemini is overloaded or too slow right now: {brief(busy) if busy else 'every model is resting'}",
+                       retry_in=min(resting, default=0.0))
         raise UsedUp("The free Gemini requests for today are used up on every free model.")
 
-    def models(self, model: str, agent: bool = False) -> list[str]:
-        """The model to use and the free ones to fall back to, minus those used up for today or busy for a moment.
-        Real work (``agent``: a request with tools) on the default model starts on AGENT_MODEL."""
-        now = time.time()
+    def candidates(self, model: str, agent: bool = False) -> list[str]:
+        """The model to use and the free ones to fall back to. Real work (``agent``: a request with tools) on the
+        default model starts on AGENT_MODEL."""
         first = [AGENT_MODEL, model] if agent and model == DEFAULT_MODEL else [model]
-        return [m for m in dict.fromkeys([*first, *FREE_MODELS])
-                if self.spent.get(m, 0) <= now and self.resting.get(m, 0) <= now]
+        return list(dict.fromkeys([*first, *FREE_MODELS]))
+
+    def models(self, model: str, agent: bool = False) -> list[str]:
+        """The candidates minus those used up for today or resting for a moment."""
+        now = time.time()
+        return [m for m in self.candidates(model, agent) if self.spent.get(m, 0) <= now and self.resting.get(m, 0) <= now]
+
+
+def brief(exc) -> str:
+    """Google's error in one line (which limit it hit), not the whole JSON with links."""
+    text = str(exc)
+    found = re.search(r"'quotaId': '([^']+)'", text) or re.search(r"'message': '([^'\\]*)", text)
+    return f"{getattr(exc, 'code', '')} {found[1]}".strip() if found else text[:300]
 
 
 def daily_limit(exc) -> bool:

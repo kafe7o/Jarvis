@@ -79,6 +79,9 @@ def test_out_of_credit_claude_hands_over_to_gemini(settings, ctx, registry, monk
     jarvis, fake = make(settings, ctx, registry, [reply(types.Part(text="На линия съм, сър."))], claude=claude)
     assert jarvis.ask("здравей") == "На линия съм, сър."
     assert settings.model == gemini.DEFAULT_MODEL and fake.requests[0]["model"] == gemini.AGENT_MODEL  # real work: Flash
+    from jarvis.setup_wizard import env_path, read_env
+
+    assert read_env(env_path())["JARVIS_MODEL"] == gemini.DEFAULT_MODEL  # the next start does not try Claude again
 
 
 def test_without_a_gemini_key_the_credit_error_is_explained(settings, ctx, registry, monkeypatch):
@@ -163,15 +166,57 @@ def test_when_a_free_model_is_used_up_for_the_day_the_next_one_answers(settings,
     assert fake.requests[-1]["model"] == gemini.DEFAULT_MODEL  # the used-up model is skipped until tomorrow
 
 
-def test_minute_limit_waits_as_long_as_google_says(settings, ctx, registry):
+def minute(delay):
+    """This minute's share is used up, e.g. 250,000 tokens of input (each step sends the whole task again)."""
+    return errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "per minute", "details": [
+        {"quotaId": "GenerateContentInputTokensPerModelPerMinute-FreeTier"}, {"retryDelay": delay}]}})
+
+
+def test_a_minute_limit_hands_over_at_once_and_only_a_short_one_is_waited(settings, ctx, registry):
+    import time
+
     settings.model = gemini.DEFAULT_MODEL
     waits = []
-    busy = errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "per minute",
-                                              "details": [{"retryDelay": "12s"}]}})
-    fake = FakeGemini([busy, reply(types.Part(text="Готово."))])
+    fake = FakeGemini([minute("48s"), minute("3s"), reply(types.Part(text="Готово."))])
     jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]),
                     gemini_brain=gemini.GeminiBrain(fake, wait=waits.append))
-    assert jarvis.ask("здравей") == "Готово." and waits == [12.0]
+    assert jarvis.ask("здравей") == "Готово."
+    assert [r["model"] for r in fake.requests] == [gemini.AGENT_MODEL] + [gemini.DEFAULT_MODEL] * 2
+    assert waits == [3.0]  # not 48 seconds twice: Flash-Lite answered meanwhile
+    assert 40 < jarvis.gemini.resting[gemini.AGENT_MODEL] - time.time() <= 48 and not jarvis.gemini.spent
+
+
+def test_when_every_model_is_at_its_minute_limit_jarvis_waits_for_the_first_one(settings, ctx, registry):
+    settings.model = gemini.DEFAULT_MODEL
+    models = gemini.GeminiBrain().candidates(gemini.DEFAULT_MODEL, agent=True)
+    fake = FakeGemini([minute("30s")] * len(models) + [reply(types.Part(text="Тук съм."))])
+    brain = gemini.GeminiBrain(fake, wait=lambda s: None)
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]), gemini_brain=brain)
+    waited = []
+    jarvis.wait = lambda s: (waited.append(s), brain.resting.clear())  # the minute passes
+    assert jarvis.ask("здравей") == "Тук съм."  # no other free brain is set up: no error, a short wait
+    assert len(waited) == 1 and 25 < waited[0] <= 31
+    assert [r["model"] for r in fake.requests] == [*models, gemini.AGENT_MODEL]
+
+
+def test_older_tool_results_and_screenshots_are_cut_to_save_room():
+    import base64
+
+    picture = {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                           "data": base64.b64encode(b"png").decode()}}
+    messages = [{"role": "user", "content": "направи го"}]
+    for n in range(6):
+        messages.append({"role": "assistant", "content": [
+            {"type": "tool_use", "id": f"t{n}", "name": "look_at_screen", "input": {}}]})
+        messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{n}",
+                                                      "content": [{"type": "text", "text": "x" * 5000}, picture]}]})
+    contents = gemini.to_contents(messages, gemini.DEFAULT_MODEL)
+    notes = [p.text for c in contents if c.role == "user" for p in c.parts if p.text and "look_at_screen" in p.text]
+    assert len(notes) == 6
+    assert all("left out to save room" in n and len(n) < 2000 for n in notes[:2])  # the two oldest steps
+    assert all("x" * 4000 in n and "left out" not in n for n in notes[2:])  # the last four in full
+    pictures = [p for c in contents for p in c.parts if p.inline_data]
+    assert len(pictures) == 4  # only the latest screenshots go along
 
 
 def test_all_free_models_used_up_says_when_they_come_back(settings, ctx, registry):

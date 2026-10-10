@@ -100,10 +100,21 @@ def update(root: Path) -> None:
     print("Готово.")
 
 
-def restart_running_app() -> None:
-    """If the Jarvis app is running in the background, restart it so the new version loads."""
+def answering(port: int | str) -> bool:
+    """True when the Jarvis app answers on this computer's ``port``."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/me", timeout=2) as resp:
+            return "needs_setup" in resp.read().decode()
+    except Exception:
+        return False
+
+
+def restart_running_app(wait: float = 120) -> None:
+    """If the Jarvis app is running in the background, restart it so the new version loads, and wait until it
+    answers again: a `jarvis app` typed meanwhile would otherwise start a second Jarvis beside it."""
     import json
     import os
+    import time
 
     port = os.environ.get("JARVIS_WEB_PORT", "8770")
     token = os.environ.get("JARVIS_WEB_TOKEN", "")
@@ -113,6 +124,15 @@ def restart_running_app() -> None:
                                  headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=5):
-            print("Рестартирах Jarvis с новата версия.")
+            pass
     except Exception:
-        pass
+        return
+    print("Рестартирам Jarvis с новата версия…")
+    time.sleep(2)  # the old one stops first
+    end = time.time() + wait
+    while time.time() < end:
+        if answering(port):
+            print("Jarvis работи с новата версия (във фона). Прозорецът му: jarvis app")
+            return
+        time.sleep(1)
+    print("Jarvis още не отговаря. Пусни го с: jarvis app")

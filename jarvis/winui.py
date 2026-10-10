@@ -183,26 +183,39 @@ def elements(window, seconds: float = 6.0, max_nodes: int = 6000) -> list[Elemen
     return items
 
 
-def read(title: str | None = None) -> str:
+def _session(work):
+    """Run ``work(auto)`` with UI Automation on in this thread. ``work`` returns plain values only, so every
+    element it touched is let go while UI Automation is still on (one let go after it is off can crash Python)."""
     auto = _uia()
     with auto.UIAutomationInitializerInThread():
+        try:
+            return work(auto)
+        except Exception as exc:
+            failed = exc.with_traceback(None)  # its traceback would keep the elements until later
+    raise failed
+
+
+def read(title: str | None = None) -> str:
+    def work(auto):
         window = find_window(auto, title, _last["handle"])
         bring_to_front(auto, window)
         items = elements(window)
         if len(controls(items)) < 3:  # a browser turns its page on for readers on first ask
             time.sleep(0.8)
             items = elements(window)
-        name, handle = window.Name, window.NativeWindowHandle
-    _last.update(handle=handle, items=[Element(e.kind, e.name, e.rect) for e in controls(items)])
+        return window.Name, window.NativeWindowHandle, [Element(e.kind, e.name, e.rect) for e in items]
+
+    name, handle, items = _session(work)
+    _last.update(handle=handle, items=controls(items))
     return render(name, items)
 
 
 def click(target: str, title: str | None = None, text: str | None = None, enter: bool = False) -> str:
     import pyautogui
 
-    auto = _uia()
     target = str(target).strip()
-    with auto.UIAutomationInitializerInThread():
+
+    def work(auto):
         window = find_window(auto, title, _last["handle"])
         bring_to_front(auto, window)
         if target.isdigit():
@@ -216,8 +229,9 @@ def click(target: str, title: str | None = None, text: str | None = None, enter:
             if element is None:
                 names = ", ".join(f'"{e.name}"' for e in items if e.name and e.kind != "text")[:600]
                 raise LookupError(f'Nothing called "{target}" in "{window.Name}". It has: {names}')
-        name = window.Name
-        _last["handle"] = window.NativeWindowHandle
+        return window.Name, window.NativeWindowHandle, Element(element.kind, element.name, element.rect)
+
+    name, _last["handle"], element = _session(work)
     pyautogui.click(*element.center)
     if text:
         time.sleep(0.2)

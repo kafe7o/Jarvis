@@ -7,7 +7,9 @@ import contextvars
 import itertools
 import json
 import logging
+import os
 import re
+import time
 from datetime import datetime
 from typing import Callable
 
@@ -132,6 +134,20 @@ def brain_kind(model: str) -> str:
     return "gemini"
 
 
+def keep_brain(model: str) -> None:
+    """Save the brain as JARVIS_MODEL in .env, so the next start begins on it (and does not try Claude first)."""
+    from .setup_wizard import env_path, read_env, write_env
+
+    os.environ["JARVIS_MODEL"] = model
+    try:
+        path = env_path()
+        values = read_env(path)
+        values["JARVIS_MODEL"] = model
+        write_env(path, values)
+    except OSError as exc:
+        log.warning("could not save the brain in .env: %s", exc)
+
+
 def free_brain() -> str | None:
     """The first free brain that is set up: Gemini, Groq, NVIDIA, OpenRouter (None when there is none)."""
     if gemini.available():
@@ -180,6 +196,7 @@ class Jarvis:
         self.free_apis = {key: (free_brains or {}).get(key) or freeapi.FreeBrain(key) for key in freeapi.PROVIDERS}
         self.on_progress = on_progress or (lambda _msg: None)
         self._step_ids = itertools.count(1)
+        self.wait = time.sleep
 
     def system_prompt(self, user=None) -> str:
         return self._base_prompt(user) + self._clock()
@@ -263,9 +280,11 @@ class Jarvis:
             takeover = free_brain()
             if takeover is None or not claude_unusable(exc):
                 raise
-            # No credit or no key for Claude: a free brain (Gemini, Groq, NVIDIA, OpenRouter) takes over instead.
-            log.warning("Claude is unavailable, switching to %s: %s", takeover, exc)
+            # No credit or no key for Claude: a free brain (Gemini, Groq, NVIDIA, OpenRouter) takes over, for good
+            # (Settings > JARVIS_MODEL brings Claude back).
+            log.warning("Claude is unavailable, switching to %s for good: %s", takeover, exc)
             s.model = takeover
+            keep_brain(takeover)
             return self._request(messages, user, system, allowed, model=s.model, **again)
 
     def free_instead(self) -> str | None:
@@ -281,27 +300,34 @@ class Jarvis:
     def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
         """The free brains in ``order``: the first one asked for, then the others that are set up, each taking
         over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day)."""
-        used_up, asked = None, set()
-        for i, model in enumerate(order):
-            kind = brain_kind(model)
-            ready = (groq.available() if kind == "groq" else local.available() if kind == "local"
-                     else freeapi.available(model) if kind in self.free_apis else gemini.available())
-            if kind in asked or (i and not ready):
-                continue
-            asked.add(kind)
-            if kind == "local":
-                return self._ask_local(model, system, messages, tools, max_tokens, effort)
-            brain = self.groq if kind == "groq" else self.free_apis.get(kind) or self.gemini
-            try:
-                answer = brain.create(model=model, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
-                                      effort=effort)
-            except (groq.UsedUp, gemini.UsedUp, gemini.Busy, freeapi.UsedUp) as exc:
-                log.warning("%s; the next free brain answers", exc)
-                used_up = exc
-                continue
-            usage.record(self.store, answer, answer.model or model)
-            return answer
-        raise used_up
+        for again in (False, True):
+            used_up, asked, pauses = None, set(), []
+            for i, model in enumerate(order):
+                kind = brain_kind(model)
+                ready = (groq.available() if kind == "groq" else local.available() if kind == "local"
+                         else freeapi.available(model) if kind in self.free_apis else gemini.available())
+                if kind in asked or (i and not ready):
+                    continue
+                asked.add(kind)
+                if kind == "local":
+                    return self._ask_local(model, system, messages, tools, max_tokens, effort)
+                brain = self.groq if kind == "groq" else self.free_apis.get(kind) or self.gemini
+                try:
+                    answer = brain.create(model=model, system=system, messages=messages, tools=tools,
+                                          max_tokens=max_tokens, effort=effort)
+                except (groq.UsedUp, gemini.UsedUp, gemini.Busy, freeapi.UsedUp) as exc:
+                    log.warning("%s; the next free brain answers", exc)
+                    used_up = exc
+                    pauses.append(getattr(exc, "retry_in", 0))
+                    continue
+                usage.record(self.store, answer, answer.model or model)
+                return answer
+            soonest = min([p for p in pauses if p > 0], default=0)
+            if again or not 0 < soonest <= 60:
+                raise used_up
+            # Nobody can answer this minute (Gemini's share for the minute is used up): wait for it, then again.
+            log.warning("every free brain is busy; waiting %.0f s", soonest)
+            self.wait(soonest + 1)
 
     def _ask_local(self, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
         name = local.pick(model.partition(":")[2] or self.settings.local_model)
