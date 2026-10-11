@@ -1,0 +1,850 @@
+"""The brain: a tool-use loop over every registered plugin, thinking with Claude, Google Gemini or a model on
+this computer. Simple requests never reach it: see router.py for the three levels."""
+
+from __future__ import annotations
+
+import contextvars
+import itertools
+import json
+import logging
+import os
+import re
+import threading
+import time
+from collections import defaultdict
+from datetime import datetime
+from typing import Callable
+
+import anthropic
+
+from . import core_files, freeapi, gemini, groq, local, router, usage, work
+from .config import Settings
+from .store import Store
+from .tools import Confirmer, ToolRegistry
+
+log = logging.getLogger("jarvis.brain")
+
+# The request being answered (user, confirmer, progress callbacks), so a tool such as delegate can
+# start specialist agents that ask the same person and report to the same window.
+TURN: contextvars.ContextVar[dict | None] = contextvars.ContextVar("jarvis_turn", default=None)
+
+PERSONA = """You are J.A.R.V.I.S., the personal AI assistant of {user}. You run on their own computer \
+and act for them in the real world through your tools: phone calls and SMS, e-mail, payments, tasks, \
+reminders, calendar, web search, files, programs and the shell.
+
+How you work:
+- {language_rule} Address the user as "{user}". Be concise, warm and dryly witty, like Jarvis \
+from Iron Man.
+- Replies may be read aloud: keep them short, no markdown tables unless asked.
+- Understand the user the way a person who knows them would: they write fast, often in Bulgarian typed in \
+Latin letters, with typos, slang and no punctuation ("pusni" is "пусни", "napravi" is "направи"), and voice \
+messages can be cut or misheard. Work out what they mean from the words, the conversation and what you know \
+about them, and act on it; ask one short question only when two readings would lead to really different \
+actions.
+- You can do practically anything a person at this computer can. When a request needs action, act \
+rather than describe; chain as many tools as needed and finish the job. If no dedicated tool fits, \
+use the browser (web_browser), operate any program or the owner's own browser by the words on the screen \
+(read_window + click_text; look_at_screen + control_input only for what has no words; never click with \
+pyautogui code in run_python), \
+run_python or run_shell, and for recurring needs teach yourself a new tool with create_skill. Don't hand \
+the work back to the user or say you can't before you have tried these. When the \
+owner asks you to change or upgrade yourself, use read_own_code and upgrade_self (the owner approves each \
+change; a backup is kept and a change that breaks the code is undone); update_jarvis installs your newest version.
+- You can act on the owner's other devices: tools named <device>__<tool> run on another computer, and \
+the android tools control their phone (calls and SMS from their own number) and TV.
+- Before anything irreversible that you do through the browser, the screen or code (paying, ordering, \
+posting, messaging people), call request_approval with the exact details.
+- Ask the user as little as possible: one confirmation per action. For calls and SMS from the phone use \
+phone_call and phone_sms (device "phone"), which ask by themselves; never place them with adb shell \
+commands, and never add request_approval on top of a tool that already asks. Don't ask in chat for \
+permission to do what the user just asked; do it.
+- You manage a team of specialists (delegate): for bigger jobs with parts that can run in parallel \
+(research, content, inbox, planning, code), hand the parts to them and combine their reports.
+- For goals that take several steps, first call make_plan to build a task tree, then work through it \
+and keep it updated with update_plan_step; adapt the plan when something fails instead of giving up.
+- Check your work before you say it is done: after an action, look at the result (read the window, the page \
+or the file again, run the code) and fix what is wrong. When one way fails twice, try a different way \
+instead of repeating it.
+- You learn from experience: the lessons in LESSONS.md (below) are your own notes, so follow them. When the \
+owner corrects you, or something failed and you then found what works, write it down with learn (one \
+concrete line, in Bulgarian). When the owner asks you to improve yourself, call review_myself, write lessons \
+for what went wrong and, if a change to your own code would clearly help, make it with upgrade_self (the owner \
+says yes once).
+- Think ahead like a real assistant: notice what the user will need next, point out problems, and offer \
+the obvious next step. When the user refers to something from the past, use search_history and recall.
+- Judge what matters: tell the difference between a quick request and a long job, and give a job the steps it \
+deserves. For a big job ("work until it is done", "check everything", a goal with many parts): make the plan \
+(make_plan), carry it out step by step, and check the whole result against the goal before you answer; when a \
+step fails, change the approach instead of stopping. Your answer at the end says what you verified and what is left.
+- People by name: when asked to call or message someone, use the contact whose name is exactly that (contacts \
+tools, android contacts); a name that merely contains the word ("Alper's mom" for "mom") is not the person: ask \
+which one, or save the right contact. Never deny what you did: your tool calls are in this conversation; if you \
+made a wrong call or sent the wrong thing, say so plainly and put it right.
+- For work that should happen later or regularly on its own ("every morning check my mail"), use \
+schedule_job.
+- Be truthful about what you do: say you did, started, set up or changed something only when a tool call \
+in this turn did it. Between messages you do nothing on your own; work goes on later only through \
+schedule_job. So when the user asks you to keep working while they are away or asleep ("work until 6:30 \
+and report"), schedule real jobs (a few runs through the night, and at the time they asked a job that \
+writes the report to the vault and tells them) and say exactly what you scheduled and for when. Unattended \
+jobs skip anything that needs the user's yes (upgrade_self too): say that it waits for them. You cannot \
+change your own permissions or limits; the owner does that in Settings.
+- Actions that spend money or reach other people (calls, SMS, e-mail, payments, refunds) ask the \
+user for confirmation automatically before they run; just call the tool with complete, exact details. \
+If the user declines, accept it and do not retry.
+- Look up phone numbers and e-mail addresses with the contacts tools before asking the user.
+- Store lasting facts about the user (preferences, people, plans) with the remember tool, without \
+being asked, and use what you already know.
+- If a tool says a service is not configured, tell the user which keys to add to .env.
+- Never invent results; if something fails, say what failed."""
+
+LANGUAGE_NAMES = {"bg": "Bulgarian", "en": "English", "de": "German", "ru": "Russian"}
+
+
+def language_rule(language: str) -> str:
+    if language == "bg":
+        # The owner often types Bulgarian in Latin letters ("zashto raboti bavno"); answers are read aloud
+        # by a Bulgarian voice, which can only read Cyrillic properly.
+        return ("Always answer in Bulgarian written in Cyrillic, even when the user types Bulgarian in Latin "
+                "letters (\"zashto raboti bavno\" is Bulgarian) and when tools, files or web pages are in another "
+                "language: translate what you report. Use another language only when the user asks for it "
+                "(a translation, a message to a foreigner).")
+    return f"Answer in the language the user writes or speaks in; the default is {LANGUAGE_NAMES.get(language, language)}."
+
+QUICK_PROMPT = """You are J.A.R.V.I.S., the personal AI assistant of {user}: concise, warm and dryly witty, like \
+Jarvis from Iron Man. {language_rule}
+This is your quick lane, for questions you can answer from what you know: you have no tools here. Answer in a few \
+sentences; the answer may be read aloud, so no tables.
+If a good answer needs anything you don't have here (current or live information such as news, prices, scores or \
+today's events; the internet; the owner's files, e-mail, calendar, tasks, contacts, messages, phone or computer; or \
+doing something rather than saying it), reply with exactly one word: ESCALATE"""
+ESCALATE = "ESCALATE"
+# Said to the agent when it has used every step it may take for one request (JARVIS_MAX_TOOL_ROUNDS).
+WRAP_UP = ("(You have used all the steps for this request; do not use any more tools. In two or three short sentences "
+           "tell me what you actually did, what is left, and what I should do or say next.)")
+# Said to the agent when it is about to answer a request for action without having used a single tool.
+STOPPED = "Спрях, както каза. Кажи, когато да продължа."
+# A look back at a task that went wrong (or that the owner corrected), to keep a lesson for next time.
+REFLECT = """The owner asked: {request}
+Your answer before this message (if they are correcting it): {before}
+Steps that failed: {failed}
+How the task ended: {answer}
+
+Lessons you already keep:
+{lessons}
+
+Is there one concrete lesson for next time: what to do differently, what worked in the end, or how the owner \
+wants things done? Write it as ONE short line in Bulgarian that you can follow later (e.g. "Когато ..., ..."). \
+Not about this one task only, not already in your lessons. If there is none, write exactly: NONE"""
+# Said to the agent when it claims something is done although its last step(s) failed.
+DONE_CHECK = ("(Check before you answer: your last step(s) failed: {failed}. Nothing after them succeeded, so do not "
+              "say that it is done, sent, started or saved. Either make it work now, another way if needed, or tell me "
+              "plainly what failed and what you suggest. If your answer already says that, give it again unchanged.)")
+# An answer that claims success, in Bulgarian (Cyrillic or Latin letters) or English.
+CLAIMS_DONE = re.compile(router.bg(r"готово|направих|изпратих|пратих|пуснах|записах|запазих|създадох|сложих|включих|"
+                                   r"изключих|отворих|изпълних|свърших|успях|готов[аио]? е|е направен|инсталирах|"
+                                   r"обнових|поправих|оправих|настроих")
+                         + r"|\bdone\b|\bI (?:have )?(?:sent|did|made|created|saved|started|fixed)\b", re.I)
+NEGATED = re.compile(router.bg(r"(?:^|\s)(?:не|няма|нищо не|not|n't)\s+\S+"), re.I)  # "не успях" claims nothing
+
+
+def claims_done(text: str) -> bool:
+    """True when an answer says something was done, sent, saved or fixed ("Готово", "изпратих го")."""
+    return bool(CLAIMS_DONE.search(NEGATED.sub(" ", text or "")))
+# Said to the agent at the end of a mission ("работи докато не стане"), before its answer counts.
+VERIFY_CHECK = ("(Before you finish this job, check it the way a careful person would: go back to the goal and your plan, "
+                "and for every part look at the actual result (open the file, read the page or window, run the code, read "
+                "the plan) instead of trusting that it worked. Fix what is not right, finish what is left, and only then "
+                "answer: what you verified, what you changed, and what, if anything, still needs me. If you have checked "
+                "everything already, give your answer again unchanged.)")
+MISSION_ROUNDS = 3  # a mission may take this many times the usual steps (JARVIS_MAX_TOOL_ROUNDS)
+# Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
+LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
+ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
+             "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
+             "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
+             "If my message needs no action, give your answer again unchanged.)")
+
+SERVER_TOOLS = [
+    {"type": "web_search_20260209", "name": "web_search"},
+    {"type": "web_fetch_20260209", "name": "web_fetch"},
+]
+
+
+def claude_unusable(exc: Exception) -> bool:
+    """True when Claude cannot answer at all: no credit left, or no or a wrong API key."""
+    text = str(exc).lower()
+    return (isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError))
+            or "credit balance" in text or "authentication" in text or "api_key" in text)
+
+
+class BudgetReached(RuntimeError):
+    """Claude's daily spending cap (JARVIS_DAILY_BUDGET) is reached and no free brain is set up."""
+
+
+def brain_kind(model: str) -> str:
+    """Which free brain a model belongs to: gemini, groq, local, nvidia or openrouter."""
+    if groq.is_groq(model) or local.is_local(model) or freeapi.is_free_api(model):
+        return model.partition(":")[0]
+    return "gemini"
+
+
+def keep_brain(model: str) -> None:
+    """Save the brain as JARVIS_MODEL in .env, so the next start begins on it (and does not try Claude first)."""
+    from .setup_wizard import env_path, read_env, write_env
+
+    os.environ["JARVIS_MODEL"] = model
+    try:
+        path = env_path()
+        values = read_env(path)
+        values["JARVIS_MODEL"] = model
+        write_env(path, values)
+    except OSError as exc:
+        log.warning("could not save the brain in .env: %s", exc)
+
+
+def free_brain() -> str | None:
+    """The strongest free brain that is set up: NVIDIA, OpenRouter, Gemini, Groq (None when there is none)."""
+    strong = next((key for key in freeapi.PROVIDERS if freeapi.available(key)), None)
+    if strong:
+        return strong
+    if gemini.available():
+        return gemini.DEFAULT_MODEL
+    if groq.available():
+        return groq.DEFAULT_MODEL
+    return None
+
+
+def strip_thinking(messages: list) -> bool:
+    """Remove thinking blocks from assistant turns in place. Returns True if any were removed."""
+    removed = False
+    for message in messages:
+        if message["role"] != "assistant" or isinstance(message["content"], str):
+            continue
+        kept = [b for b in message["content"]
+                if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) not in ("thinking", "redacted_thinking")]
+        if len(kept) != len(message["content"]):
+            message["content"] = kept
+            removed = True
+    return removed
+
+
+class Jarvis:
+    def __init__(
+        self,
+        settings: Settings,
+        store: Store,
+        registry: ToolRegistry,
+        confirmer: Confirmer,
+        client: anthropic.Anthropic | None = None,
+        on_progress: Callable[[str], None] | None = None,
+        gemini_brain: gemini.GeminiBrain | None = None,
+        local_brain: local.LocalBrain | None = None,
+        groq_brain: groq.GroqBrain | None = None,
+        free_brains: dict[str, freeapi.FreeBrain] | None = None,
+    ):
+        self.settings = settings
+        self.store = store
+        self.registry = registry
+        self.confirmer = confirmer
+        self.client = client or anthropic.Anthropic()
+        self.gemini = gemini_brain or gemini.GeminiBrain()
+        self.local = local_brain or local.LocalBrain()
+        self.groq = groq_brain or groq.GroqBrain()
+        self.free_apis = {key: (free_brains or {}).get(key)
+                          or freeapi.FreeBrain(key, state=settings.home / f"resting-{key}.json")
+                          for key in freeapi.PROVIDERS}
+        self.on_progress = on_progress or (lambda _msg: None)
+        self._step_ids = itertools.count(1)
+        self.wait = time.sleep
+        self._halts: dict = defaultdict(int)  # bumped by stop_work ("спри"): "*" stops everyone's work
+        self._reflected = 0.0  # when reflect last looked back at a task
+
+    def system_prompt(self, user=None) -> str:
+        return self._base_prompt(user) + self._clock()
+
+    def _clock(self) -> str:
+        now = datetime.now().strftime("%A %Y-%m-%d %H:%M")
+        return f"\n\nCurrent local time: {now} ({self.settings.timezone})."
+
+    def _base_prompt(self, user=None) -> str:
+        """Everything in the system prompt except the clock, which changes every minute."""
+        s = self.settings
+        guest = user is not None and not user.is_owner
+        prompt = PERSONA.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
+        if not guest and "vault_search" in self.registry.tools:
+            prompt += (f"\n- Your notes vault (Markdown files the owner can also open in Obsidian) is {s.vault}: raw/ is "
+                       "the inbox, wiki/ the organised knowledge with wiki/_master-index.md, output/ finished reports. "
+                       "When the owner asks about something they saved, search it (vault_search); save finished "
+                       "reports and research to output/ (vault_note).")
+        return prompt + self._about(user)
+
+    def _about(self, user=None) -> str:
+        """SOUL.md, USER.md and the remembered facts, for every level that talks to a model."""
+        s = self.settings
+        guest = user is not None and not user.is_owner
+        prompt = ""
+        if guest:
+            prompt += (f"\n\nYou are talking with {user.name}, who has their own account on this Jarvis. They are "
+                       "not the owner: do not reveal the owner's private information (memories, contacts, mail, "
+                       "files, messages) unless a tool you are allowed to use returns it for this request. Some "
+                       "abilities are switched off for this account; if one is needed, say the owner can enable "
+                       "it in Settings > Permissions.")
+        soul = core_files.read(s.home, "SOUL.md")
+        if soul:
+            prompt += "\n\nYour personality and standing orders, written by the owner (SOUL.md):\n" + soul
+        about = "" if guest else core_files.read(s.home, "USER.md")
+        if about:
+            prompt += "\n\nAbout the owner, in their own words (USER.md):\n" + about
+        lessons = "" if guest else core_files.read(s.home, "LESSONS.md")
+        if lessons:
+            prompt += "\n\nLessons you learned from experience (LESSONS.md, your own notes; apply them):\n" + lessons
+        facts = [] if guest else self.store.query("SELECT topic, fact FROM facts ORDER BY id")
+        if facts:
+            prompt += "\n\nWhat you remember about the user:\n" + "\n".join(f"- [{f['topic']}] {f['fact']}" for f in facts)
+        return prompt
+
+    def _request(self, messages: list, user=None, system: str | list | None = None, allowed: set | None = None, *,
+                 model: str | None = None, effort: str | None = None, tools: list | None = None,
+                 max_tokens: int | None = None) -> object:
+        """One request to the brain. ``model``, ``effort`` and ``tools`` default to the settings and every tool
+        this person may use; the quick lane passes the cheapest model, low effort and no tools."""
+        s = self.settings
+        model = model or s.model
+        effort = effort or (TURN.get() or {}).get("effort") or s.effort
+        max_tokens = max_tokens or s.max_tokens
+        if allowed is None and user is not None:
+            allowed = user.allowed_groups()
+        if tools is None:
+            tools = self.registry.definitions(allowed)
+        system = system if system is not None else self.system_prompt(user)
+        again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
+        if local.is_local(model):
+            return self._ask_local(model, system, messages, tools, max_tokens, effort)
+        strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # NVIDIA, OpenRouter: the strongest free ones
+        if groq.is_groq(model):
+            return self._ask_free([model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"], system, messages,
+                                  tools, max_tokens, effort)
+        if model.startswith("gemini"):
+            order = [model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
+            if tools and model == gemini.DEFAULT_MODEL:
+                # Real work on the default brain: the strongest free models (Kimi, DeepSeek on NVIDIA or OpenRouter)
+                # go before Gemini, whose Flash-Lite is weak with dozens of tools; Gemini keeps the short answers.
+                # A Gemini model the owner chose by name stays first.
+                order = [*strong, *order]
+            return self._ask_free(order, system, messages, tools, max_tokens, effort)
+        if freeapi.is_free_api(model):
+            return self._ask_free([model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"],
+                                  system, messages, tools, max_tokens, effort)
+        free = self.free_instead()
+        if free:
+            log.info("Claude's daily cap is reached; %s answers instead", free)
+            return self._request(messages, user, system, allowed, model=free, **again)
+        claude_tools = [t for t in tools if t["name"] not in gemini.ONLY_FOR_GEMINI]
+        if claude_tools and (allowed is None or "web" in allowed):
+            claude_tools += SERVER_TOOLS
+        try:
+            answer = self._ask_claude(messages, system, claude_tools, model, effort, max_tokens)
+            usage.record(self.store, answer, model)
+            return answer
+        except Exception as exc:
+            takeover = free_brain()
+            if takeover is None or not claude_unusable(exc):
+                raise
+            # No credit or no key for Claude: a free brain (Gemini, Groq, NVIDIA, OpenRouter) takes over, for good
+            # (Settings > JARVIS_MODEL brings Claude back).
+            log.warning("Claude is unavailable, switching to %s for good: %s", takeover, exc)
+            s.model = takeover
+            keep_brain(takeover)
+            return self._request(messages, user, system, allowed, model=s.model, **again)
+
+    def free_instead(self) -> str | None:
+        """A free brain to use instead of Claude once today's spending reached the cap (JARVIS_DAILY_BUDGET)."""
+        cap = self.settings.budget()
+        if cap is None or usage.spent_today(self.store) < cap:
+            return None
+        free = free_brain() or ("local" if local.available() else None)
+        if free:
+            return free
+        raise BudgetReached(f"Claude's daily cap of ${cap:g} is reached and no free brain is set up.")
+
+    def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
+        """The free brains in ``order``: the first one asked for, then the others that are set up, each taking
+        over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day)."""
+        for again in (False, True):
+            used_up, asked, pauses = None, set(), []
+            for i, model in enumerate(order):
+                kind = brain_kind(model)
+                ready = (groq.available() if kind == "groq" else local.available() if kind == "local"
+                         else freeapi.available(model) if kind in self.free_apis else gemini.available())
+                if kind in asked or (i and not ready):
+                    continue
+                asked.add(kind)
+                if kind == "local":
+                    return self._ask_local(model, system, messages, tools, max_tokens, effort)
+                brain = self.groq if kind == "groq" else self.free_apis.get(kind) or self.gemini
+                try:
+                    answer = brain.create(model=model, system=system, messages=messages, tools=tools,
+                                          max_tokens=max_tokens, effort=effort)
+                except (groq.UsedUp, gemini.UsedUp, gemini.Busy, freeapi.UsedUp) as exc:
+                    log.warning("%s; the next free brain answers", exc)
+                    used_up = exc
+                    pauses.append(getattr(exc, "retry_in", 0))
+                    continue
+                usage.record(self.store, answer, answer.model or model)
+                return answer
+            soonest = min([p for p in pauses if p > 0], default=0)
+            if again or not 0 < soonest <= 60:
+                raise used_up
+            # Nobody can answer this minute (Gemini's share for the minute is used up): wait for it, then again.
+            log.warning("every free brain is busy; waiting %.0f s", soonest)
+            self.wait(soonest + 1)
+
+    def _ask_local(self, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
+        name = local.pick(model.partition(":")[2] or self.settings.local_model)
+        if not name:
+            raise RuntimeError("The brain on this computer (Ollama) is not installed or not running.")
+        answer = self.local.create(model=name, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
+                                   effort=effort)
+        usage.record(self.store, answer, "local:" + name)
+        return answer
+
+    def fast_model(self) -> str:
+        """The model for the quick lane: the owner's choice (JARVIS_FAST_MODEL), else free Groq (the fastest),
+        else free Gemini, else NVIDIA or OpenRouter, else the brain on this computer, else Claude's cheapest."""
+        s = self.settings
+        if s.fast_model:
+            return s.fast_model
+        if local.is_local(s.model):
+            return s.model
+        if groq.is_groq(s.model) or groq.available():
+            return groq.DEFAULT_MODEL
+        if s.model.startswith("gemini") or gemini.available():
+            return gemini.DEFAULT_MODEL
+        if freeapi.is_free_api(s.model):
+            return s.model
+        return free_brain() or "claude-haiku-5-5"
+
+    def _ask_claude(self, messages: list, system, tools: list, model: str | None = None, effort: str | None = None,
+                    max_tokens: int | None = None) -> object:
+        s = self.settings
+        model = model or s.model
+        kwargs = dict(
+            model=model,
+            max_tokens=max_tokens or s.max_tokens,
+            system=system,
+            messages=gemini.for_claude(messages),
+            tools=tools,
+            output_config={"effort": effort or s.effort},
+            # Tools and the system prompt are the same on every step, so the API reads them from its
+            # cache instead of processing them again; automatic caching also covers the growing conversation.
+            cache_control={"type": "ephemeral"},
+        )
+        if not tools:  # the quick lane has none
+            kwargs.pop("tools")
+        if s.refusal_fallback and not model.startswith("claude-haiku"):  # Haiku has no server-side fallback
+            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
+            kwargs["fallbacks"] = "default"
+        try:
+            return self.client.beta.messages.create(**kwargs)
+        except anthropic.BadRequestError as exc:
+            if "cache_control" in str(exc) and kwargs.pop("cache_control", None):
+                log.warning("retrying without automatic caching: %s", exc)  # caching only saves time
+                return self.client.beta.messages.create(**kwargs)
+            # Thinking blocks are signed against the exact request they came from. If the API
+            # refuses one (e.g. after a fallback model answered), drop them and try once more.
+            if "thinking" not in str(exc) or not strip_thinking(messages):
+                raise
+            log.warning("retrying without earlier thinking blocks: %s", exc)
+            kwargs["messages"] = gemini.for_claude(messages)
+            return self.client.beta.messages.create(**kwargs)
+
+    def ask(
+        self,
+        text: str,
+        conversation: str = "main",
+        confirmer: Confirmer | None = None,
+        user=None,
+        on_progress: Callable[[str], None] | None = None,
+        images: list[tuple[str, str]] | None = None,
+        route: bool | None = None,
+        on_step: Callable[[dict], None] | None = None,
+        insist: bool | None = None,
+    ) -> str:
+        """Handle one user message end to end and return Jarvis's final answer.
+
+        ``user`` (an accounts.User) limits the tools to that account's permissions. ``images`` are
+        (media type, base64) pairs, e.g. a frame of the screen or the camera the user is sharing.
+        ``route`` (default: the JARVIS_ROUTER setting) first tries the two cheap levels of router.py, a
+        command done without AI or a quick answer; scheduled jobs and check-ins pass False. ``on_step`` hears
+        every step as it happens (work.Board shows them on the app's "На живо" screen). ``insist`` (default: a
+        request for action, with JARVIS_ACT_CHECK on) gives an answer without any tool used one more look.
+        """
+        confirmer = confirmer or self.confirmer
+        on_progress = on_progress or self.on_progress
+        on_step = on_step or (lambda _event: None)
+        if router.stops_work(text):  # "спри": the work in progress ends at its next step, no AI needed
+            self.stop_work(user)
+            self.store.add_message(conversation, "user", text)
+            self.store.add_message(conversation, "assistant", STOPPED)
+            return STOPPED
+        if (self.settings.router if route is None else route) and not images:
+            answer = self.cheap_answer(text, conversation, confirmer, user, on_progress, on_step)
+            if answer is not None:
+                self.store.add_message(conversation, "user", text)
+                self.store.add_message(conversation, "assistant", answer)
+                return answer
+        messages = self._messages(conversation, text)
+        if images:
+            blocks = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": data}} for mt, data in images]
+            note = "(Live frames of what I am sharing right now: my screen and/or my camera.)\n\n"
+            messages[-1]["content"] = blocks + [{"type": "text", "text": note + messages[-1]["content"]}]
+
+        # "помисли добре": this one request thinks harder than the everyday setting
+        effort = "max" if router.think_harder(text) else None
+        on_progress("level:3")
+        on_step({"type": "level", "level": 3})
+        if insist is None:
+            insist = self.settings.act_check and router.wants_action(text)
+        mission = router.is_mission(text)  # a long job: more steps, and the result is checked before the answer
+        steps: list[tuple[str, dict, str, bool]] = []
+        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step,
+                            insist=insist or mission, steps=steps, verify=mission,
+                            rounds=self.settings.max_tool_rounds * (MISSION_ROUNDS if mission else 1))
+        self.count(3)
+        if self.settings.learn and (user is None or user.is_owner) and (
+                any(failed for *_r, failed in steps) or router.corrects(text)):
+            self.reflect_later(text, steps, answer, conversation)
+        self.store.add_message(conversation, "user", text)
+        self.store.add_message(conversation, "assistant", answer)
+        return answer
+
+    def reflect_later(self, request: str, steps: list, answer: str, conversation: str) -> None:
+        """Learn from a task that had failed steps, or from the owner correcting you: one short look back with
+        the quick brain, in the background so the answer is not delayed, and a lesson in LESSONS.md if there is one."""
+        if time.time() - self._reflected < 60:  # at most one a minute: the free brains count every request
+            return
+        self._reflected = time.time()
+        threading.Thread(target=self.reflect, args=(request, steps, answer, conversation), name="jarvis-reflect",
+                         daemon=True).start()
+
+    def reflect(self, request: str, steps: list, answer: str, conversation: str = "main") -> str | None:
+        failed = "\n".join(f"- {name} {json.dumps(args, ensure_ascii=False)[:200]} -> {output[:300]}"
+                           for name, args, output, error in steps if error) or "(none)"
+        earlier = [r["content"] for r in self.store.history(conversation, 4) if r["role"] == "assistant"]
+        prompt = REFLECT.format(request=request[:1500], failed=failed[:3000], answer=answer[:1500],
+                                before=(earlier[-1] if earlier else "(none)")[:1000],
+                                lessons=core_files.read(self.settings.home, "LESSONS.md") or "(none yet)")
+        try:
+            response = self._request([{"role": "user", "content": prompt}], None, "You are Jarvis, learning from "
+                                     "your own work.", set(), model=self.fast_model(), effort="low", tools=[],
+                                     max_tokens=400)
+        except Exception:
+            log.warning("could not look back at the task", exc_info=True)
+            return None
+        said = " ".join(b.text for b in response.content if b.type == "text").strip()
+        lesson = said.splitlines()[0].strip(" -*\"") if said else ""
+        if not lesson or lesson.upper().startswith("NONE") or not core_files.learn(self.settings.home, lesson):
+            return None
+        log.info("learned: %s", lesson)
+        return lesson
+
+    def stop_work(self, user=None) -> None:
+        """"спри": every task of this person (of everyone, when it is the owner) ends at its next step."""
+        self._halts["*" if user is None or getattr(user, "is_owner", True) else user.id] += 1
+
+    def _mark(self, user) -> tuple[int, int]:
+        return self._halts["*"], self._halts[getattr(user, "id", None)]
+
+    def _messages(self, conversation: str, text: str, limit: int = 40) -> list:
+        """The conversation so far plus the new message, in the alternating form the APIs need."""
+        messages: list = []
+        for row in self.store.history(conversation, limit):
+            if messages and messages[-1]["role"] == row["role"]:
+                messages[-1]["content"] += "\n\n" + row["content"]
+            else:
+                messages.append({"role": row["role"], "content": row["content"]})
+        if router.latin_bulgarian(text):  # the hint goes to the brain, not into the saved conversation
+            text += LATIN_HINT.format(cyrillic=router.to_cyrillic(text))
+        if messages and messages[-1]["role"] == "user":
+            messages[-1]["content"] += "\n\n" + text
+        else:
+            messages.append({"role": "user", "content": text})
+        return messages
+
+    # --- the two cheap levels (router.py) -------------------------------------------------------------
+
+    def cheap_answer(self, text: str, conversation: str, confirmer: Confirmer, user=None, on_progress=None,
+                     on_step=None) -> str | None:
+        """Level 1 (a command, no AI) or level 2 (a quick answer); None when the full agent is needed."""
+        answer = self.command(text, conversation, confirmer, user, on_progress, on_step)
+        if answer is not None:
+            self.count(1)
+            return answer
+        if router.quick(text):
+            (on_progress or self.on_progress)("level:2")
+            if on_step:
+                on_step({"type": "level", "level": 2})
+            answer = self.quick_answer(text, conversation, user)
+            if answer is not None:
+                self.count(2)
+                return answer
+        return None
+
+    def command(self, text: str, conversation: str, confirmer: Confirmer, user=None, on_progress=None,
+                on_step=None) -> str | None:
+        """Level 1: do a command found by the rules, through the same tools, permissions and confirmations."""
+        steps = router.match(text, self.router_info(conversation, user))
+        if not steps:
+            return None
+        allowed = user.allowed_groups() if user is not None else None
+        for step in steps:
+            tool = self.registry.tools.get(step.tool) if step.tool else None
+            if step.tool and (tool is None or (allowed is not None and (tool.group or "agent") not in allowed)):
+                return None  # not something this person may do: the agent explains
+        on_progress = on_progress or self.on_progress
+        on_progress("level:1")
+        if on_step:
+            on_step({"type": "level", "level": 1})
+        TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "on_step": on_step, "depth": 0})
+        said: list[str] = []
+        for i, step in enumerate(steps):
+            if step.tool is None:
+                said.append(step.say(""))
+                continue
+            on_progress(step.tool)
+            output, is_error = self.run_tool(step.tool, dict(step.args), confirmer, user)
+            if is_error:
+                declined = isinstance(output, str) and output.startswith("The user declined")
+                if i == 0 and not declined:
+                    log.info("command %s failed, the full agent takes over: %s", step.tool, output)
+                    return None
+                said.append("Добре, няма да го правя." if declined else f"„{step.text}“ не успях да го направя.")
+                break
+            said.append(step.say(output if isinstance(output, str) else ""))
+        return " ".join(x for x in said if x)
+
+    def router_info(self, conversation: str, user=None) -> router.Info:
+        s = self.settings
+        guest = user is not None and not user.is_owner
+        allowed = user.allowed_groups() if user is not None else None
+        last = self.store.query("SELECT content FROM messages WHERE conversation=? AND role='assistant' "
+                                "ORDER BY id DESC LIMIT 1", (conversation,))
+
+        def devices() -> dict:
+            from .plugins.android import devices_from_env
+
+            try:
+                return devices_from_env()
+            except Exception:
+                return {}
+
+        def weather() -> str:
+            from .plugins.daily import short_weather
+
+            return short_weather() if allowed is None or "web" in allowed else ""
+
+        return router.Info(user_name=user.name if guest else s.user_name, last_answer=last[0]["content"] if last else "",
+                           owner=not guest, devices=devices, spending=lambda: usage.spoken(self.store),
+                           weather_now=weather)
+
+    def quick_answer(self, text: str, conversation: str, user=None) -> str | None:
+        """Level 2: one short request to the cheapest model, without tools. None when it needs the full agent."""
+        s = self.settings
+        guest = user is not None and not user.is_owner
+        system = (QUICK_PROMPT.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
+                  + self._about(user) + self._clock())
+        model = self.fast_model()
+        try:
+            response = self._request(self._messages(conversation, text, limit=6), user, system, set(), model=model,
+                                     effort="low", tools=[], max_tokens=1500)
+        except Exception:
+            if model == s.model:
+                raise
+            log.warning("the quick lane failed; the full agent answers", exc_info=True)
+            return None
+        answer = "\n\n".join(b.text for b in response.content if b.type == "text" and b.text.strip()).strip()
+        if response.stop_reason not in ("end_turn", "max_tokens") or not answer or ESCALATE in answer[:60].upper():
+            return None
+        return answer
+
+    def count(self, level: int) -> None:
+        """Which level answered, for the app's "Разход" tab."""
+        try:
+            self.store.insert("routes", tier=level)
+        except Exception:
+            log.exception("could not count the level")
+
+    # --- level 3: the full agent ---------------------------------------------------------------------
+
+    def run_tool(self, name: str, args: dict, confirmer: Confirmer, user=None, agent: str = "Jarvis",
+                 allowed: set | None = None, ask_groups: set | None = None) -> tuple[str | list, bool]:
+        """Run one tool for ``user``: their permissions, their confirmations, and a line in the activity feed."""
+        if allowed is None and user is not None:
+            allowed = user.allowed_groups()
+        if ask_groups is None and user is not None:
+            ask_groups = user.ask_groups()
+        trust_local = self.settings.trust_local_actions and (user is None or user.is_owner)
+        report = (TURN.get() or {}).get("on_step") or (lambda _event: None)
+        step = next(self._step_ids)
+        report({"type": "step", "id": step, "agent": agent, "tool": name, "state": "running",
+                "detail": work.detail(self.registry.tools.get(name), args)})
+
+        def confirm(summary: str) -> bool:  # the live view shows that the step waits for the person's yes
+            report({"type": "step", "id": step, "state": "waiting"})
+            try:
+                return confirmer(summary)
+            finally:
+                report({"type": "step", "id": step, "state": "running"})
+
+        output, is_error = self.registry.run(name, args, confirm, trust_local, allowed, ask_groups)
+        log.info("tool %s -> %s", name, output[:200] if isinstance(output, str) else "[image]")
+        self.log_activity(user, agent, name, args, is_error)
+        declined = is_error and isinstance(output, str) and output.startswith("The user declined")
+        report({"type": "step", "id": step, "state": "declined" if declined else "error" if is_error else "ok",
+                "memory": {"tool": name, "args": args, "result": output[:8000] if isinstance(output, str) else ""}})
+        if not is_error and name in ("make_plan", "update_plan_step"):
+            self.report_plan(report, args.get("plan_id") if name == "update_plan_step" else output)
+        return output, is_error
+
+    def report_plan(self, report: Callable[[dict], None], plan) -> None:
+        """The plan's task tree, for the live view (``plan`` is its id, or make_plan's answer, which names it)."""
+        if isinstance(plan, str):
+            found = re.search(r"\d+", plan)
+            plan = found and found.group()
+        try:
+            rows = self.store.query("SELECT * FROM plans WHERE id=?", (int(plan),))
+        except (TypeError, ValueError):
+            return
+        if rows:
+            report({"type": "plan", "plan": {"id": rows[0]["id"], "goal": rows[0]["goal"], "status": rows[0]["status"],
+                                             "steps": json.loads(rows[0]["steps"])}})
+
+    def _loop(self, messages: list, confirmer: Confirmer, user=None, on_progress=None, persona: str = "",
+              groups: set | None = None, agent: str = "Jarvis", depth: int = 0, effort: str | None = None,
+              on_step: Callable[[dict], None] | None = None, insist: bool = False, steps: list | None = None,
+              verify: bool = False, rounds: int | None = None) -> str:
+        """The tool loop. ``insist``: the message asks for action, so an answer with no tool used gets one
+        more look (ACT_CHECK) before it counts. ``verify``: a mission, whose result gets checked against the goal
+        (VERIFY_CHECK) before the answer counts; ``rounds`` is how many steps it may take. Specialists (see plugins/team.py) pass a ``persona``, the permission
+        ``groups`` they work with (never more than the user's own) and their ``agent`` name."""
+        on_progress = on_progress or self.on_progress
+        allowed = user.allowed_groups() if user is not None else None
+        ask_groups = user.ask_groups() if user is not None else None
+        if groups is not None:
+            allowed = (set(groups) if allowed is None else allowed & set(groups)) | {"core"}
+        # Fixed for the whole turn (thinking blocks are bound to it). The cache breakpoint sits before the
+        # clock, so tools, personality and memories are cached from one message to the next.
+        system = [{"type": "text", "text": self._base_prompt(user) + persona, "cache_control": {"type": "ephemeral"}},
+                  {"type": "text", "text": self._clock().strip()}]
+        TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "on_step": on_step, "depth": depth,
+                  "effort": effort})
+        texts: list[str] = []
+        acted = False
+        failed: list[str] = []  # the tools that failed in the last round of steps (empty when it went well)
+        checked_done = False
+        mark = self._mark(user)
+        for _ in range(rounds or self.settings.max_tool_rounds):
+            if self._mark(user) != mark:  # "спри" came while working
+                return STOPPED
+            response = self._request(messages, user, system, allowed)
+            texts = [b.text for b in response.content if b.type == "text" and b.text.strip()] or texts
+
+            if response.stop_reason == "refusal":
+                return "Съжалявам, не мога да помогна с това."
+            if response.stop_reason not in ("tool_use", "pause_turn"):
+                if insist and not acted:  # asked to do something, did nothing: once more, for real
+                    insist = False
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": ACT_CHECK})
+                    continue
+                if failed and not checked_done and claims_done(" ".join(texts)):
+                    # "Готово" right after a failed step: once more, to fix it or to say what really happened
+                    checked_done = True
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": DONE_CHECK.format(failed=", ".join(failed))})
+                    continue
+                if verify and acted:  # a mission: the whole result is checked against the goal before it counts
+                    verify = False
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": VERIFY_CHECK})
+                    continue
+                break
+            messages.append({"role": "assistant", "content": response.content})
+            if response.stop_reason == "pause_turn":
+                continue
+
+            results = []
+            failed = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                if self._mark(user) != mark:
+                    return STOPPED
+                acted = True
+                on_progress(block.name)
+                output, is_error = self.run_tool(block.name, dict(block.input or {}), confirmer, user, agent,
+                                                 allowed, ask_groups)
+                if steps is not None:  # what was done, for learning from it afterwards (reflect)
+                    steps.append((block.name, dict(block.input or {}), output if isinstance(output, str) else "", is_error))
+                if is_error and not (isinstance(output, str) and output.startswith("The user declined")):
+                    failed.append(block.name)
+                results.append({"type": "tool_result", "tool_use_id": block.id, "content": output, "is_error": is_error})
+            messages.append({"role": "user", "content": results})
+        else:
+            texts = [self._wrap_up(messages, user, system, allowed) or "(Спрях: твърде много стъпки за една заявка.)"]
+        if texts:
+            return "\n\n".join(texts)
+        # Never "done" when nothing was done: an empty answer with no tool used is a failure, said plainly,
+        # and so is one whose last step failed.
+        if failed:
+            return f"Опитах, но последната стъпка не успя ({', '.join(failed)}). Кажи как да продължа."
+        return "Готово." if acted else "Не успях: мозъкът не върна отговор. Кажи ми го пак, моля."
+
+    def _wrap_up(self, messages: list, user, system, allowed) -> str | None:
+        """All the steps for one request are used: one last answer, without acting, of what was done and what is
+        left, instead of stopping mid-sentence."""
+        last = messages[-1]
+        if last["role"] == "user" and isinstance(last["content"], list):
+            last["content"].append({"type": "text", "text": WRAP_UP})  # beside the last tool results
+        else:
+            messages.append({"role": "user", "content": WRAP_UP})
+        try:
+            response = self._request(messages, user, system, allowed)
+        except Exception:
+            log.warning("could not sum up after the last step", exc_info=True)
+            return None
+        said = "\n\n".join(b.text for b in response.content if b.type == "text" and b.text.strip())
+        return f"(Стигнах края на стъпките за тази заявка.) {said}" if said else None
+
+    def log_activity(self, user, agent: str, name: str, args: dict, is_error: bool) -> None:
+        """Everything Jarvis does goes to the activity feed (Settings > Activity)."""
+        tool = self.registry.tools.get(name)
+        try:
+            summary = tool.describe_call(args) if tool else name
+        except Exception:
+            summary = name
+        try:
+            self.store.insert("activity", user_id=getattr(user, "id", None), agent=agent, tool=name,
+                              summary=str(summary)[:600], ok=0 if is_error else 1)
+        except Exception:
+            log.exception("activity log failed")
+
+    def run_agent(self, task: str, persona: str, groups: set, agent: str) -> str:
+        """Run one specialist on ``task`` for the person whose request is being answered."""
+        turn = TURN.get() or {}
+        if turn.get("depth", 0) >= 1:
+            raise RuntimeError("Specialists cannot hand work to other specialists; do it yourself.")
+        messages = [{"role": "user", "content": task}]
+        report = turn.get("on_step") or (lambda _event: None)
+        report({"type": "agent", "agent": agent, "task": task, "state": "running"})
+        try:
+            answer = contextvars.copy_context().run(
+                self._loop, messages, turn.get("confirmer") or self.confirmer, turn.get("user"), turn.get("on_progress"),
+                persona=persona, groups=set(groups) - {"team"}, agent=agent, depth=turn.get("depth", 0) + 1,
+                on_step=turn.get("on_step"))
+        except Exception:
+            report({"type": "agent", "agent": agent, "state": "error"})
+            raise
+        report({"type": "agent", "agent": agent, "state": "done"})
+        return answer
