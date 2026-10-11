@@ -20,6 +20,7 @@ import uuid
 
 from .gemini import Answer, Block, Reply, _get, _text_of
 from .local import LOCAL_TOOLS
+from .tools import normalize_schema
 
 log = logging.getLogger("jarvis.groq")
 
@@ -98,7 +99,7 @@ def trim(chat: list[dict], room: int) -> list[dict]:
 def to_tools(tools: list, only: set | None = LOCAL_TOOLS) -> list[dict]:
     """Claude-format tools -> OpenAI-style functions; ``only`` keeps just those (None = every tool)."""
     return [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),
-                                              "parameters": t.get("input_schema") or {"type": "object", "properties": {}}}}
+                                              "parameters": normalize_schema(t.get("input_schema"))}}
             for t in tools if "input_schema" in t and (only is None or t["name"] in only)]
 
 

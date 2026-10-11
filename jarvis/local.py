@@ -18,6 +18,7 @@ import urllib.request
 import uuid
 
 from .gemini import Answer, Block, Reply, _get, _images_of, _text_of
+from .tools import normalize_schema
 
 log = logging.getLogger("jarvis.local")
 
@@ -115,7 +116,7 @@ def to_messages(system: str, messages: list) -> list[dict]:
 
 def to_tools(tools: list) -> list[dict]:
     return [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),
-                                              "parameters": t.get("input_schema") or {"type": "object", "properties": {}}}}
+                                              "parameters": normalize_schema(t.get("input_schema"))}}
             for t in tools if "input_schema" in t and t["name"] in LOCAL_TOOLS]
 
 

@@ -462,3 +462,70 @@ def stops_work(text: str) -> bool:
 def think_harder(text: str) -> bool:
     """The owner asks for careful thinking: the full agent then thinks harder for this one request."""
     return bool(THINK_HARDER.search(text or ""))
+
+
+# --- Bulgarian typed in Latin letters ("iskam da vidim kak she stane") -------------------------------------
+# Common Bulgarian words as people type them without Cyrillic. The weak models Jarvis runs on for free read
+# them better when a rough Cyrillic version goes along with the message (see brain.Jarvis._messages).
+_STRONG_LATIN = {
+    "iskam", "iskash", "iska", "iskame", "moje", "mozhe", "moga", "mojesh", "mozhesh", "moga", "she", "shte", "ste",
+    "sega", "dnes", "utre", "tova", "tuk", "tam", "kak", "kakvo", "kolko", "koga", "kade", "kyde", "kude", "zashto",
+    "zasto", "za6to", "pusni", "napravi", "kaji", "kazhi", "otvori", "prati", "izprati", "proveri", "napishi",
+    "napi6i", "pokaji", "pokazhi", "nameri", "potarsi", "potursi", "vij", "vizh", "molya", "molq", "mersi",
+    "blagodarya", "zdravei", "zdrasti", "dobre", "ima", "nyama", "niama", "nqma", "ako", "kogato", "sled", "predi",
+    "mnogo", "malko", "oshte", "oste", "o6te", "veche", "samo", "vsichko", "vsi4ko", "neshto", "nesto", "ne6to",
+    "tryabva", "trqbva", "triabva", "probvai", "probvaj", "sushto", "sashto", "sa6to", "sushto", "vidim", "vidq",
+    "vidya", "vida", "stane", "stava", "raboti", "rabotish", "ne", "da", "li", "na", "sas", "ot", "pri", "bez",
+    "zaedno", "napravish", "napravi6", "greshka", "gre6ka", "ne6to", "kakvi", "koi", "koq", "koya", "koe", "tozi",
+    "tazi", "tezi", "onzi", "mi", "ti", "go", "gi", "ni", "vi", "sum", "sam", "si", "e", "sa", "beshe", "be6e",
+    "shte", "kato", "che", "4e", "zaradi", "obache", "oba4e", "mislq", "mislya", "znam", "znae6", "znaesh", "umen",
+    "po-umen", "poumen", "dali", "kazah", "kaza", "pravi", "pravish", "pravi6", "napraveno", "gotovo", "spri", "stop",
+}
+_ENGLISH = {"the", "is", "are", "you", "and", "to", "of", "what", "please", "with", "this", "that", "for", "can",
+            "do", "it", "my", "me", "in", "on", "a", "an", "how", "why", "when", "where", "not", "have", "has", "be"}
+_WEAK = {"i", "e", "s", "v", "da", "ne", "na", "li", "mi", "ti", "go", "si", "sa", "ot", "za", "po", "no", "ni"}
+_CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+_LATIN_WORD = re.compile(r"[a-z0-9\-]+")
+
+# Latin letters and digits -> Cyrillic, longest sequences first ("sht" before "sh" before "s").
+_TO_CYR = [
+    ("sht", "щ"), ("6t", "щ"), ("sh", "ш"), ("ch", "ч"), ("zh", "ж"), ("ts", "ц"), ("yu", "ю"), ("iu", "ю"), ("ju", "ю"),
+    ("ya", "я"), ("ia", "я"), ("ja", "я"), ("yo", "йо"), ("jo", "йо"), ("a", "а"), ("b", "б"), ("v", "в"), ("w", "в"),
+    ("g", "г"), ("d", "д"), ("e", "е"), ("z", "з"), ("i", "и"), ("j", "ж"), ("k", "к"), ("q", "я"), ("l", "л"),
+    ("m", "м"), ("n", "н"), ("o", "о"), ("p", "п"), ("r", "р"), ("s", "с"), ("t", "т"), ("u", "у"), ("f", "ф"),
+    ("h", "х"), ("x", "х"), ("c", "ц"), ("y", "ъ"), ("4", "ч"), ("6", "ш"),
+]
+_TO_CYR_RX = re.compile("|".join(re.escape(latin) for latin, _ in _TO_CYR), re.I)
+_TO_CYR_MAP = {latin: cyr for latin, cyr in _TO_CYR}
+# Words that stay as they are: names of products and sites, and the words that are English anyway.
+_KEEP = re.compile(r"^(?:jarvis|gemini|groq|claude|google|youtube|gmail|chrome|windows|wifi|ok|api|pc|tv|usb|"
+                   r"url|http\S*|www\.\S*|\S+\.(?:com|bg|net|org|exe|py|txt|md)|\d+|[a-z]\d+|\d+[a-z]+)$", re.I)
+
+
+def latin_bulgarian(text: str) -> bool:
+    """True for a message written in Bulgarian with Latin letters (no Cyrillic, several Bulgarian words, few
+    English ones): "iskam da vidim dali she stane" yes, "open youtube" no."""
+    text = (text or "").lower()
+    if _CYRILLIC.search(text):
+        return False
+    tokens = _LATIN_WORD.findall(text)
+    if len(tokens) < 2:
+        return False
+    strong = sum(t in _STRONG_LATIN and t not in _WEAK for t in tokens)
+    score = strong + 0.5 * sum(t in _WEAK for t in tokens)
+    english = sum(t in _ENGLISH for t in tokens)
+    return strong >= 1 and score >= 1.0 and english < score and english <= len(tokens) / 4
+
+
+def to_cyrillic(text: str) -> str:
+    """A rough Cyrillic spelling of Bulgarian typed in Latin letters ("pusni muzika" -> "пусни музика").
+    Names and sites (jarvis, youtube, .com) stay. Only a hint for the model: a letter can be ambiguous."""
+
+    def word(m: re.Match) -> str:
+        w = m.group(0)
+        if _KEEP.match(w):
+            return w
+        out = _TO_CYR_RX.sub(lambda x: _TO_CYR_MAP[x.group(0).lower()], w)
+        return out.capitalize() if w[:1].isupper() else out
+
+    return re.sub(r"[A-Za-z0-9][A-Za-z0-9\-.:/]*", word, text or "")

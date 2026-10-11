@@ -17,6 +17,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from .tools import normalize_schema
+
 log = logging.getLogger("jarvis.gemini")
 
 # Free models, most free requests a day first. Each has its own daily allowance (3.8 Flash only about
@@ -201,7 +203,7 @@ def to_declarations(tools: list) -> list:
     from google.genai import types
 
     return [types.FunctionDeclaration(name=t["name"], description=t.get("description", ""),
-                                      parameters_json_schema=t.get("input_schema") or {"type": "object", "properties": {}})
+                                      parameters_json_schema=normalize_schema(t.get("input_schema")))
             for t in tools if "input_schema" in t]  # server tools (Claude's web search) have no schema
 
 

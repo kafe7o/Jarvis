@@ -128,6 +128,23 @@ Lessons you already keep:
 Is there one concrete lesson for next time: what to do differently, what worked in the end, or how the owner \
 wants things done? Write it as ONE short line in Bulgarian that you can follow later (e.g. "Когато ..., ..."). \
 Not about this one task only, not already in your lessons. If there is none, write exactly: NONE"""
+# Said to the agent when it claims something is done although its last step(s) failed.
+DONE_CHECK = ("(Check before you answer: your last step(s) failed: {failed}. Nothing after them succeeded, so do not "
+              "say that it is done, sent, started or saved. Either make it work now, another way if needed, or tell me "
+              "plainly what failed and what you suggest. If your answer already says that, give it again unchanged.)")
+# An answer that claims success, in Bulgarian (Cyrillic or Latin letters) or English.
+CLAIMS_DONE = re.compile(router.bg(r"готово|направих|изпратих|пратих|пуснах|записах|запазих|създадох|сложих|включих|"
+                                   r"изключих|отворих|изпълних|свърших|успях|готов[аио]? е|е направен|инсталирах|"
+                                   r"обнових|поправих|оправих|настроих")
+                         + r"|\bdone\b|\bI (?:have )?(?:sent|did|made|created|saved|started|fixed)\b", re.I)
+NEGATED = re.compile(router.bg(r"(?:^|\s)(?:не|няма|нищо не|not|n't)\s+\S+"), re.I)  # "не успях" claims nothing
+
+
+def claims_done(text: str) -> bool:
+    """True when an answer says something was done, sent, saved or fixed ("Готово", "изпратих го")."""
+    return bool(CLAIMS_DONE.search(NEGATED.sub(" ", text or "")))
+# Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
+LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
              "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
              "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
@@ -523,6 +540,8 @@ class Jarvis:
                 messages[-1]["content"] += "\n\n" + row["content"]
             else:
                 messages.append({"role": row["role"], "content": row["content"]})
+        if router.latin_bulgarian(text):  # the hint goes to the brain, not into the saved conversation
+            text += LATIN_HINT.format(cyrillic=router.to_cyrillic(text))
         if messages and messages[-1]["role"] == "user":
             messages[-1]["content"] += "\n\n" + text
         else:
@@ -696,6 +715,8 @@ class Jarvis:
                   "effort": effort})
         texts: list[str] = []
         acted = False
+        failed: list[str] = []  # the tools that failed in the last round of steps (empty when it went well)
+        checked_done = False
         mark = self._mark(user)
         for _ in range(self.settings.max_tool_rounds):
             if self._mark(user) != mark:  # "спри" came while working
@@ -711,12 +732,19 @@ class Jarvis:
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
                     messages.append({"role": "user", "content": ACT_CHECK})
                     continue
+                if failed and not checked_done and claims_done(" ".join(texts)):
+                    # "Готово" right after a failed step: once more, to fix it or to say what really happened
+                    checked_done = True
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": DONE_CHECK.format(failed=", ".join(failed))})
+                    continue
                 break
             messages.append({"role": "assistant", "content": response.content})
             if response.stop_reason == "pause_turn":
                 continue
 
             results = []
+            failed = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
@@ -728,13 +756,18 @@ class Jarvis:
                                                  allowed, ask_groups)
                 if steps is not None:  # what was done, for learning from it afterwards (reflect)
                     steps.append((block.name, dict(block.input or {}), output if isinstance(output, str) else "", is_error))
+                if is_error and not (isinstance(output, str) and output.startswith("The user declined")):
+                    failed.append(block.name)
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": output, "is_error": is_error})
             messages.append({"role": "user", "content": results})
         else:
             texts = [self._wrap_up(messages, user, system, allowed) or "(Спрях: твърде много стъпки за една заявка.)"]
         if texts:
             return "\n\n".join(texts)
-        # Never "done" when nothing was done: an empty answer with no tool used is a failure, said plainly.
+        # Never "done" when nothing was done: an empty answer with no tool used is a failure, said plainly,
+        # and so is one whose last step failed.
+        if failed:
+            return f"Опитах, но последната стъпка не успя ({', '.join(failed)}). Кажи как да продължа."
         return "Готово." if acted else "Не успях: мозъкът не върна отговор. Кажи ми го пак, моля."
 
     def _wrap_up(self, messages: list, user, system, allowed) -> str | None:
