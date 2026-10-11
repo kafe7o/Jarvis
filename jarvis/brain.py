@@ -204,12 +204,15 @@ def keep_brain(model: str) -> None:
 
 
 def free_brain() -> str | None:
-    """The first free brain that is set up: Gemini, Groq, NVIDIA, OpenRouter (None when there is none)."""
+    """The strongest free brain that is set up: NVIDIA, OpenRouter, Gemini, Groq (None when there is none)."""
+    strong = next((key for key in freeapi.PROVIDERS if freeapi.available(key)), None)
+    if strong:
+        return strong
     if gemini.available():
         return gemini.DEFAULT_MODEL
     if groq.available():
         return groq.DEFAULT_MODEL
-    return next((key for key in freeapi.PROVIDERS if freeapi.available(key)), None)
+    return None
 
 
 def strip_thinking(messages: list) -> bool:
@@ -316,19 +319,21 @@ class Jarvis:
         again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
+        strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # NVIDIA, OpenRouter: the strongest free ones
         if groq.is_groq(model):
-            return self._ask_free([model, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"], system, messages, tools,
-                                  max_tokens, effort)
+            return self._ask_free([model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"], system, messages,
+                                  tools, max_tokens, effort)
         if model.startswith("gemini"):
             order = [model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
-            if tools and model == gemini.DEFAULT_MODEL and self.gemini.spent.get(gemini.AGENT_MODEL, 0) > time.time():
-                # Gemini's strong model is used up for today: a strong free model elsewhere (NVIDIA, OpenRouter)
-                # does the real work before Flash-Lite, which is weak at it.
-                order = [*(k for k in freeapi.PROVIDERS if freeapi.available(k)), *order]
+            if tools and model == gemini.DEFAULT_MODEL:
+                # Real work on the default brain: the strongest free models (Kimi, DeepSeek on NVIDIA or OpenRouter)
+                # go before Gemini, whose Flash-Lite is weak with dozens of tools; Gemini keeps the short answers.
+                # A Gemini model the owner chose by name stays first.
+                order = [*strong, *order]
             return self._ask_free(order, system, messages, tools, max_tokens, effort)
         if freeapi.is_free_api(model):
-            return self._ask_free([model, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"], system,
-                                  messages, tools, max_tokens, effort)
+            return self._ask_free([model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"],
+                                  system, messages, tools, max_tokens, effort)
         free = self.free_instead()
         if free:
             log.info("Claude's daily cap is reached; %s answers instead", free)
