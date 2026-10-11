@@ -68,4 +68,11 @@ def synthesize(text: str, configured_voice: str = "bg-BG-BorislavNeural", sample
             return elevenlabs(text)
         except Exception:
             pass  # fall back to the free voice
-    return edge(text, pick_voice(clean(sample) if sample else text, configured_voice))
+    voice = pick_voice(clean(sample) if sample else text, configured_voice)
+    for attempt in range(3):  # a hiccup on the way to Microsoft must not hand the answer to the browser's flat voice
+        try:
+            return edge(text, voice)
+        except Exception:
+            if attempt == 2:
+                raise
+    raise RuntimeError("unreachable")

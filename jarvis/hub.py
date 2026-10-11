@@ -377,13 +377,15 @@ class DeviceHub:
 
 
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
-MAX_BODY = 12_000_000  # two camera/screen frames fit with room to spare
+MAX_BODY = 80_000_000  # a few photos, or one video of up to about 50 MB, in one message
+MAX_FILE = 55_000_000  # base64 characters of one attached file (about 40 MB)
+MAX_FILES = 6
 
 
 def parse_images(items) -> list[tuple[str, str]] | None:
-    """Data URLs from the app (a frame of the shared screen or the camera) -> (media type, base64)."""
+    """Data URLs from the app (a frame of the shared screen or the camera, photos) -> (media type, base64)."""
     out = []
-    for item in (items or [])[:2]:
+    for item in (items or [])[:4]:
         match = re.fullmatch(r"data:(image/[a-z]+);base64,([A-Za-z0-9+/=]+)", str(item or ""))
         if not match or match[1] not in IMAGE_TYPES:
             raise HTTPError(400, "Снимката не е във формат JPEG, PNG или WebP.")
@@ -391,6 +393,36 @@ def parse_images(items) -> list[tuple[str, str]] | None:
             raise HTTPError(413, "Снимката е твърде голяма.")
         out.append((match[1], match[2]))
     return out or None
+
+
+def save_files(items, home: Path) -> list[Path]:
+    """Files attached in the app ({"name", "data": data URL}) are saved under ~/.jarvis/uploads/, so Jarvis can
+    read, run or watch them with his normal tools (read_file, run_python, watch_video...)."""
+    import base64
+    from datetime import datetime
+
+    saved = []
+    folder = Path(home) / "uploads"
+    for item in (items or [])[:MAX_FILES]:
+        name = re.sub(r"[^\w.\- ()]+", "_", str((item or {}).get("name") or "file"), flags=re.U).strip(" .") or "file"
+        match = re.fullmatch(r"data:([\w.+/-]*);base64,([A-Za-z0-9+/=]*)", str((item or {}).get("data") or ""))
+        if not match:
+            raise HTTPError(400, f"Файлът „{name}“ не можа да се прочете.")
+        if len(match[2]) > MAX_FILE:
+            raise HTTPError(413, f"Файлът „{name}“ е твърде голям (до около 40 MB). Кажи на Jarvis къде е на компютъра.")
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{datetime.now():%Y%m%d-%H%M%S}-{name[-120:]}"
+        path.write_bytes(base64.b64decode(match[2]))
+        saved.append(path)
+    return saved
+
+
+def with_files(text: str, paths: list[Path]) -> str:
+    if not paths:
+        return text
+    lines = "\n".join(f"- {p}" for p in paths)
+    return (f"{text}\n\n(Прикачени файлове, запазени на този компютър; отвори ги с инструментите: read_file за "
+            f"текст и код, run_python за таблици и PDF, watch_video за видео:\n{lines})")
 
 
 class HTTPError(Exception):
@@ -826,9 +858,12 @@ class Hub:
                 return 200, {"ok": True}
             if action == "ask" and m == "POST":
                 text = (b.get("text") or "").strip()
+                if not text and (b.get("files") or b.get("images")):
+                    text = "Виж какво ти пращам."
                 if not text:
                     raise HTTPError(400, "Празно съобщение.")
                 images = parse_images(b.get("images"))
+                text = with_files(text, save_files(b.get("files"), self.ctx.settings.home))
                 if chat["title"] == "Нов разговор":
                     title = re.sub(r"\s+", " ", text)
                     self.accounts.rename_chat(user.id, chat_id, title[:48] + ("…" if len(title) > 48 else ""))

@@ -132,6 +132,26 @@ def describe_elements(elements: list[dict]) -> str:
     return "\n".join(lines) or "Nothing readable on the screen (maybe a game, video or the lock screen); use look."
 
 
+def pick_rows(rows: list[dict], wanted: str, name_key: str | None) -> tuple[list[dict], str]:
+    """The rows that match ``wanted``. For contacts the exact name wins ("mom" is not "Alper's mom"): only rows
+    whose name is exactly that; when there is none, the rows whose name has it as a word (else merely contains
+    it) come back with a note saying so, so the model asks instead of calling a look-alike."""
+    wanted = wanted.casefold()
+    if name_key:
+        names = [(r, (r.get(name_key) or "").casefold()) for r in rows]
+        exact = [r for r, n in names if n == wanted]
+        if exact:
+            return exact, ""
+        word = [r for r, n in names if re.search(r"(?<!\w)" + re.escape(wanted) + r"(?!\w)", n)]
+    else:
+        word = []
+    found = word or [r for r in rows if any(wanted in (v or "").casefold() for v in r.values())]
+    if name_key and found:
+        return found, (f"No contact is named exactly '{wanted}'. Similar names (do not call or message one of these "
+                       "without the user's explicit yes; ask which one, or whether to save the right contact):\n")
+    return found, ""
+
+
 def content_rows(output: str, keys: list[str]) -> list[dict]:
     """Rows printed by `content query` ("Row: 0 address=+359…, body=Здрасти, ще закъснея, date=…").
     Columns come in the projection's order, so each value runs up to the next column's name; that keeps
@@ -372,8 +392,9 @@ def register(registry: ToolRegistry, ctx) -> None:
         except RuntimeError as exc:
             raise RuntimeError(f"The phone did not allow reading {kind} ({exc}). Open the app (open_app) and "
                                "use read_screen instead.") from exc
+        note = ""
         if wanted:
-            rows = [r for r in rows if any(wanted in (v or "").casefold() for v in r.values())]
+            rows, note = pick_rows(rows, wanted, "display_name" if kind == "contacts" else None)
         if kind == "sms":
             lines = [f"{when(r.get('date'))} {'from' if r.get('type') == '1' else 'to'} {r.get('address')}: {r.get('body')}"
                      for r in rows[:count]]
@@ -383,7 +404,7 @@ def register(registry: ToolRegistry, ctx) -> None:
                      f"{r.get('number')} ({r.get('duration') or 0} s)" for r in rows[:count]]
         else:
             lines = sorted({f"{r.get('display_name')}: {r.get('data1')}" for r in rows})[:max(count, 50)]
-        return "\n".join(lines) or f"No {kind} found."
+        return (note + "\n".join(lines)) or f"No {kind} found."
 
     @registry.tool(
         "Connect the owner's Android phone (or TV) to Jarvis over Wi-Fi, without a cable. "
@@ -444,6 +465,9 @@ def register(registry: ToolRegistry, ctx) -> None:
         summarize=lambda a: f"ОБАЖДАНЕ от твоя телефон до {a.get('number')}",
     )
     def phone_call(device: str, number: str):
+        if not re.fullmatch(r"\+?[\d\s().-]{3,}|\*[\d*#]+#?", (number or "").strip()):
+            raise ValueError(f"'{number}' is not a phone number. Look the person up first (android contacts with their "
+                             "exact name, or find_contact) and call the number; if there is no exact match, ask the user.")
         shell(device, f"am start -a android.intent.action.CALL -d tel:{shlex.quote(number)}")
         return f"Calling {number} from the phone."
 
@@ -465,6 +489,9 @@ def register(registry: ToolRegistry, ctx) -> None:
         summarize=lambda a: f"SMS от твоя телефон до {a.get('number')}: „{a.get('text')}“",
     )
     def phone_sms(device: str, number: str, text: str):
+        if not re.fullmatch(r"\+?[\d\s().-]{3,}", (number or "").strip()):
+            raise ValueError(f"'{number}' is not a phone number. Look the person up first (android contacts with their "
+                             "exact name, or find_contact); if there is no exact match, ask the user.")
         shell(device, "am start -a android.intent.action.SENDTO -d " + shlex.quote(f"sms:{number}")
               + " --es sms_body " + shlex.quote(text) + " --ez exit_on_sent true")
         return "Message composed. Tap Send: android tap_text with the Send button's label, or read_screen to find it."

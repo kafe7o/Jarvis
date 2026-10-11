@@ -360,7 +360,7 @@ def test_jarvis_waits_for_a_pause_before_acting(settings, ctx, registry, monkeyp
 
 
 def test_jarvis_is_told_to_claim_only_what_his_tools_did(settings, ctx, registry):
-    client = FakeClient([response(text_block("Добре."))])
+    client = FakeClient([response(text_block("Добре.")), response(text_block("Добре."))])  # a mission: one more look
     Jarvis(settings, ctx.store, registry, Approver(), client=client).ask("работи сам до 6:30 и ми пиши доклад")
     instructions = system_text(client.requests[0])
     assert "only when a tool call" in instructions and "Between messages you do nothing on your own" in instructions

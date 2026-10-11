@@ -165,6 +165,12 @@ header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-spa
 #mic.rec { color: #fff; background: var(--danger); animation: pulse-red 1.4s infinite; }
 @keyframes pulse-red { 50% { box-shadow: 0 0 0 6px rgba(255,93,108,.2); } }
 #send { width: 40px; height: 40px; padding: 0; border-radius: 12px; }
+.attachments { max-width: 860px; margin: 0 auto 8px; }
+.attachments .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; }
+.attachments .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachments .chip img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; }
+.attachments .chip button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 2px; }
+#composer.drop { border-color: rgba(79,209,255,.9); }
 .foot { max-width: 860px; margin: 8px auto 0; text-align: center; color: var(--faint); font-size: 12px; }
 
 /* Settings */
@@ -620,8 +626,11 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
       <div id="messages"></div>
     </div>
     <div class="composer-wrap">
+      <div id="attachments" class="chips attachments hidden"></div>
       <form id="composer">
         <textarea id="input" rows="1" placeholder="Кажи на Jarvis…" autocomplete="off"></textarea>
+        <input type="file" id="fileInput" multiple hidden>
+        <button type="button" class="icon-btn" id="attach" title="Прикачи снимка, видео или файл"><svg class="i"><use href="#i-clip"/></svg></button>
         <button type="button" class="icon-btn" id="mic" title="Говори"><svg class="i"><use href="#i-mic"/></svg></button>
         <button class="btn primary" id="send" title="Изпрати"><svg class="i"><use href="#i-send"/></svg></button>
       </form>
@@ -737,6 +746,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
   <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21.4 11.1 12.3 20.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.1a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
   <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
@@ -1002,9 +1012,49 @@ $("composer").addEventListener("submit", (e) => { e.preventDefault(); send(); })
 state.line = [];
 Object.defineProperty(state, "pending", { get: () => state.line[0] || null });
 
+// ---------- Attachments: photos, videos and files for Jarvis (the button, drag and drop, or paste) ----------
+const MAX_ATTACH = 40 * 1024 * 1024;
+state.files = [];
+function renderAttachments() {
+  const box = $("attachments");
+  box.classList.toggle("hidden", !state.files.length);
+  box.innerHTML = state.files.map((f, i) => `<div class="chip">${f.preview ? `<img src="${f.preview}" alt="">` : ""}<span title="${esc(f.name)}">${esc(f.name)}</span> <small>${(f.size / 1024 / 1024).toFixed(f.size > 1024 * 1024 ? 1 : 2)} MB</small><button type="button" data-rm="${i}" title="Махни">✕</button></div>`).join("");
+}
+$("attachments").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-rm]");
+  if (b) { state.files.splice(Number(b.dataset.rm), 1); renderAttachments(); }
+});
+function readAsDataUrl(file) {
+  return new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(file); });
+}
+async function addFiles(list) {
+  for (const file of Array.from(list || [])) {
+    if (state.files.length >= 6) { toast("До 6 файла на съобщение.", "Файлове", "warn"); break; }
+    if (file.size > MAX_ATTACH) { toast(`„${file.name}“ е над 40 MB. Кажи на Jarvis къде е файлът на компютъра.`, "Файлове", "warn"); continue; }
+    const data = await readAsDataUrl(file);
+    const isImage = /^image\/(jpeg|png|webp)$/.test(file.type);
+    state.files.push({ name: file.name || (isImage ? "снимка.jpg" : "файл"), size: file.size, data, isImage, preview: isImage ? data : "" });
+  }
+  renderAttachments();
+}
+$("attach").addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", async (e) => { await addFiles(e.target.files); e.target.value = ""; });
+input.addEventListener("paste", (e) => {
+  const files = Array.from(e.clipboardData?.files || []);
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+for (const ev of ["dragenter", "dragover"]) $("composer").addEventListener(ev, (e) => { e.preventDefault(); $("composer").classList.add("drop"); });
+for (const ev of ["dragleave", "drop"]) $("composer").addEventListener(ev, (e) => { e.preventDefault(); $("composer").classList.remove("drop"); if (ev === "drop") addFiles(e.dataTransfer.files); });
+
 async function send() {
   const text = input.value.trim();
-  if (!text) return;
+  const files = state.files.splice(0);
+  renderAttachments();
+  if (!text && !files.length) return;
+  const body = { text: text || "Виж какво ти пращам." };
+  if (files.some((f) => f.isImage)) body.images = files.filter((f) => f.isImage).slice(0, 4).map((f) => f.data);
+  if (files.some((f) => !f.isImage)) body.files = files.filter((f) => !f.isImage).map((f) => ({ name: f.name, data: f.data }));
+  const shown = (text || body.text) + (files.length ? "\n📎 " + files.map((f) => f.name).join(", ") : "");
   input.value = ""; input.style.height = "auto";
   let mine = null;
   try {
@@ -1018,7 +1068,7 @@ async function send() {
     }
     const chatId = state.chat.id;
     $("empty").classList.add("hidden");
-    addMessage("user", text);
+    addMessage("user", shown);
     const waits = state.line.length > 0;
     const pend = document.createElement("div");
     pend.className = "msg assistant";
@@ -1028,7 +1078,7 @@ async function send() {
     state.line.push(mine);
     scrollDown(true);
     let data;
-    try { data = await askJarvis(chatId, { text }); }
+    try { data = await askJarvis(chatId, body); }
     catch (err) { data = { answer: err.message, error: true }; }
     pend.remove();
     state.line = state.line.filter((p) => p !== mine);  // the next one in line gets the progress now
@@ -1086,11 +1136,15 @@ function fetchVoice(text, sample) {
   return shortVoices.get(text);
 }
 async function fetchVoiceNow(text, sample) {
-  try {
-    const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis": "1" },
-                                          body: JSON.stringify({ text, sample }) });
-    return res.ok ? await res.blob() : null;
-  } catch (e) { return null; }
+  for (let attempt = 0; attempt < 2; attempt++) {  // one hiccup must not hand the answer to the browser's flat voice
+    try {
+      const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis": "1" },
+                                            body: JSON.stringify({ text, sample }) });
+      if (res.ok) return await res.blob();
+      if (res.status === 400) return null;
+    } catch (e) { /* try again */ }
+  }
+  return null;
 }
 // Plays text with Jarvis's own voice while alive() holds. Returns what is left unread when that voice
 // is not available (the caller reads it with the browser's voice), or "" when done or stopped.

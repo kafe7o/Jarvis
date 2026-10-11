@@ -72,6 +72,14 @@ for what went wrong and, if a change to your own code would clearly help, make i
 says yes once).
 - Think ahead like a real assistant: notice what the user will need next, point out problems, and offer \
 the obvious next step. When the user refers to something from the past, use search_history and recall.
+- Judge what matters: tell the difference between a quick request and a long job, and give a job the steps it \
+deserves. For a big job ("work until it is done", "check everything", a goal with many parts): make the plan \
+(make_plan), carry it out step by step, and check the whole result against the goal before you answer; when a \
+step fails, change the approach instead of stopping. Your answer at the end says what you verified and what is left.
+- People by name: when asked to call or message someone, use the contact whose name is exactly that (contacts \
+tools, android contacts); a name that merely contains the word ("Alper's mom" for "mom") is not the person: ask \
+which one, or save the right contact. Never deny what you did: your tool calls are in this conversation; if you \
+made a wrong call or sent the wrong thing, say so plainly and put it right.
 - For work that should happen later or regularly on its own ("every morning check my mail"), use \
 schedule_job.
 - Be truthful about what you do: say you did, started, set up or changed something only when a tool call \
@@ -143,6 +151,13 @@ NEGATED = re.compile(router.bg(r"(?:^|\s)(?:не|няма|нищо не|not|n't)
 def claims_done(text: str) -> bool:
     """True when an answer says something was done, sent, saved or fixed ("Готово", "изпратих го")."""
     return bool(CLAIMS_DONE.search(NEGATED.sub(" ", text or "")))
+# Said to the agent at the end of a mission ("работи докато не стане"), before its answer counts.
+VERIFY_CHECK = ("(Before you finish this job, check it the way a careful person would: go back to the goal and your plan, "
+                "and for every part look at the actual result (open the file, read the page or window, run the code, read "
+                "the plan) instead of trusting that it worked. Fix what is not right, finish what is left, and only then "
+                "answer: what you verified, what you changed, and what, if anything, still needs me. If you have checked "
+                "everything already, give your answer again unchanged.)")
+MISSION_ROUNDS = 3  # a mission may take this many times the usual steps (JARVIS_MAX_TOOL_ROUNDS)
 # Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
 LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
@@ -484,9 +499,11 @@ class Jarvis:
         on_step({"type": "level", "level": 3})
         if insist is None:
             insist = self.settings.act_check and router.wants_action(text)
+        mission = router.is_mission(text)  # a long job: more steps, and the result is checked before the answer
         steps: list[tuple[str, dict, str, bool]] = []
-        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step, insist=insist,
-                            steps=steps)
+        answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step,
+                            insist=insist or mission, steps=steps, verify=mission,
+                            rounds=self.settings.max_tool_rounds * (MISSION_ROUNDS if mission else 1))
         self.count(3)
         if self.settings.learn and (user is None or user.is_owner) and (
                 any(failed for *_r, failed in steps) or router.corrects(text)):
@@ -698,9 +715,11 @@ class Jarvis:
 
     def _loop(self, messages: list, confirmer: Confirmer, user=None, on_progress=None, persona: str = "",
               groups: set | None = None, agent: str = "Jarvis", depth: int = 0, effort: str | None = None,
-              on_step: Callable[[dict], None] | None = None, insist: bool = False, steps: list | None = None) -> str:
+              on_step: Callable[[dict], None] | None = None, insist: bool = False, steps: list | None = None,
+              verify: bool = False, rounds: int | None = None) -> str:
         """The tool loop. ``insist``: the message asks for action, so an answer with no tool used gets one
-        more look (ACT_CHECK) before it counts. Specialists (see plugins/team.py) pass a ``persona``, the permission
+        more look (ACT_CHECK) before it counts. ``verify``: a mission, whose result gets checked against the goal
+        (VERIFY_CHECK) before the answer counts; ``rounds`` is how many steps it may take. Specialists (see plugins/team.py) pass a ``persona``, the permission
         ``groups`` they work with (never more than the user's own) and their ``agent`` name."""
         on_progress = on_progress or self.on_progress
         allowed = user.allowed_groups() if user is not None else None
@@ -718,7 +737,7 @@ class Jarvis:
         failed: list[str] = []  # the tools that failed in the last round of steps (empty when it went well)
         checked_done = False
         mark = self._mark(user)
-        for _ in range(self.settings.max_tool_rounds):
+        for _ in range(rounds or self.settings.max_tool_rounds):
             if self._mark(user) != mark:  # "спри" came while working
                 return STOPPED
             response = self._request(messages, user, system, allowed)
@@ -737,6 +756,11 @@ class Jarvis:
                     checked_done = True
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
                     messages.append({"role": "user", "content": DONE_CHECK.format(failed=", ".join(failed))})
+                    continue
+                if verify and acted:  # a mission: the whole result is checked against the goal before it counts
+                    verify = False
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": VERIFY_CHECK})
                     continue
                 break
             messages.append({"role": "assistant", "content": response.content})

@@ -51,11 +51,17 @@ class Speaker:
         text = clean_for_speech(text)
         if not text:
             return
-        try:
-            self._edge(text)
-        except Exception as exc:
-            log.debug("edge-tts failed (%s); using offline voice", exc)
-            self._offline(text)
+        # The neural voice needs the internet; a hiccup gets two more tries before the flat offline voice speaks.
+        for attempt in range(3):
+            try:
+                self._edge(text)
+                return
+            except Exception as exc:
+                if attempt == 2:
+                    log.warning("the neural voice is not available (%s); using the offline voice", exc)
+                else:
+                    log.debug("edge-tts failed (%s); trying again", exc)
+        self._offline(text)
 
     def _edge(self, text: str) -> None:
         import edge_tts

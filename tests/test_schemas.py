@@ -6,7 +6,7 @@ from __future__ import annotations
 import inspect
 
 from jarvis import gemini, router
-from jarvis.brain import DONE_CHECK, Jarvis
+from jarvis.brain import DONE_CHECK, VERIFY_CHECK, Jarvis
 from jarvis.tools import JSON_TYPES, Tool, ToolRegistry, fit_args, normalize_schema, obj
 
 from conftest import Approver, FakeClient, response, text_block, tool_block
@@ -125,3 +125,60 @@ def test_done_after_a_failed_step_gets_a_second_look(settings, ctx, registry):
     assert jarvis.ask("прочети ми файла none.txt") == "Не успях: файлът липсва." and len(client.requests) == 2
     client.responses = [response(tool_block("read_file", {"path": "/nowhere/none.txt"}), stop="tool_use"), response()]
     assert jarvis.ask("прочети ми файла none.txt").startswith("Опитах, но последната стъпка не успя (read_file)")
+
+
+def test_a_mission_gets_more_steps_and_a_check_of_the_result(settings, ctx, registry):
+    assert router.is_mission("направи го и работи докато не стане перфектно")
+    assert router.is_mission("raboti bez da spirash do 11 sutrinta")
+    assert not router.is_mission("колко е часа") and not router.is_mission("пусни музика")
+    settings.max_tool_rounds = 2
+    client = FakeClient([
+        response(tool_block("list_tasks", {}), stop="tool_use"),
+        response(text_block("Готово, прегледах задачите.")),  # the result is checked first
+        response(tool_block("list_tasks", {}, id="tu_2"), stop="tool_use"),  # more than 2 steps are allowed
+        response(text_block("Проверих: списъкът е празен, нищо не остава.")),
+    ])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert jarvis.ask("прегледай задачите и провери всичко до край").startswith("Проверих")
+    assert client.requests[2]["messages"][-1]["content"] == VERIFY_CHECK
+    assert len(client.requests) == 4 and VERIFY_CHECK[:30] not in str(ctx.store.history("main", 10))
+    # an ordinary request gets no check
+    client.responses = [response(tool_block("list_tasks", {}), stop="tool_use"), response(text_block("Нямаш задачи."))]
+    client.requests.clear()
+    assert jarvis.ask("виж ми задачите") == "Нямаш задачи." and len(client.requests) == 2
+
+
+def test_the_exact_contact_wins_and_a_look_alike_is_not_called(registry):
+    from jarvis.plugins.android import pick_rows
+
+    rows = [{"display_name": "Alper's mom", "data1": "+359 1"}, {"display_name": "Mom", "data1": "+359 2"},
+            {"display_name": "Ivan", "data1": "+359 3"}]
+    assert pick_rows(rows, "mom", "display_name") == ([rows[1]], "")
+    assert pick_rows(rows[:1] + rows[2:], "mom", "display_name")[1].startswith("No contact is named exactly 'mom'")
+    picked, note = pick_rows([{"display_name": "Мама Ани", "data1": "1"}, {"display_name": "Омама", "data1": "2"}], "мама", "display_name")
+    assert picked == [{"display_name": "Мама Ани", "data1": "1"}] and note  # a whole word ranks first, still with the note
+    out, error = registry.run("phone_call", {"device": "phone", "number": "Alper's mom"}, Approver())
+    assert error and "not a phone number" in out
+    out, error = registry.run("phone_sms", {"device": "phone", "number": "mom", "text": "hi"}, Approver())
+    assert error and "not a phone number" in out
+    out, _ = registry.run("phone_call", {"device": "phone", "number": "+359 888 123 456"}, Approver())
+    assert "not a phone number" not in out  # a real number goes on to the phone (not connected in tests)
+
+
+def test_files_sent_in_the_app_are_saved_for_jarvis_to_open(tmp_path):
+    import base64
+
+    from jarvis.hub import HTTPError, save_files, with_files
+
+    data = "data:text/plain;base64," + base64.b64encode("здрасти".encode()).decode()
+    paths = save_files([{"name": "бележки.txt", "data": data}], tmp_path)
+    assert len(paths) == 1 and paths[0].read_text(encoding="utf-8") == "здрасти" and paths[0].parent == tmp_path / "uploads"
+    text = with_files("виж това", paths)
+    assert text.startswith("виж това") and str(paths[0]) in text and "watch_video" in text
+    assert with_files("нищо", []) == "нищо"
+    try:
+        save_files([{"name": "x", "data": "not a data url"}], tmp_path)
+    except HTTPError as exc:
+        assert exc.status == 400
+    else:
+        raise AssertionError("a broken file must be refused")

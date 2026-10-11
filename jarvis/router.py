@@ -459,6 +459,18 @@ def stops_work(text: str) -> bool:
     return bool(STOP_WORK.match(clean(text)))
 
 
+MISSION = rx(r"докато не (?:свършиш|е готово|стане|приключиш|си доволен|е перфектно|е идеално|го довършиш)|без да спираш|"
+             r"не спирай|до край(?:я)?|до последно|работи сам|работи до|цялата работа|довърши (?:всичко|всичката)|"
+             r"провери (?:всичко|пак всичко|наново)|перфектно|идеално|мисия|непрекъснато|нонстоп|non-?stop|"
+             r"направи (?:си )?план(?: и)? (?:го изпълни|започни|работи)")
+
+
+def is_mission(text: str) -> bool:
+    """A big job to be carried through on its own ("работи докато не стане", "без да спираш", "провери всичко"):
+    more steps, and a check of the whole result before the answer counts (brain.VERIFY_CHECK)."""
+    return bool(MISSION.search(clean(text)))
+
+
 def think_harder(text: str) -> bool:
     """The owner asks for careful thinking: the full agent then thinks harder for this one request."""
     return bool(THINK_HARDER.search(text or ""))

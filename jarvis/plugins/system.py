@@ -42,7 +42,8 @@ def allowed_path(path: str, allowed: list[str]) -> Path:
 
 def register(registry: ToolRegistry, ctx) -> None:
     def safe_path(path: str) -> Path:  # reads the setting each time, so a change in Settings applies at once
-        return allowed_path(path, ctx.settings.allowed_roots)
+        # Files attached in the app land in ~/.jarvis/uploads and are always his to read.
+        return allowed_path(path, [*ctx.settings.allowed_roots, str(Path(ctx.settings.home) / "uploads")])
 
     @registry.tool(
         "Run a shell command on this computer and return its output. Use for anything the other tools "
