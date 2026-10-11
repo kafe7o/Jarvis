@@ -157,6 +157,10 @@ SMALL_TALK = rx(r"^(?:благодаря|мерси|сенкс|thanks?|thank you
                 r"добър ден|добър вечер|лека нощ|чао|до скоро|ок|окей|ok|okay|добре|ясно|разбрах|супер|страхотно|"
                 r"браво|евала|да|не|аха|хаха|нищо|няма нужда|забрави|остави)(?:\s+(?:ти|ви|много|бе|де|брат|"
                 r"джарвис|jarvis|сър))*$")
+# Small talk asked as a question ("как си", "кво става"): quick even next to a time word like "сега" or "днес".
+TIME_WORDS = rx(r"(?:^|\s)(?:сега|днес|вчера|утре|в момента|тази седмица)(?=\s|$|[,?!.])")
+CHAT = rx(r"(?:^|\s)(?:как си|как сте|как е|как върви|как мина|кво става|какво става|какво правиш|какво ново|"
+          r"какво има|how are you|what's up|whats up)(?=\s|$|[,?!.])")
 STOP_WORK = rx(r"^(?:спри|стоп|спирай|престани|прекрати|откажи|cancel)(?: (?:всичко|всички|това|го|ги|задачата|задачите|"
                r"работата|да работиш|с всичко|с това|се|веднага|сега|моментално|незабавно))*$")
 THINK_HARDER = rx(r"помисли (?:добре|задълбочено|сериозно|внимателно)|задълбочено|в детайли|подробен анализ|"
@@ -432,6 +436,8 @@ def _play(s: str, info: Info) -> Step | None:
 def quick(text: str) -> bool:
     """True when a question can go to the quick level (level 2): it asks something to know, not to do."""
     said = clean(text)
+    if said and words(said) <= 12 and CHAT.search(said) and not NEEDS_TOOLS.search(TIME_WORDS.sub(" ", said)):
+        return True
     return bool(said) and words(said) <= 40 and bool(QUESTION.match(said)) and not NEEDS_TOOLS.search(said)
 
 
@@ -441,7 +447,7 @@ def wants_action(text: str) -> bool:
     said = clean(text)
     if not said or SMALL_TALK.match(said):
         return False
-    return not (QUESTION.match(said) and not NEEDS_TOOLS.search(said))
+    return not quick(text)
 
 
 CORRECTS = rx(r"(?:^|\s)(?:не (?:така|това|е така|е това|си разбрал|ме разбра|ме слушаш|стана|работи|го направи)|"

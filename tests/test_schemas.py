@@ -189,3 +189,11 @@ def test_colloquial_greetings_take_the_quick_lane():
     for text in ["кво става jarvis", "к'во става", "що стана", "какво ново, Джарвис?"]:
         assert router.quick(text) and not router.wants_action(text), text
     assert router.latin_bulgarian("kvo staa jarvis") and router.to_cyrillic("kvo staa jarvis").startswith("кво стаа")
+
+
+def test_small_talk_stays_quick_next_to_a_time_word_but_not_next_to_work():
+    from jarvis import router
+    for text in ["sega kak si inache", "как си днес", "какво ново"]:
+        assert router.quick(text) and not router.wants_action(text), text
+    for text in ["как е времето сега", "как си, провери ми пощата", "какво ново в youtube.com"]:
+        assert not router.quick(text) and router.wants_action(text), text
