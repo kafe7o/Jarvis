@@ -188,6 +188,28 @@ def register(registry: ToolRegistry, ctx) -> None:
             info["note"] = "Install psutil for CPU/memory/battery details."
         return info
 
+    @registry.tool(
+        "What takes up space on this computer: the biggest folders and files under a folder (default: the user's "
+        "home), the drive's free space, and what is safe to empty (Recycle Bin, temporary files, Downloads). Draws a "
+        "clickable map and opens it in the browser, so say that the map is on the screen. Takes up to half a minute.",
+        obj({"folder?": ("string", "Folder to look at (default: the home folder)"),
+             "show?": ("boolean", "Open the map in the browser (default true)")}),
+        summarize=lambda a: f"Кое заема място в {a.get('folder') or 'домашната папка'}",
+    )
+    def disk_space(folder: str | None = None, show: bool = True):
+        from .. import diskmap
+
+        root = safe_path(folder) if folder else Path.home()
+        found = diskmap.scan(root)
+        text = diskmap.summary(found)
+        if show:
+            path = Path(ctx.settings.home) / "disk-map.html"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(diskmap.html(found), encoding="utf-8")
+            webbrowser.open(path.as_uri())
+            text += f"\nThe map is open on the screen ({path})."
+        return text
+
     @registry.tool("Read the clipboard text.", obj({}))
     def get_clipboard():
         import pyperclip

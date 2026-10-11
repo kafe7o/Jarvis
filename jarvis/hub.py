@@ -59,6 +59,7 @@ TOOL_LABELS = {
     "run_python": "Пуска код", "run_shell": "Пуска команда", "remember": "Запомня", "recall": "Спомня си",
     "search_history": "Търси в старите разговори", "make_plan": "Прави план", "update_plan_step": "Отмята стъпка от плана",
     "show_plan": "Преглежда плана", "request_approval": "Иска разрешение", "create_skill": "Учи ново умение",
+    "disk_space": "Проверява мястото на диска", "audit_myself": "Прави си одит", "work_report": "Брои какво е свършил",
     "find_files": "Търси файлове", "read_file": "Чете файл", "write_file": "Записва файл", "list_dir": "Разглежда папка",
     "open_target": "Отваря", "add_task": "Добавя задача", "list_tasks": "Преглежда задачите", "add_reminder": "Слага напомняне",
     "schedule_job": "Насрочва задача", "add_event": "Добавя в календара", "list_events": "Преглежда календара",

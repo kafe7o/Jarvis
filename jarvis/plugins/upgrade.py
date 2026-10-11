@@ -3,6 +3,9 @@ undoes an upgrade, and installs the newest version from GitHub (see upgrades.py)
 
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 import threading
 
 from .. import upgrades
@@ -144,6 +147,42 @@ def register(registry: ToolRegistry, ctx) -> None:
         made = upgrades.records(ctx.settings.home)
         lines.append("Your upgrades: " + ("; ".join(upgrades.describe(r) for r in made[-5:]) or "none yet"))
         return "\n".join(lines)
+
+    @registry.tool(
+        "Audit yourself (the optimizer): check everything you keep for contradictions and rot: remembered facts "
+        "(duplicates, several facts on one topic), lessons, stale plans, contacts sharing a number, skills that no "
+        "longer load, and the failures of the last days. Exact duplicates are removed at once (safe); every "
+        "conflict is listed for you to resolve: decide from the dates and the conversation which fact is current "
+        "and forget the stale one, close finished plans, and leave anything about people, money or permissions "
+        "to the owner. The report is saved in the vault (output/) when there is one.",
+        obj({"days?": ("integer", "How many days of failures to look at (default 7)")}),
+    )
+    def audit_myself(days: int = 7):
+        from .. import optimize
+
+        owner_only()
+        found = optimize.audit(ctx.store, ctx.settings.home, days=int(days or 7))
+        text = optimize.report(found)
+        try:
+            folder = Path(ctx.settings.vault).expanduser() / "output"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"audit-{datetime.now():%Y-%m-%d}.md"
+            path.write_text(text + "\n", encoding="utf-8")
+            text += f"\n\n(Saved as {path})"
+        except Exception as exc:  # no vault: the report is only returned
+            text += f"\n\n(Not saved to the vault: {exc})"
+        return text
+
+    @registry.tool(
+        "What you did lately, with numbers: requests, steps, tasks done, reminders and jobs fired, messages answered, "
+        "specialists that worked, failures. Use it at the start of the morning brief and whenever the owner asks "
+        "what you have been doing.",
+        obj({"days?": ("integer", "How many days back (default 1)")}),
+    )
+    def work_report(days: int = 1):
+        from .. import optimize
+
+        return optimize.work_summary(ctx.store, int(days or 1))
 
     @registry.tool("List the upgrades you have made to yourself, newest first.", obj({}))
     def list_upgrades():

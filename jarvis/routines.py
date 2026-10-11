@@ -17,7 +17,8 @@ ROUTINES = {
         "title": "Сутрешен брифинг",
         "desc": "Всяка сутрин: календар, задачи, важната поща и времето.",
         "time": "08:00", "repeat": "daily",
-        "instruction": "Morning brief for the owner: today's calendar and tasks, reminders, overdue items, important "
+        "instruction": "Morning brief for the owner: first what you did since yesterday, with numbers (work_report), "
+                       "then today's calendar and tasks, reminders, overdue items, important "
                        "unread e-mail if mail is connected, today's weather where they live if you know it, and one "
                        "useful suggestion for the day. Short and in their language.",
     },
@@ -44,6 +45,18 @@ ROUTINES = {
                        "into wiki/ (update the matching topic note or create one in a topic folder, in the owner's "
                        "language), keep wiki/_master-index.md listing every topic note with one line about it, then "
                        "mark each processed raw note with vault_done. Report in two sentences what you filed.",
+    },
+    "optimize": {
+        "title": "Нощен одит",
+        "desc": "Всяка нощ Jarvis проверява паметта, уроците, плановете и уменията си за противоречия; поправя безопасното, "
+                "останалото чака твоето „да“.",
+        "time": "04:00", "repeat": "daily",
+        "instruction": "Nightly audit: call audit_myself. Then resolve what you can on your own: for facts that "
+                       "contradict each other, keep the newest or the one the conversation confirms and forget the stale "
+                       "one; close plans that are plainly finished or abandoned (update_plan_step); write a lesson when a "
+                       "tool keeps failing for one reason. Do not touch contacts, money, messages or permissions: list "
+                       "those for the owner. Report in three short sentences: what you fixed, what contradicted what, "
+                       "and what waits for the owner's yes.",
     },
     "growth": {
         "title": "Самоусъвършенстване",
