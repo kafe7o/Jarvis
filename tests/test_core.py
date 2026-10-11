@@ -454,3 +454,37 @@ def test_review_myself_shows_what_failed_and_learn_keeps_lessons(settings, ctx, 
     assert not err and "kept" in out
     out, _ = registry.run("learn", {"lesson": "когато бутонът няма име, ползвай look_at_screen"}, Approver())
     assert "Already" in out
+
+
+def test_update_reads_a_private_repository_with_the_owners_token(monkeypatch):
+    """When the repository is private the public zip is gone (404); the API zip with the token works instead."""
+    import io
+    import urllib.error
+    import zipfile
+
+    import pytest
+
+    from jarvis import updater
+
+    seen = []
+
+    def urlopen(req, timeout):
+        seen.append((req.full_url, req.get_header("Authorization"), req.get_header("Accept")))
+        if "api.github.com" not in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, io.BytesIO(b""))
+        if "/commits/" in req.full_url:
+            return io.BytesIO(b"abc123\n")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:  # the API archive here carries no commit id in its comment
+            z.writestr("kafe7o-Jarvis-abc123/jarvis/__main__.py", "print(1)")
+        return io.BytesIO(buf.getvalue())
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", urlopen)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    with pytest.raises(SystemExit, match="GITHUB_TOKEN"):
+        updater.download()
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    archive = updater.download()
+    assert updater.version_of(archive) == "abc123"
+    assert seen[-2][0] == "https://api.github.com/repos/kafe7o/Jarvis/zipball/main"
+    assert seen[-2][1] == "Bearer ghp_test" and seen[-1][2] == "application/vnd.github.sha"

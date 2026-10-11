@@ -8,6 +8,7 @@ upgrades Jarvis made to himself are applied again on top of the new version (upg
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import sys
 import urllib.request
@@ -15,6 +16,8 @@ import zipfile
 from pathlib import Path
 
 REPO = "https://github.com/kafe7o/Jarvis/archive/refs/heads/{branch}.zip"
+# A private repository is read through the API with the owner's GitHub token (Settings > Връзки > GITHUB_TOKEN).
+API = "https://api.github.com/repos/kafe7o/Jarvis"
 BRANCHES = ["main", "claude/jarvis-full-o9l6do"]
 KEEP = {".env", ".venv", ".git"}
 VERSION_FILE = ".jarvis-version"  # the commit installed last
@@ -25,16 +28,39 @@ def project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def token() -> str:
+    return (os.environ.get("GITHUB_TOKEN") or os.environ.get("JARVIS_GITHUB_TOKEN") or "").strip()
+
+
+def _request(url: str, accept: str = "application/vnd.github+json") -> urllib.request.Request:
+    headers = {"User-Agent": "jarvis", "Accept": accept}
+    if token():
+        headers["Authorization"] = f"Bearer {token()}"
+    return urllib.request.Request(url, headers=headers)
+
+
 def download() -> zipfile.ZipFile:
+    """The newest Jarvis as a zip: straight from GitHub when the repository is public, through the API with the
+    owner's token when it is private. The archive's comment carries the commit id either way."""
     for branch in BRANCHES:
         try:
-            with urllib.request.urlopen(REPO.format(branch=branch), timeout=60) as resp:
-                archive = zipfile.ZipFile(io.BytesIO(resp.read()))
+            if token():
+                with urllib.request.urlopen(_request(f"{API}/zipball/{branch}"), timeout=60) as resp:
+                    archive = zipfile.ZipFile(io.BytesIO(resp.read()))
+                if not archive.comment.strip():
+                    with urllib.request.urlopen(_request(f"{API}/commits/{branch}", "application/vnd.github.sha"),
+                                                timeout=30) as resp:
+                        archive.comment = resp.read().strip()
+            else:
+                with urllib.request.urlopen(_request(REPO.format(branch=branch)), timeout=60) as resp:
+                    archive = zipfile.ZipFile(io.BytesIO(resp.read()))
         except Exception:
             continue
         if any(name.endswith("/jarvis/__main__.py") for name in archive.namelist()):
             return archive
-    raise SystemExit("Не успях да изтегля Jarvis от GitHub. Провери интернета.")
+    hint = ("" if token() else
+            " Ако хранилището kafe7o/Jarvis е частно, сложи GitHub ключ в Настройки > Връзки (GITHUB_TOKEN).")
+    raise SystemExit("Не успях да изтегля Jarvis от GitHub. Провери интернета." + hint)
 
 
 def version_of(archive: zipfile.ZipFile) -> str:
