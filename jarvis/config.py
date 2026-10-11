@@ -9,7 +9,10 @@ from pathlib import Path
 try:  # .env support is optional
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv()  # the nearest .env from the current folder up (the project folder when started from it)
+    # Keys also live in ~/.jarvis/.env (where Settings and the app write them); read them too, whatever folder
+    # Jarvis was started from, so a key added there counts at once. Values already set are not overridden.
+    load_dotenv(Path(os.environ.get("JARVIS_HOME") or Path.home() / ".jarvis") / ".env")
 except ImportError:  # pragma: no cover
     pass
 

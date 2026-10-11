@@ -18,14 +18,15 @@ def register(registry: ToolRegistry, ctx) -> None:
         return f"Remembered (id {fid})."
 
     @registry.tool(
-        "Search remembered facts by keyword. Empty query lists everything.",
-        obj({"query?": ("string", "Keyword")}),
+        "Search remembered facts by keyword. Empty query lists everything. Several words: all of them must match, "
+        "in any order (e.g. 'Краси телефон'). The newest facts come first.",
+        obj({"query?": ("string", "Keyword(s)")}),
     )
-    def recall(query: str = ""):
-        return store.query(
-            "SELECT id, topic, fact, created FROM facts WHERE casefold(topic) LIKE casefold(?) OR casefold(fact) LIKE casefold(?) ORDER BY id",
-            (f"%{query}%", f"%{query}%"),
-        )
+    def recall(query: str = ""):  # Jarvis wrote this improvement for himself on the owner's laptop (upgrade 9)
+        words = (query or "").split()
+        where = " AND ".join("(casefold(topic) LIKE casefold(?) OR casefold(fact) LIKE casefold(?))" for _ in words) or "1=1"
+        params = [p for w in words for p in (f"%{w}%", f"%{w}%")]
+        return store.query(f"SELECT id, topic, fact, created FROM facts WHERE {where} ORDER BY id DESC", params)
 
     @registry.tool("Forget a remembered fact by id.", obj({"fact_id": ("integer", "Fact id")}))
     def forget(fact_id: int):
