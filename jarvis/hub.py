@@ -440,6 +440,7 @@ EXTRA_SETTINGS = [
         ("JARVIS_MODEL", "Мозък: празно = безплатен (Gemini, после Groq), groq (безплатно, най-бързият), nvidia или openrouter (безплатни силни модели), local (на лаптопа, без лимит); платени: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
+        ("GITHUB_TOKEN", "GitHub ключ за обновяване, нужен само ако хранилището kafe7o/Jarvis е частно (github.com/settings/personal-access-tokens, само четене на Contents)"),
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
     ]),
     ("Пестене", "https://ollama.com/download", [
