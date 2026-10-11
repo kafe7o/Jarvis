@@ -49,9 +49,13 @@ PREFER = ("kimi-k2", "deepseek", "glm", "qwen3", "minimax-m", "gpt-oss-120b", "m
 # Models that are not chat brains (search, safety, pictures, speech) or think for a long time before answering.
 SKIP = re.compile(r"embed|rerank|guard|safety|reward|retriev|parse|ocr|clip|vision|-vl|audio|speech|tts|asr|whisper|"
                   r"translat|coder|math|detector|pii|base$")
-SLOW = re.compile(r"thinking|-r1|reason")
+# "deepseek-v4", "glm-5" and "minimax-m2" think at length before every answer (minutes on a free queue).
+SLOW = re.compile(r"thinking|-r1|reason|deepseek-v4|glm-5|minimax-m2")
 BUDGET = 100_000  # characters of prompt (system, tools and conversation) sent at most
-TRIES = 3  # models tried for one answer before handing over to the next free brain
+TRIES = 3  # models that cost time (busy, down, slow) tried for one answer before the next free brain takes over
+TIMEOUT = 45.0  # seconds to wait for an answer with tools; a free queue slower than that is handed over
+QUICK_TIMEOUT = 20.0  # seconds for a short answer without tools (the quick lane)
+CHEAP = {400, 402, 403, 404, 410}  # the model refuses at once: costs no time, so it is not one of the TRIES
 DAILY = re.compile(r"per.?day|daily", re.I)
 
 
@@ -105,13 +109,35 @@ def choose(provider: Provider, listing: list[dict]) -> list[str]:
 class FreeBrain:
     """Answers Claude-format requests (see brain.Jarvis._request) with one provider's free models."""
 
-    def __init__(self, provider: str | Provider, post=None, get=None, wait=time.sleep):
+    def __init__(self, provider: str | Provider, post=None, get=None, wait=time.sleep, state=None):
         self.provider = PROVIDERS[provider] if isinstance(provider, str) else provider
         self._post = post or self._send
         self._get = get or self._fetch
         self._wait = wait
-        self.resting: dict[str, float] = {}  # model ("*" = all of them) -> when it may be asked again
+        self.timeout = TIMEOUT
+        self.state = state  # a file that keeps ``resting`` across restarts, or None
+        self.resting: dict[str, float] = self._load()  # model ("*" = all of them) -> when it may be asked again
         self._listed: tuple[float, list[str]] = (0.0, [])
+
+    def _load(self) -> dict[str, float]:
+        """The models still resting from the last run, so a model that is gone or slow is not asked again on
+        every start."""
+        try:
+            if self.state and self.state.exists():
+                saved = json.loads(self.state.read_text(encoding="utf-8"))
+                return {k: float(v) for k, v in saved.items() if float(v) > time.time()}
+        except Exception as exc:
+            log.warning("could not read %s: %s", self.state, exc)
+        return {}
+
+    def rest(self, model: str, seconds: float) -> None:
+        self.resting[model] = time.time() + seconds
+        if self.state:
+            try:
+                self.state.parent.mkdir(parents=True, exist_ok=True)
+                self.state.write_text(json.dumps(self.resting), encoding="utf-8")
+            except Exception as exc:
+                log.warning("could not save %s: %s", self.state, exc)
 
     def listing(self) -> list[str]:
         """The provider's good models, read at most every six hours (ten minutes after a failed read)."""
@@ -133,7 +159,7 @@ class FreeBrain:
         if self.resting.get("*", 0) > now:
             return []
         chosen = model.partition(":")[2] or (os.environ.get(f"JARVIS_{p.key.upper()}_MODEL") or "").strip()
-        return [m for m in dict.fromkeys([chosen, *self.listing()]) if m and self.resting.get(m, 0) <= now][:TRIES]
+        return [m for m in dict.fromkeys([chosen, *self.listing()]) if m and self.resting.get(m, 0) <= now]
 
     def create(self, *, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> Answer:
         p = self.provider
@@ -144,8 +170,11 @@ class FreeBrain:
         declared = groq.to_tools(tools, only=None)
         room = BUDGET - len(system) - len(json.dumps(declared, ensure_ascii=False))
         chat = groq.trim(groq.to_messages(system, messages), max(room, 8000))
-        last = "no model to ask"
+        self.timeout = TIMEOUT if declared else QUICK_TIMEOUT
+        last, tried = "no model to ask", 0
         for current in self.models(model):
+            if tried >= TRIES:
+                break
             body = {"model": current, "messages": chat, "max_tokens": min(max_tokens, 4096)}
             if declared:
                 body.update(tools=declared, tool_choice="auto")
@@ -166,7 +195,7 @@ class FreeBrain:
                 if code == 401:
                     raise RuntimeError(f"The {p.name} key is wrong. Get a new one at {p.site}.")
                 if code == 429 and DAILY.search(detail):
-                    self.resting["*"] = time.time() + 86400 - time.time() % 86400  # free again at midnight UTC
+                    self.rest("*", 86400 - time.time() % 86400)  # free again at midnight UTC
                     raise UsedUp(f"{p.name}'s free requests for today are used up.")
                 if code == 429 and attempt == 0:
                     self._wait(min(retry or 5.0, 10))  # a few requests a minute: wait a moment
@@ -180,7 +209,13 @@ class FreeBrain:
                 else:
                     rest = 60  # busy, too big or down for a moment
                 log.warning("%s: %s; trying the next model", p.name, last)
-                self.resting[current] = time.time() + rest
+                self.rest(current, rest)
+                if code not in CHEAP:
+                    tried += 1
+                break
+            if code in (0, 408, 504):
+                # Waiting the whole timeout once is enough: the next free brain answers now instead of this
+                # provider's next model, which is likely as slow (the queue, not the model, is the problem).
                 break
         raise UsedUp(f"{p.name} could not answer just now ({last}).")
 
@@ -196,8 +231,8 @@ class FreeBrain:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read()).get("data") or []
 
-    def _send(self, body: dict, timeout: float = 90) -> dict:
+    def _send(self, body: dict, timeout: float | None = None) -> dict:
         req = urllib.request.Request(self.provider.url + "/chat/completions", data=json.dumps(body).encode(),
                                      headers=self._headers())
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
             return json.loads(resp.read())

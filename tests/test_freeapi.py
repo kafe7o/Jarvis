@@ -169,3 +169,34 @@ def test_with_a_strong_free_key_the_real_work_goes_there_before_gemini(settings,
     jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]), gemini_brain=brain,
                     free_brains={"nvidia": freeapi.FreeBrain("nvidia", post=fake, get=lambda: NVIDIA_LIST)})
     assert jarvis.ask("направи го") == "Свърших го през NVIDIA."
+
+
+def test_a_slow_queue_hands_over_at_once_and_cheap_refusals_cost_no_tries(nvidia_key, tmp_path):
+    def timing_out(body):
+        timing_out.bodies.append(body["model"])
+        raise urllib.error.URLError("The read operation timed out")
+    timing_out.bodies = []
+    state = tmp_path / "resting-nvidia.json"
+    brain = freeapi.FreeBrain("nvidia", post=timing_out, get=lambda: NVIDIA_LIST, state=state)
+    with pytest.raises(freeapi.UsedUp, match="timed out"):
+        brain.create(model="nvidia", system="", messages=[], tools=[], max_tokens=100, effort="low")
+    assert timing_out.bodies == ["moonshotai/kimi-k2-instruct-0905"]  # one timeout, not three in a row
+    assert brain.timeout == freeapi.QUICK_TIMEOUT  # no tools: a short answer is waited for briefly
+    # Models the account cannot use (404) are skipped for free: they do not use up the tries.
+    fake = FakeAPI([(404, "not for this account")] * 5 + [(503, "down")] * 3)
+    brain = freeapi.FreeBrain("nvidia", post=fake, get=lambda: NVIDIA_LIST)
+    with pytest.raises(freeapi.UsedUp, match="503"):
+        brain.create(model="nvidia", system="", messages=[], tools=[{"name": "x", "input_schema": {}}],
+                     max_tokens=100, effort="low")
+    assert len(fake.bodies) == 7 and brain.timeout == freeapi.TIMEOUT  # all 7 listed models asked, 5 for free
+    # Resting is remembered across restarts, so a gone or slow model is not asked again on every start.
+    again = freeapi.FreeBrain("nvidia", post=FakeAPI([said("Тук.")]), get=lambda: NVIDIA_LIST, state=state)
+    assert "moonshotai/kimi-k2-instruct-0905" in again.resting
+    assert again.models("nvidia")[0] == "moonshotai/kimi-k2-instruct"
+
+
+def test_long_thinkers_go_last():
+    listing = [{"id": i} for i in ["deepseek-ai/deepseek-v4.1-flash", "z-ai/glm-5.3-flash", "moonshotai/kimi-k2-instruct",
+                                   "deepseek-ai/deepseek-v3.2"]]
+    assert freeapi.choose(freeapi.PROVIDERS["nvidia"], listing) == [
+        "moonshotai/kimi-k2-instruct", "deepseek-ai/deepseek-v3.2", "deepseek-ai/deepseek-v4.1-flash", "z-ai/glm-5.3-flash"]

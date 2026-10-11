@@ -251,7 +251,9 @@ class Jarvis:
         self.gemini = gemini_brain or gemini.GeminiBrain()
         self.local = local_brain or local.LocalBrain()
         self.groq = groq_brain or groq.GroqBrain()
-        self.free_apis = {key: (free_brains or {}).get(key) or freeapi.FreeBrain(key) for key in freeapi.PROVIDERS}
+        self.free_apis = {key: (free_brains or {}).get(key)
+                          or freeapi.FreeBrain(key, state=settings.home / f"resting-{key}.json")
+                          for key in freeapi.PROVIDERS}
         self.on_progress = on_progress or (lambda _msg: None)
         self._step_ids = itertools.count(1)
         self.wait = time.sleep

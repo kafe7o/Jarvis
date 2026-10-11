@@ -143,7 +143,7 @@ TARGETS = [(re.compile(f"^(?:{bg(k)})$", re.I), v, kind) for kind, table in (("s
 DOMAIN = re.compile(r"^(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|bg|net|org|eu|io|tv|me|info|dev|app)(?:/\S*)?$", re.I)
 
 # Level 2: questions a model can answer from what it knows, without tools.
-QUESTION = rx(r"^(?:какво|какъв|каква|какви|как|защо|кой|коя|кое|кои|кога|къде|колко|може ли|можеш ли|мога ли|"
+QUESTION = rx(r"^(?:какво|кво|к'во|що|какъв|каква|какви|как|защо|кой|коя|кое|кои|кога|къде|колко|може ли|можеш ли|мога ли|"
               r"има ли|знаеш ли|обясни|разкажи|преведи|измисли|предложи|посъветвай|сравни|дай ми (?:идея|идеи|съвет|"
               r"пример)|кажи ми (?:виц|нещо|за|какво|как|защо|кой)|напиши (?:ми )?(?:стих|стихотворение|текст|есе|история|"
               r"приказка|поздрав|пожелание|честитка|песен|виц)|what|how|why|who|explain|translate|tell me)(?=\s|$|[,?!.])")
@@ -492,6 +492,8 @@ _STRONG_LATIN = {
     "tazi", "tezi", "onzi", "mi", "ti", "go", "gi", "ni", "vi", "sum", "sam", "si", "e", "sa", "beshe", "be6e",
     "shte", "kato", "che", "4e", "zaradi", "obache", "oba4e", "mislq", "mislya", "znam", "znae6", "znaesh", "umen",
     "po-umen", "poumen", "dali", "kazah", "kaza", "pravi", "pravish", "pravi6", "napraveno", "gotovo", "spri", "stop",
+    "kvo", "staa", "zdr", "zdravey", "zdravej", "kaje", "kazhe", "znachi", "zna4i", "stana", "zashtoto", "za6toto",
+    "shtoto", "6toto", "tochno", "to4no", "kakvoto", "koeto", "nekvo", "neshto", "mojem", "mozhem",
 }
 _ENGLISH = {"the", "is", "are", "you", "and", "to", "of", "what", "please", "with", "this", "that", "for", "can",
             "do", "it", "my", "me", "in", "on", "a", "an", "how", "why", "when", "where", "not", "have", "has", "be"}

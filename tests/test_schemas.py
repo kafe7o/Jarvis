@@ -182,3 +182,10 @@ def test_files_sent_in_the_app_are_saved_for_jarvis_to_open(tmp_path):
         assert exc.status == 400
     else:
         raise AssertionError("a broken file must be refused")
+
+
+def test_colloquial_greetings_take_the_quick_lane():
+    from jarvis import router
+    for text in ["кво става jarvis", "к'во става", "що стана", "какво ново, Джарвис?"]:
+        assert router.quick(text) and not router.wants_action(text), text
+    assert router.latin_bulgarian("kvo staa jarvis") and router.to_cyrillic("kvo staa jarvis").startswith("кво стаа")
