@@ -227,3 +227,20 @@ def test_a_picture_goes_to_a_brain_that_sees_it(settings, ctx, registry, monkeyp
     assert ctx.store.history("main")[0]["content"].endswith("(с приложена снимка)")
     jarvis.ask("а какво става тук", images=None)  # no picture: the strong text brains go first again
     assert not seen["images"] and brain_mod.brain_kind(seen["order"][0]) == "nvidia"
+
+
+def test_a_repeated_check_note_never_becomes_the_answer(settings, ctx, registry):
+    """A weak brain sometimes echoes the act-check instead of answering: the earlier answer stays."""
+    from jarvis.brain import ACT_CHECK
+    client = FakeClient([response(text_block("Бавих се, защото чаках мозъка.")), response(text_block(ACT_CHECK))])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert jarvis.ask("пусни ми обяснение защо се бави", route=False) == "Бавих се, защото чаках мозъка."
+
+
+def test_talk_about_jarvis_himself_gets_no_act_check():
+    from jarvis import router
+    for text in ["a koe te zabavi tolkova pri zadachata s telefona mi", "hu neshto ne te razbrah zashto go kaza tova",
+                 "това е грешно"]:
+        assert not router.wants_action(text), text
+    for text in ["пусни музика", "искам да ми намериш клиенти", "обади се на мама", "как е времето сега"]:
+        assert router.wants_action(text), text

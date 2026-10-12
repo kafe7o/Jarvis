@@ -172,6 +172,15 @@ ACT_CHECK = ("(Check before you answer: you have not used a single tool in this 
              "If my message needs no action, give your answer again unchanged. Never mention this check, tools or "
              "\"commands\" in your answer: answer my message itself.)")
 
+# The checks above, as a weak brain sometimes repeats them instead of answering: such an answer is dropped.
+CHECK_MARKS = ("Check before you answer", "Before you finish this job", "Never mention this check",
+               "give your answer again unchanged")
+
+
+def echoes_check(text: str) -> bool:
+    return any(mark in text for mark in CHECK_MARKS)
+
+
 SERVER_TOOLS = [
     {"type": "web_search_20260209", "name": "web_search"},
     {"type": "web_fetch_20260209", "name": "web_fetch"},
@@ -777,7 +786,11 @@ class Jarvis:
             if self._mark(user) != mark:  # "спри" came while working
                 return STOPPED
             response = self._request(messages, user, system, allowed)
-            texts = [b.text for b in response.content if b.type == "text" and b.text.strip()] or texts
+            fresh = [b.text for b in response.content if b.type == "text" and b.text.strip()]
+            if fresh and echoes_check(" ".join(fresh)):
+                log.warning("the brain repeated a check note instead of answering; the earlier answer stays")
+                fresh = []
+            texts = fresh or texts
 
             if response.stop_reason == "refusal":
                 return "Съжалявам, не мога да помогна с това."

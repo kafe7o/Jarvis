@@ -453,13 +453,33 @@ def quick(text: str) -> bool:
     return bool(said) and words(said) <= 40 and bool(QUESTION.match(said)) and not NEEDS_TOOLS.search(said)
 
 
+# Imperatives that ask Jarvis to do something ("пусни", "провери ми", "обади се").
+IMPERATIVE = rx(r"(?:^|\s)(?:пусни|направи|провери|прати|изпрати|отвори|затвори|качи|свали|изтегли|обади се|звънни|"
+                r"напиши|намери|потърси|инсталирай|сложи|смени|промени|изтрий|запиши|запази|покажи|включи|изключи|"
+                r"стартирай|рестартирай|оправи|поправи|обнови|работи|свърши|започни|продължи|купи|плати|поръчай|"
+                r"резервирай|подреди|почисти|планирай|пресметни|изчисли|преведи|прочети|напомни|запомни|разгледай|"
+                r"изпълни|довърши|тествай|пробвай|анализирай|проучи|научи|създай|генерирай|подготви|уреди|организирай|"
+                r"изпрати|отговори|спри|погледни|виж|прегледай|кажи ми|сравни|обобщи|резюмирай|отбележи|отмени|"
+                r"премести)(?=\s|$|[,.!?])")
+WANT = rx(r"(?:^|\s)(?:искам|трябва|нека|хайде|айде|дай)(?=\s|$)")
+# Talk about Jarvis himself or the conversation ("кое те забави", "защо го каза", "не те разбрах"): an answer in words.
+META = rx(r"(?:^|\s)(?:те|ти|си|каза|казваш|направи|забави|разбра|разбрах|говоря|говорим|имах предвид|пиша|писах|"
+          r"попитах|отговори ми|отговаряш)(?=\s|$|[,.!?])")
+
+
 def wants_action(text: str) -> bool:
-    """True unless the message only asks something to know or is small talk ("благодаря", "здрасти"): then an
-    answer in words is all it needs (see brain.ACT_CHECK)."""
+    """True when the message asks Jarvis to do something, so an answer with no tool used deserves one more look
+    (brain.ACT_CHECK): an order ("пусни", "провери"), "можеш ли да го оправиш", "искам да...", a mission, or a
+    question that needs live information ("как е времето сега"). False for small talk, comments, and questions
+    about Jarvis himself or the conversation ("кое те забави толкова", "защо го каза")."""
     said = clean(text)
     if not said or SMALL_TALK.match(said):
         return False
-    return not quick(text)
+    if IMPERATIVE.search(said) or is_mission(said) or ((CAN_YOU.match(said) or WANT.search(said)) and DEED.search(said)):
+        return True
+    if META.search(said):
+        return False
+    return bool(QUESTION.match(said)) and bool(NEEDS_TOOLS.search(said)) or bool(DEED.search(said))
 
 
 CORRECTS = rx(r"(?:^|\s)(?:не (?:така|това|е така|е това|си разбрал|ме разбра|ме слушаш|стана|работи|го направи)|"
