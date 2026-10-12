@@ -120,16 +120,20 @@ class FreeBrain:
         self._wait = wait
         self.timeout = TIMEOUT
         self.state = state  # a file that keeps ``resting`` across restarts, or None
+        self.slow: dict[str, int] = {}  # model -> how many times it ran out of time (until it answers again)
         self.resting: dict[str, float] = self._load()  # model ("*" = all of them) -> when it may be asked again
         self._listed: tuple[float, list[str]] = (0.0, [])
         self.timeouts: list[float] = []  # when answers ran out of time lately (a slow queue, not one slow model)
 
     def _load(self) -> dict[str, float]:
-        """The models still resting from the last run, so a model that is gone or slow is not asked again on
-        every start."""
+        """The models still resting from the last run, and how often each ran out of time, so a model that is
+        gone or slow is not asked again on every start."""
         try:
             if self.state and self.state.exists():
                 saved = json.loads(self.state.read_text(encoding="utf-8"))
+                if "resting" in saved and isinstance(saved["resting"], dict):
+                    self.slow = {k: int(v) for k, v in (saved.get("slow") or {}).items()}
+                    saved = saved["resting"]
                 return {k: float(v) for k, v in saved.items() if float(v) > time.time()}
         except Exception as exc:
             log.warning("could not read %s: %s", self.state, exc)
@@ -137,12 +141,22 @@ class FreeBrain:
 
     def rest(self, model: str, seconds: float) -> None:
         self.resting[model] = time.time() + seconds
+        self._save()
+
+    def _save(self) -> None:
         if self.state:
             try:
                 self.state.parent.mkdir(parents=True, exist_ok=True)
-                self.state.write_text(json.dumps(self.resting), encoding="utf-8")
+                self.state.write_text(json.dumps({"resting": self.resting, "slow": self.slow}), encoding="utf-8")
             except Exception as exc:
                 log.warning("could not save %s: %s", self.state, exc)
+
+    def too_slow(self, model: str) -> float:
+        """How long a model that ran out of time rests: ten minutes the first time, six hours the second, a day
+        from the third on. On a free account whose only strong models think for minutes (deepseek-v4, glm-5
+        on NVIDIA), waiting the whole timeout for them on every request made every answer a minute late."""
+        self.slow[model] = self.slow.get(model, 0) + 1
+        return {1: 600, 2: 6 * 3600}.get(self.slow[model], 86400)
 
     def listing(self) -> list[str]:
         """The provider's good models, read at most every six hours (ten minutes after a failed read)."""
@@ -192,6 +206,8 @@ class FreeBrain:
                     code, detail, retry = 0, str(exc), 0.0
                 else:
                     if data.get("choices"):
+                        if self.slow.pop(current, None):
+                            self._save()  # it answered in time: its slow strikes are forgiven
                         return groq.from_reply(data, current, prefix=p.key)
                     error = data.get("error") or {}  # OpenRouter can say a model failed in a normal answer
                     code = int(error["code"]) if str(error.get("code", "")).isdigit() else 502
@@ -210,12 +226,13 @@ class FreeBrain:
                 elif code == 402:
                     rest = 86400  # not free for this account
                 elif code in (0, 408, 504):
-                    rest = 600  # too slow right now
+                    rest = self.too_slow(current)  # too slow: longer each time, a day from the third time on
                 elif code == 429:
                     rest = 600 if re.search(r"upstream|temporar", detail, re.I) else 60  # the provider itself is short
                 else:
                     rest = 60  # busy, too big or down for a moment
-                log.warning("%s: %s; trying the next model", p.name, last)
+                log.warning("%s: %s; trying the next model%s", p.name, last,
+                            f" (too slow {self.slow[current]} times; rests {rest // 3600} h)" if rest >= 3600 and current in self.slow else "")
                 self.rest(current, rest)
                 if code not in CHEAP:
                     tried += 1
