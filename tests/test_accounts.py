@@ -359,7 +359,7 @@ def test_screen_and_camera_frames_reach_claude(settings, ctx, registry):
     assert content[0]["type"] == "image" and content[0]["source"]["media_type"] == "image/jpeg"
     assert content[-1]["type"] == "text" and content[-1]["text"].endswith("какво виждаш")
     assert "screen" in content[-1]["text"]  # Claude is told what the pictures are
-    assert ctx.store.history(conversation_id(chat["id"]))[0]["content"] == "какво виждаш"  # frames are not kept
+    assert ctx.store.history(conversation_id(chat["id"]))[0]["content"] == "какво виждаш\n\n(с приложена снимка)"  # a note, not the frames, is kept
     assert owner(f"/api/chats/{chat['id']}/ask", {"text": "x", "images": ["data:text/html;base64,AAAA"]})[0] == 400
 
 

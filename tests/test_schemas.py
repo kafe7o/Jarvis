@@ -197,3 +197,33 @@ def test_small_talk_stays_quick_next_to_a_time_word_but_not_next_to_work():
         assert router.quick(text) and not router.wants_action(text), text
     for text in ["как е времето сега", "как си, провери ми пощата", "какво ново в youtube.com"]:
         assert not router.quick(text) and router.wants_action(text), text
+
+
+def test_a_filler_start_and_an_ability_question_route_right():
+    from jarvis import router
+    assert router.quick("а кое те забави толкова") and not router.wants_action("a koe te zabavi tolkova")
+    assert not router.quick("mojesh li tova da go opravish") and router.wants_action("можеш ли това да го оправиш")
+    assert router.quick("можеш ли да ми обясниш какво е ADB")
+
+
+def test_a_picture_goes_to_a_brain_that_sees_it(settings, ctx, registry, monkeypatch):
+    from conftest import Approver, FakeClient
+    from jarvis import brain as brain_mod
+    from jarvis.brain import Jarvis
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "k")
+    monkeypatch.setenv("GEMINI_API_KEY", "g")
+    settings.model = brain_mod.gemini.DEFAULT_MODEL
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]))
+    seen = {}
+
+    def fake_ask_free(order, system, messages, tools, max_tokens, effort, images=False):
+        seen.update(order=order, images=images)
+        return response(text_block("Виждам екрана."))
+
+    monkeypatch.setattr(jarvis, "_ask_free", fake_ask_free)
+    assert jarvis.ask("какво виждаш", images=[("image/png", "aGk=")]) == "Виждам екрана."
+    assert seen["images"] and brain_mod.brain_kind(seen["order"][0]) == "gemini"
+    assert ctx.store.history("main")[0]["content"].endswith("(с приложена снимка)")
+    jarvis.ask("а какво става тук", images=None)  # no picture: the strong text brains go first again
+    assert not seen["images"] and brain_mod.brain_kind(seen["order"][0]) == "nvidia"
