@@ -99,8 +99,24 @@ def test_he_clicks_by_the_words_and_types_without_coordinates(registry, windows)
     assert err and "Continue with Google" in out  # says what there is instead of clicking at random
 
 
+def test_a_browser_is_found_by_its_kind_and_the_own_window_is_explained(registry, windows, monkeypatch):
+    """The owner's laptop: read_window("Avast"), ("AvastBrowser") and ("Jarvis") failed again and again, each
+    costing a step. A browser word finds a browser window whatever its page is titled; the own app is explained."""
+    monkeypatch.setattr(avast, "Name", "Google Cloud Platform")  # a browser titles its window after the page
+    monkeypatch.setattr(avast, "ClassName", "Chrome_WidgetWin_1")
+    for asked in ["Avast", "AvastBrowser", "браузъра", "Chrome"]:
+        out, err = registry.run("read_window", {"window": asked}, Approver())
+        assert not err and out.startswith('Window: "Google Cloud Platform"'), (asked, out)
+    out, err = registry.run("read_window", {"window": "cloud google"}, Approver())  # the words in any order
+    assert not err
+    out, err = registry.run("read_window", {"window": "Jarvis"}, Approver())
+    assert err and "my own app" in out
+    out, err = registry.run("read_window", {"window": "Excel"}, Approver())
+    assert err and "Google Cloud Platform" in out and "leave the title out" in out
+
+
 def test_without_windows_or_the_window_he_says_so(registry, windows, monkeypatch):
-    out, err = registry.run("read_window", {"window": "Chrome"}, Approver())
+    out, err = registry.run("read_window", {"window": "Excel"}, Approver())
     assert err and "Avast Secure Browser" in out and "J.A.R.V.I.S" not in out
     monkeypatch.setattr(winui, "on_windows", lambda: False)
     out, err = registry.run("read_window", {}, Approver())

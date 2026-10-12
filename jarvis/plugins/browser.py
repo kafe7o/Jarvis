@@ -100,7 +100,18 @@ def register(registry: ToolRegistry, ctx) -> None:
                     key: str | None = None, amount: int = 600):
         def act(page):
             if action == "goto":
-                page.goto(url if url and "://" in url else f"https://{url}", wait_until="domcontentloaded")
+                target = url if url and "://" in url else f"https://{url}"
+                try:
+                    page.goto(target, wait_until="domcontentloaded")
+                except Exception as exc:  # a redirect cut the first load short, or the page is slow: see where we are
+                    brief = str(exc).splitlines()[0][:160]
+                    try:
+                        page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    except Exception:
+                        pass
+                    if not page.url or page.url == "about:blank":
+                        raise RuntimeError(f"Could not open {target}: {brief}") from exc
+                    return f"Opened {page.url} — {page.title()} (the first load was cut short: {brief}; read or look to check)"
                 return f"Opened {page.url} — {page.title()}"
             if action == "read":
                 body = page.inner_text("body")

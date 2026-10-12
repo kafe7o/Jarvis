@@ -42,6 +42,18 @@ def test_the_board_follows_a_piece_of_work_from_start_to_finish():
     assert board.snapshot()["recent"][0]["level"] == 3
 
 
+def test_a_failed_step_shows_why_on_the_live_screen():
+    """The owner's screen showed red crosses with no reason: 'Чете прозореца ✗ Google'. The step keeps the error."""
+    board = Board(label={"read_window": "Чете прозореца"}.get, publish=lambda run, to: None)
+    run_id, _ = board.start("Анастас", "свърши работата")
+    report = board.reporter(run_id)
+    report({"type": "step", "id": 1, "agent": "Jarvis", "tool": "read_window", "detail": "Google", "state": "running"})
+    report({"type": "step", "id": 1, "state": "error",
+            "memory": {"tool": "read_window", "args": {}, "result": 'No open window has "Google" in its title.\nOpen windows: "Avast"'}})
+    step = board.snapshot()["running"][0]["steps"][0]
+    assert step["state"] == "error" and step["detail"] == 'Google — No open window has "Google" in its title. Open windows: "Avast"'
+
+
 def test_the_board_stays_small():
     board = Board(keep=2)
     for n in range(3):
