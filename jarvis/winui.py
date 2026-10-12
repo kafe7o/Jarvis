@@ -216,6 +216,9 @@ def _session(work):
     raise failed
 
 
+SETTLE = 0.5  # seconds a program gets to react to a click before its window is read back
+
+
 def read(title: str | None = None) -> str:
     def work(auto):
         window = find_window(auto, title, _last["handle"])
@@ -261,8 +264,12 @@ def click(target: str, title: str | None = None, text: str | None = None, enter:
         type_text(text)
     if enter:
         pyautogui.press("enter")
-    said = f'Clicked {element.kind} "{element.name}" in "{name}"'
-    return said + (f' and typed "{text}"' if text else "") + ". Read the window again to check."
+    said = f'Clicked {element.kind} "{element.name}" in "{name}"' + (f' and typed "{text}"' if text else "") + "."
+    time.sleep(SETTLE)  # the program reacts; then the new state comes back with the click, saving a read_window step
+    try:
+        return said + " Now it shows:\n" + read()
+    except Exception as exc:  # the click closed the window, or a dialog took over: say so, the next read finds it
+        return said + f" (Could not read the window after that: {exc})"
 
 
 def type_text(text: str) -> None:

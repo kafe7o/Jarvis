@@ -441,6 +441,7 @@ EXTRA_SETTINGS = [
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
         ("GITHUB_TOKEN", "GitHub ключ за обновяване, нужен само ако хранилището kafe7o/Jarvis е частно (github.com/settings/personal-access-tokens, само четене на Contents)"),
+        ("JARVIS_BROWSER", "Браузърът, в който Jarvis отваря сайтове: avast, chrome, edge, firefox, brave, opera или пълен път до програмата (празно = този по подразбиране на компютъра)"),
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
     ]),
     ("Пестене", "https://ollama.com/download", [

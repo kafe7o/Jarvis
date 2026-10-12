@@ -106,7 +106,7 @@ def test_a_command_costs_no_ai_request(routed, ctx, registry, monkeypatch):
 
     opened = []
     monkeypatch.setattr(daily, "find_video", lambda q: ("abcdefghijk", "AC/DC - Back In Black"))
-    monkeypatch.setattr(daily.webbrowser, "open", opened.append)
+    monkeypatch.setattr(daily.browsers, "open_url", lambda url, facts=None: opened.append(url) or "the default browser")
     client = FakeClient([])
     jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=client)
     assert jarvis.ask("пусни Back in Black") == "Пускам „AC/DC - Back In Black“."

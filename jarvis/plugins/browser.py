@@ -81,7 +81,8 @@ def register(registry: ToolRegistry, ctx) -> None:
     ctx.browser = browser  # other plugins (e.g. WhatsApp) run page scripts through the same browser
 
     @registry.tool(
-        "Drive a real web browser (stays logged in between sessions). Actions:\n"
+        "Drive Jarvis's own separate web browser (not the owner's; it keeps its own logins between sessions). For "
+        "the owner's browser and their logins use open_target, then read_window and click_text. Actions:\n"
         "goto(url) · read (visible text of the page) · elements (clickable things with selectors) · "
         "look (screenshot you can see) · click(selector or text) · fill(selector, text) · press(key, e.g. Enter) · "
         "select(selector, text=option) · scroll(amount, + down) · back · wait(seconds).\n"

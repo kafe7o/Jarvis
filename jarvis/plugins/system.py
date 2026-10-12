@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
-from .. import winui
+from .. import browsers, winui
 from ..procs import run_capture, run_text
 from ..tools import Image, ToolRegistry, obj
 
@@ -45,6 +46,14 @@ def allowed_path(path: str, allowed: list[str]) -> Path:
 
 
 def register(registry: ToolRegistry, ctx) -> None:
+    def facts() -> list[str]:
+        """What is remembered about the owner, for the browser they want (see browsers.wanted_by_facts)."""
+        store = getattr(ctx, "store", None)
+        try:
+            return [row["fact"] for row in store.query("SELECT fact FROM facts")] if store is not None else []
+        except Exception:
+            return []
+
     def safe_path(path: str) -> Path:  # reads the setting each time, so a change in Settings applies at once
         # Files attached in the app land in ~/.jarvis/uploads and are always his to read.
         return allowed_path(path, [*ctx.settings.allowed_roots, str(Path(ctx.settings.home) / "uploads")])
@@ -62,17 +71,28 @@ def register(registry: ToolRegistry, ctx) -> None:
         summarize=lambda a: f"Изпълни команда: {a.get('command')}",
     )
     def run_shell(command: str, cwd: str | None = None, timeout: int = 120):
+        refused = browsers.by_hand(command)
+        if refused:
+            raise RuntimeError(refused)
         return _clip(run_text(command, shell=True, cwd=cwd and str(Path(cwd).expanduser()), timeout=timeout))
 
     @registry.tool(
-        "Open a website, file, folder or program with the system default handler "
-        "(e.g. 'https://youtube.com', '~/Documents/report.pdf', 'spotify', 'calc').",
+        "Open a web address in the owner's own browser (the one chosen in Settings, else their default one; e.g. "
+        "Avast) as a new tab, or a file, folder or program with the system (e.g. '~/Documents/report.pdf', "
+        "'spotify', 'calc'). The only way to open a page for the owner: never start a browser with run_shell, "
+        "run_python or pyautogui and never search the disk for it. Then work on the page with read_window and "
+        "click_text.",
         obj({"target": ("string", "URL, path or program name")}),
     )
     def open_target(target: str):
-        if "://" in target or target.startswith("www."):
-            webbrowser.open(target if "://" in target else "https://" + target)
-            return f"Opened {target} in the browser."
+        target = (target or "").strip()
+        bare_domain = (re.match(r"^[\w.-]+\.[a-z]{2,}(/|$)", target, re.I) and not Path(target).expanduser().exists()
+                       and not re.search(r"\.(pdf|docx?|xlsx?|pptx?|txt|md|png|jpe?g|gif|mp[34]|zip|exe|py|csv|json|html?)$", target, re.I))
+        if "://" in target or target.startswith("www.") or bare_domain:
+            name = browsers.open_url(target, facts())
+            word = name.split()[0] if name != "the default browser" else "браузъра"
+            return (f"Opened {target} in {name}, the owner's browser. It is a tab of that window: read_window(\"{word}\") "
+                    "shows the page in a moment (a new tab takes a second or two to load), then click_text by its words.")
         path = Path(target).expanduser()
         if path.exists():
             _open_with_os(str(path))
@@ -243,7 +263,8 @@ def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "Click a button, link, field, tab or menu item in a program's window by its words (or its number from "
         "read_window), and optionally type into it and press Enter. The mouse goes to the element itself, no "
-        "coordinates. Read the window again afterwards to check what happened.",
+        "coordinates. Answers with what the window shows right after the click, so no read_window is needed "
+        "to check unless a page was still loading.",
         obj({"target": ("string", "The words on the element (as read_window shows them), or its number"),
              "window?": ("string", "Part of the window title (default: the window read last)"),
              "text?": ("string", "Text to type after clicking, e.g. into a field"),
@@ -403,13 +424,17 @@ def register(registry: ToolRegistry, ctx) -> None:
 
     @registry.tool(
         "Run Python code on this computer and return what it prints. Good for calculations, data, "
-        "spreadsheets, documents, images and quick automation.",
+        "spreadsheets, documents and images. Not for the mouse, keyboard, screen or browser: those are "
+        "click_text, control_input, read_window, look_at_screen and open_target.",
         obj({"code": ("string", "Python source"), "timeout?": ("integer", "Seconds (default 300)")}),
         confirm=True,
         local=True,
         summarize=lambda a: f"Изпълни Python код:\n{a.get('code')}",
     )
     def run_python(code: str, timeout: int = 300):
+        refused = browsers.by_hand(code)
+        if refused:
+            raise RuntimeError(refused)
         return _clip(run_text([sys.executable, "-c", code], timeout=timeout))
 
     @registry.tool(

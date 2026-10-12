@@ -17,6 +17,8 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import browsers
+
 log = logging.getLogger("jarvis.doctor")
 
 OK, WARN, BAD = "ok", "warn", "bad"
@@ -144,6 +146,13 @@ def folders(settings) -> list[dict]:
         out.append(finding(OK, "Папка с данни", str(home)))
     except OSError as exc:
         out.append(finding(BAD, "Папка с данни", f"{home}: не мога да пиша в нея ({exc})"))
+    found = browsers.find()
+    chosen = os.environ.get("JARVIS_BROWSER", "").strip()
+    if found:
+        out.append(finding(OK, "Браузър за сайтовете", found[0] + (f" (настройка JARVIS_BROWSER={chosen})" if chosen else " (този по подразбиране)")))
+    else:
+        out.append(finding(WARN, "Браузър за сайтовете", "не намирам браузър; задай JARVIS_BROWSER в Настройки > Връзки"
+                           + (f" ({chosen} не е намерен)" if chosen else "")))
     vault = Path(settings.vault)
     out.append(finding(OK, "Бележки (vault)", str(vault)) if vault.exists()
                else finding(WARN, "Бележки (vault)", f"{vault} още я няма; появява се при първата бележка"))
