@@ -76,3 +76,26 @@ def test_the_disk_map_names_the_biggest_folders_and_files(tmp_path, registry, ct
     out, error = registry.run("disk_space", {"folder": str(tmp_path)}, Approver())
     assert not error and "The map is open on the screen" in out and opened and opened[0].startswith("file://")
     assert (ctx.settings.home / "disk-map.html").exists()
+
+
+def test_connections_tool_shows_what_is_missing_and_save_setting_stores_a_key(settings, ctx, registry, tmp_path, monkeypatch):
+    from jarvis import setup_wizard
+    from jarvis.plugins.connections import page_of
+
+    env = tmp_path / ".env"
+    env.write_text("NVIDIA_API_KEY=nvapi-x\n")
+    monkeypatch.setattr(setup_wizard, "env_path", lambda: env)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    report = registry.tools["connections"].func()
+    assert "❌ Telegram" in report and "MISSING: TELEGRAM_BOT_TOKEN" in report
+    assert "set: NVIDIA_API_KEY" in report and "https://build.nvidia.com" in report
+    assert page_of("console.groq.com/keys > Create API Key (без карта)") == "https://console.groq.com/keys"
+    assert page_of("@BotFather (токен) и @userinfobot (твоя id)") == ""
+    said = registry.tools["save_setting"].func("telegram_bot_token", "123:abc")
+    assert said.startswith("Saved TELEGRAM_BOT_TOKEN") and "restart" in said
+    assert setup_wizard.read_env(env) == {"NVIDIA_API_KEY": "nvapi-x", "TELEGRAM_BOT_TOKEN": "123:abc"}
+    assert "✅ Telegram" not in registry.tools["connections"].func("Telegram")  # the owner id is still missing
+    assert registry.tools["save_setting"].func("NOT_A_KEY", "x").startswith("No setting is called NOT_A_KEY")
+    tool = registry.tools["save_setting"]
+    assert tool.confirm and tool.local and tool.group == "agent" and registry.tools["connections"].group == "core"
+    assert "123:abc" not in tool.describe_call({"key": "TELEGRAM_BOT_TOKEN", "value": "123:abc"})  # the yes/no card hides it
