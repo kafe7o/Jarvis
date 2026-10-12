@@ -17,12 +17,16 @@ import urllib.request
 from ..tools import ToolRegistry, obj
 
 
-def push_notify(text: str, title: str = "Jarvis") -> None:
+def push_notify(text: str, title: str = "Jarvis", priority: int | None = None) -> None:
+    """A push to the owner's phone through ntfy; ``priority`` 5 is urgent (the phone rings and vibrates)."""
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
         return
     server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
-    req = urllib.request.Request(f"{server}/{topic}", data=text.encode(), headers={"Title": title.encode("utf-8").decode("latin-1", "ignore") or "Jarvis"})
+    headers = {"Title": title.encode("utf-8").decode("latin-1", "ignore") or "Jarvis"}
+    if priority:
+        headers["Priority"] = str(max(1, min(5, int(priority))))
+    req = urllib.request.Request(f"{server}/{topic}", data=text.encode(), headers=headers)
     urllib.request.urlopen(req, timeout=15).close()
 
 
