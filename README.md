@@ -83,6 +83,7 @@ pip install -e ".[all]"
 playwright install chromium                            # браузърът, който Jarvis управлява
 cp .env.example .env                                   # попълни ключовете
 jarvis check                                           # кое е готово и какво липсва
+jarvis doctor                                          # кое работи, кое не и как се оправя (мозъци, телефон, глас, задачи)
 ```
 
 За гласа трябва и `ffmpeg` (или `mpg123`) за възпроизвеждане на звук.

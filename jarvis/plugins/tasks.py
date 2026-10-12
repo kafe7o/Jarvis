@@ -159,6 +159,7 @@ class ReminderScheduler:
         if jarvis is None:
             return
 
+        from .. import notices
         from ..routines import routine_of, strip_marker
 
         routine = routine_of(rem["text"])
@@ -166,6 +167,7 @@ class ReminderScheduler:
 
         def unattended(summary: str) -> bool:
             self.ctx.notify(f"„{title}“ иска одобрение за: {summary}. Не го направих; кажи ми, ако искаш.")
+            notices.add(self.ctx.store, f"Задачата „{title}“ стигна до стъпка, която иска твоето „да“, и не я направи: {summary}")
             return False
 
         # In the app, the result lands in a chat named after the job; elsewhere it has its own history.
@@ -183,8 +185,10 @@ class ReminderScheduler:
             )
             ok = True
             self.ctx.notify(f"{title}: {result}" if routine else f"Задача „{title}“: {result}")
+            notices.add(self.ctx.store, f"Задачата „{title}“ мина: {result}")
         except Exception as exc:
             self.ctx.notify(f"„{title}“ се провали: {exc}")
+            notices.add(self.ctx.store, f"Задачата „{title}“ се провали: {exc}")
         finally:
             if hub:
                 hub.board.finish(run_id, ok)

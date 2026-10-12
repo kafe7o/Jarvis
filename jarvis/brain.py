@@ -17,7 +17,7 @@ from typing import Callable
 
 import anthropic
 
-from . import core_files, freeapi, gemini, groq, local, router, usage, work
+from . import core_files, freeapi, gemini, groq, local, notices, router, usage, work
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -109,6 +109,16 @@ step fails, change the approach instead of stopping. Your answer at the end says
 tools, android contacts); a name that merely contains the word ("Alper's mom" for "mom") is not the person: ask \
 which one, or save the right contact. Never deny what you did: your tool calls are in this conversation; if you \
 made a wrong call or sent the wrong thing, say so plainly and put it right.
+- How you report: when the owner is on the move (driving, on a call, "бързо", "накратко"), two or three \
+sentences, the most important first. Order of news: a mistake or failure of yours first, plainly (what, why, \
+what you did about it, and the rule you set yourself with learn), then bad news, then good. Asked how something \
+is going ("как върви", "какво стана с"), report the numbers, what you handled on your own, what waits on the \
+owner, and your recommendation for today; end with one more thing worth knowing, if there is one. Problems you \
+notice (an overdue invoice, a failing job, a key that stopped working) come with the options prepared: what you \
+would do, one line each, and one question.
+- Something with no words to click (a game, a map, a drawing, a player): work_on_screen takes the screen over \
+and plays it move by move on its own; say the goal so it can see when it is done. When something of yours is \
+not working (a brain, the phone, the voice, the browser, a job), run_doctor says what is wrong and how to fix it.
 - For work that should happen later or regularly on its own ("every morning check my mail"), use \
 schedule_job.
 - Be truthful about what you do: say you did, started, set up or changed something only when a tool call \
@@ -434,6 +444,7 @@ class Jarvis:
                           for key in freeapi.PROVIDERS}
         self.on_progress = on_progress or (lambda _msg: None)
         self._step_ids = itertools.count(1)
+        self._last_level = 0  # which cheap lane answered last (cheap_answer), for ask()
         self.wait = time.sleep
         self._halts: dict = defaultdict(int)  # bumped by stop_work ("спри"): "*" stops everyone's work
         self._reflected = 0.0  # when reflect last looked back at a task
@@ -700,14 +711,21 @@ class Jarvis:
             self.store.add_message(conversation, "user", text)
             self.store.add_message(conversation, "assistant", STOPPED)
             return STOPPED
+        # What happened on its own since the owner last wrote (scheduled jobs): the brain is told with this
+        # message and says it first; a job's own run, a check-in and a guest never get it.
+        news = (notices.unseen(self.store) if route is not False and (user is None or user.is_owner)
+                and not is_background([{"role": "user", "content": text}]) else [])
+        hint = notices.hint(news)
         if (self.settings.router if route is None else route) and not images:
-            answer = self.cheap_answer(text, conversation, confirmer, user, on_progress, on_step)
+            answer = self.cheap_answer(text, conversation, confirmer, user, on_progress, on_step, hint=hint)
             if answer is not None:
+                if self._last_level == 2:
+                    notices.seen(self.store, news)
                 self.store.add_message(conversation, "user", text)
                 answer = redact_secrets(answer)
                 self.store.add_message(conversation, "assistant", answer)
                 return answer
-        messages = self._messages(conversation, text)
+        messages = self._messages(conversation, text, hint=hint)
         if images:
             blocks = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": data}} for mt, data in images]
             note = "(Pictures that come with this message: my screen, my camera or a photo I am sending right now.)\n\n"
@@ -725,6 +743,7 @@ class Jarvis:
                             insist=insist or mission, steps=steps, verify=mission,
                             rounds=self.settings.max_tool_rounds * (MISSION_ROUNDS if mission else 1))
         self.count(3)
+        notices.seen(self.store, news)
         if self.settings.learn and (user is None or user.is_owner) and (
                 any(failed for *_r, failed in steps) or router.corrects(text)):
             self.reflect_later(text, steps, answer, conversation)
@@ -770,8 +789,9 @@ class Jarvis:
     def _mark(self, user) -> tuple[int, int]:
         return self._halts["*"], self._halts[getattr(user, "id", None)]
 
-    def _messages(self, conversation: str, text: str, limit: int = 40) -> list:
-        """The conversation so far plus the new message, in the alternating form the APIs need."""
+    def _messages(self, conversation: str, text: str, limit: int = 40, hint: str = "") -> list:
+        """The conversation so far plus the new message, in the alternating form the APIs need. ``hint`` is a
+        note for the brain that goes with the message (the notices) and is not part of the saved conversation."""
         messages: list = []
         for row in self.store.history(conversation, limit):
             if messages and messages[-1]["role"] == row["role"]:
@@ -780,6 +800,7 @@ class Jarvis:
                 messages.append({"role": row["role"], "content": row["content"]})
         if router.latin_bulgarian(text):  # the hint goes to the brain, not into the saved conversation
             text += LATIN_HINT.format(cyrillic=router.to_cyrillic(text))
+        text += hint or ""
         if messages and messages[-1]["role"] == "user":
             messages[-1]["content"] += "\n\n" + text
         else:
@@ -789,19 +810,22 @@ class Jarvis:
     # --- the two cheap levels (router.py) -------------------------------------------------------------
 
     def cheap_answer(self, text: str, conversation: str, confirmer: Confirmer, user=None, on_progress=None,
-                     on_step=None) -> str | None:
+                     on_step=None, hint: str = "") -> str | None:
         """Level 1 (a command, no AI) or level 2 (a quick answer); None when the full agent is needed."""
+        self._last_level = 0
         answer = self.command(text, conversation, confirmer, user, on_progress, on_step)
         if answer is not None:
             self.count(1)
+            self._last_level = 1
             return answer
         if router.quick(text):
             (on_progress or self.on_progress)("level:2")
             if on_step:
                 on_step({"type": "level", "level": 2})
-            answer = self.quick_answer(text, conversation, user)
+            answer = self.quick_answer(text, conversation, user, hint=hint)
             if answer is not None:
                 self.count(2)
+                self._last_level = 2
                 return answer
         return None
 
@@ -862,7 +886,7 @@ class Jarvis:
                            owner=not guest, devices=devices, spending=lambda: usage.spoken(self.store),
                            weather_now=weather)
 
-    def quick_answer(self, text: str, conversation: str, user=None) -> str | None:
+    def quick_answer(self, text: str, conversation: str, user=None, hint: str = "") -> str | None:
         """Level 2: one short request to the cheapest model, without tools. None when it needs the full agent."""
         s = self.settings
         guest = user is not None and not user.is_owner
@@ -870,7 +894,7 @@ class Jarvis:
                   + self._about(user) + self._clock())
         model = self.fast_model()
         try:
-            response = self._request(self._messages(conversation, text, limit=12), user, system, set(), model=model,
+            response = self._request(self._messages(conversation, text, limit=12, hint=hint), user, system, set(), model=model,
                                      effort="low", tools=[], max_tokens=1500)
         except Exception:
             if model == s.model:

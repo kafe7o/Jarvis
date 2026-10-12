@@ -174,6 +174,22 @@ def register(registry: ToolRegistry, ctx) -> None:
         return text
 
     @registry.tool(
+        "The doctor: when something of yours is not working (a brain that does not answer, the phone, the voice, "
+        "the browser, a scheduled job, \"Няма връзка\"), check everything at once and say in the owner's words what "
+        "works, what does not and how to fix it: the brains and their keys (resting, used up for the day), the "
+        "desktop, voice and browser packages, the phone over adb, the folders and free space, the scheduled jobs "
+        "(and ones that waste the free requests), the failures of the last day, and the version. Nothing is changed "
+        "and no key is shown. Then fix what you can yourself (save a key, connect the phone, delete a wasteful job) "
+        "and tell the owner only what needs them.",
+        obj({"network?": ("boolean", "Also ask every brain whether it answers right now (default true)")}),
+    )
+    def run_doctor(network: bool = True):
+        from .. import doctor
+
+        owner_only()
+        return doctor.report(doctor.examine(ctx, network=bool(network)))
+
+    @registry.tool(
         "What you did lately, with numbers: requests, steps, tasks done, reminders and jobs fired, messages answered, "
         "specialists that worked, failures. Use it at the start of the morning brief and whenever the owner asks "
         "what you have been doing.",

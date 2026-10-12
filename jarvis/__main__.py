@@ -47,6 +47,15 @@ def check() -> None:
     print(f"Данни: {settings.home}")
 
 
+def doctor() -> None:
+    """`jarvis doctor`: what works, what does not and how to fix it (the run_doctor tool, from PowerShell)."""
+    from . import doctor as checks
+    from .app import build
+
+    _jarvis, ctx = build(lambda summary: False)
+    print(checks.report(checks.examine(ctx)))
+
+
 @contextmanager
 def recovering():
     """Starting up: if Jarvis cannot start right after he changed his own code (upgrade_self), undo that
@@ -256,7 +265,7 @@ def owner() -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
     parser.add_argument("mode", nargs="?", default="chat", choices=["app", "stop", "keeper", "owner", "shortcut", "update", "undo", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
-                                 "enroll-voice", "google-login"])
+                                 "enroll-voice", "google-login", "doctor"])
     parser.add_argument("text", nargs="*", help="Въпрос за режим ask")
     parser.add_argument("--hub", help="node: адрес на главния Jarvis, напр. http://192.168.1.10:8770")
     parser.add_argument("--name", help="node: име на това устройство, напр. laptop")
@@ -310,6 +319,8 @@ def main(argv: list[str] | None = None) -> None:
         print(shortcut(Path.cwd()))
     elif args.mode == "check":
         check()
+    elif args.mode == "doctor":
+        doctor()
     elif args.mode == "ask":
         from .interfaces import cli
 
