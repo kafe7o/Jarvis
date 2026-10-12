@@ -8,8 +8,8 @@ import re
 import shlex
 import urllib.parse
 import urllib.request
-import webbrowser
 
+from .. import browsers
 from ..tools import ToolRegistry, obj
 
 WEATHER = {
@@ -129,5 +129,5 @@ def register(registry: ToolRegistry, ctx) -> None:
                 raise ValueError(f"Unknown device '{device}'.")
             adb(serial, "shell", f"am start -a android.intent.action.VIEW -d {shlex.quote(url)}")
             return f"{said} on the {device}: {url}"
-        webbrowser.open(url)
-        return f"{said}: {url}"
+        where = browsers.open_url(url)
+        return f"{said} in {where}: {url}"

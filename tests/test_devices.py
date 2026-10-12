@@ -195,7 +195,7 @@ def test_youtube_plays_the_first_match(registry, monkeypatch):
             '(Official Video)"}]}...')
     opened = []
     monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None: page)
-    monkeypatch.setattr(daily.webbrowser, "open", opened.append)
+    monkeypatch.setattr(daily.browsers, "open_url", lambda url, facts=None: opened.append(url) or "the default browser")
     out, is_error = run(registry, "play_youtube", query="Back in Black")
     assert not is_error and "Back In Black" in out
     assert opened == ["https://www.youtube.com/watch?v=pAgnJDJN4VA"]
