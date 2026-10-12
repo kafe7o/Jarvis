@@ -75,6 +75,10 @@ class Board:
             elif step is not None:
                 step["state"] = state
                 step["ended"] = None if state in OPEN else now
+                if state == "error":  # the live view says why, so the owner (and the next look) can tell
+                    why = " ".join(str((event.get("memory") or {}).get("result", "")).split())[:160]
+                    if why:
+                        step["detail"] = (f"{step['detail']} — {why}" if step["detail"] else why)[:240]
                 if state == "waiting":
                     run["step"] = "Чака твоето „да“"
                 elif state == "running":

@@ -109,6 +109,17 @@ def _windows(auto) -> list:
     return [w for w in auto.GetRootControl().GetChildren() if _usable(w)]
 
 
+BROWSER_CLASSES = {"Chrome_WidgetWin_1", "MozillaWindowClass", "ApplicationFrameWindow"}  # Chromium kin, Firefox, Edge
+BROWSER_WORDS = re.compile(r"avast|chrome|chromium|edge|firefox|opera|brave|vivaldi|browser|браузър|браузер|интернет")
+
+
+def is_browser(window, asked: str) -> bool:
+    """True when ``asked`` names a browser ("Avast", "браузъра") and this window belongs to one: browsers title
+    their window after the page, so the browser's own name is often not in it."""
+    return bool(BROWSER_WORDS.search(asked)) and (window.ClassName in BROWSER_CLASSES
+                                                  or bool(BROWSER_WORDS.search((window.Name or "").lower())))
+
+
 def _minimized(window) -> bool:
     return _rect(window)[0] <= -30000
 
@@ -122,12 +133,22 @@ def find_window(auto, title: str | None = None, handle: int | None = None):
         if found:
             return found[0]
     if title:
-        low = title.lower()
+        low = title.lower().strip()
+        if OWN.match(low) or low in ("jarvis", "джарвис"):
+            raise LookupError("That is my own app window; I never read or click it (the owner is talking to me there). "
+                              "Name the program you mean, e.g. the browser, or leave the title out for the front window.")
         found = [w for w in windows if low in (w.Name or "").lower()]
+        if not found:  # "Avast", "браузъра", "Chrome": a browser's window, whose title is only the page's
+            found = [w for w in windows if is_browser(w, low)]
+        if not found:  # the words in any order, punctuation aside ("google cloud" ~ "Cloud Console - Google")
+            words = [x for x in re.split(r"[^\w]+", low) if x]
+            found = [w for w in windows if words and all(x in (w.Name or "").lower() for x in words)]
         if not found:
             names = ", ".join(f'"{w.Name}"' for w in windows[:12])
-            raise LookupError(f'No open window has "{title}" in its title. Open windows: {names}')
-        return found[0]
+            raise LookupError(f'No open window has "{title}" in its title. Open windows: {names}. Use a part of one of '
+                              "these titles, or leave the title out for the window in front.")
+        shown = [w for w in found if not _minimized(w)]
+        return (shown or found)[0]
     front = auto.GetForegroundControl()
     if front is not None and _usable(front):
         return front

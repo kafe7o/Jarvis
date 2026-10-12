@@ -185,6 +185,33 @@ def test_nvidia_stands_in_when_gemini_is_used_up_and_groq_is_not_set(settings, c
     assert jarvis.ask("здрасти") == "Тук съм, през NVIDIA." and settings.model == gemini.DEFAULT_MODEL
 
 
+def test_a_gemini_call_google_cancels_mid_task_goes_to_the_next_brain(settings, ctx, registry, nvidia_key, monkeypatch):
+    """The owner's screen: six minutes into a mission Gemini answered '499 CANCELLED' and the whole task ended
+    with that error. A dropped call is a busy brain: the next model, then the next brain, carries on."""
+    settings.model = gemini.DEFAULT_MODEL
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    cancelled = errors.APIError(499, {"error": {"code": 499, "message": "The operation was cancelled.", "status": "CANCELLED"}})
+    asked = []
+
+    def generate_content(model, contents, config):
+        asked.append(model)
+        raise cancelled
+
+    brain = gemini.GeminiBrain(SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)), wait=lambda s: None)
+    fake = FakeAPI([said("Продължавам през NVIDIA.")] * 3)
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]), gemini_brain=brain,
+                    free_brains={"nvidia": freeapi.FreeBrain("nvidia", post=fake, get=lambda: NVIDIA_LIST)})
+    assert jarvis.ask("направи го") == "Продължавам през NVIDIA."
+    assert asked and set(asked) <= set([gemini.AGENT_MODEL, *gemini.FREE_MODELS])  # every Gemini model tried, each resting
+    # an error no brain recognises is still not the end while another brain answers
+    def broken(model, contents, config):
+        raise RuntimeError("bad reply from Google")
+    brain = gemini.GeminiBrain(SimpleNamespace(models=SimpleNamespace(generate_content=broken)), wait=lambda s: None)
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]), gemini_brain=brain,
+                    free_brains={"nvidia": freeapi.FreeBrain("nvidia", post=fake, get=lambda: NVIDIA_LIST)})
+    assert jarvis.ask("направи го") == "Продължавам през NVIDIA."
+
+
 def test_without_gemini_or_groq_a_free_key_still_makes_jarvis_free(settings, ctx, registry, monkeypatch):
     assert default_brain() == "claude-opus-5-5"
     monkeypatch.setenv("OPENROUTER_API_KEY", "free-key")

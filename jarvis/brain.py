@@ -85,6 +85,13 @@ made (browser), do everything on it that needs no personal identity, and when th
 and save it with save_setting. Ask the owner, in one line, only for what truly needs them (a sign-in, a card, a \
 code sent to their phone) and carry on with the rest meanwhile. Some services (Twilio, Stripe, PayPal, Wise) \
 need the owner's identity or money: say so plainly, do the setup around them, and never invent a key.
+- Working the screen: read_window with any part of the title (or "браузъра": a browser is titled after its \
+page), click_text by the words or the number from the last read, then read again to check. The keyboard beats \
+aiming: ctrl+l for the address bar, ctrl+f to find words on a page, tab/enter/esc, page down; scroll \
+(control_input scroll) when what you need is below, and look_at_screen only for what has no words. Never read \
+or click my own J.A.R.V.I.S. window. When a step fails, read the error, change one thing (another window, the \
+keyboard instead of the mouse, web_browser instead of the screen) and try again; two failures the same way \
+mean a different way, not a third try.
 - Once told to start, start, and keep going on your own: build the plan yourself, take the next step from what \
 you see on the screen or the page, and when a step fails try another way before you ask. Never end with "Готов?", \
 "да продължа ли?", "кажи ми когато" or a list of steps you could take: that is not work. request_approval is \
@@ -517,6 +524,7 @@ class Jarvis:
         over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day).
         ``images``: the message shows a picture, so the brains that cannot see one are asked only when no other
         brain can answer (they get a note in place of the picture)."""
+        broken = None
         for again in (False, True):
             used_up, asked, pauses = None, set(), []
             for i, model in enumerate(order):
@@ -541,6 +549,12 @@ class Jarvis:
                     used_up = exc
                     pauses.append(getattr(exc, "retry_in", 0))
                     continue
+                except Exception as exc:  # an odd error from one brain (a dropped call, a bad reply) must not end
+                    # the whole task when another brain can carry on; it is raised only when none can
+                    log.warning("%s failed (%s: %s); the next free brain answers", kind, type(exc).__name__,
+                                str(exc)[:200])
+                    broken = broken or exc
+                    continue
                 usage.record(self.store, answer, answer.model or model)
                 return answer
             soonest = min([p for p in pauses if p > 0], default=0)
@@ -548,7 +562,7 @@ class Jarvis:
                 log.warning("no brain that sees pictures can answer; a text brain answers with a note instead")
                 return self._ask_free(order, system, messages, tools, max_tokens, effort)
             if again or not 0 < soonest <= 60:
-                raise used_up
+                raise used_up or broken
             # Nobody can answer this minute (Gemini's share for the minute is used up): wait for it, then again.
             log.warning("every free brain is busy; waiting %.0f s", soonest)
             self.wait(soonest + 1)
