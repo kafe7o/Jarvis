@@ -443,10 +443,19 @@ DEED = rx(r"(?:^|\s)(?:да |го |ги |ми |me |it )?(?:оправ|напра
           r"резервир|подред|почист|стартир|рестартир|обнов|fix|do|send|open|run|install|start|stop)\w*")
 
 
+# "направи ли го", "стана ли", "готово ли е": a question whether the work got done, answered by checking, not from memory.
+DONE_Q = rx(r"(?:^|\s)(?:направи|стана|готов[оаи]?|готово е|успя|свърши|сработи|оправи|прати|изпрати|записа|запази|"
+            r"намери|пусна|включи|работи|върви|мина|има)(?: го| я| ги)? ли(?=\s|$|[?,.!])")
+
+
+def asks_if_done(text: str) -> bool:
+    return bool(DONE_Q.search(clean(text)))
+
+
 def quick(text: str) -> bool:
     """True when a question can go to the quick level (level 2): it asks something to know, not to do."""
     said = clean(text)
-    if CAN_YOU.match(said) and DEED.search(said):
+    if (CAN_YOU.match(said) and DEED.search(said)) or DONE_Q.search(said):
         return False
     if said and words(said) <= 12 and CHAT.search(said) and not NEEDS_TOOLS.search(TIME_WORDS.sub(" ", said)):
         return True
@@ -476,6 +485,8 @@ def wants_action(text: str) -> bool:
     if not said or SMALL_TALK.match(said):
         return False
     if IMPERATIVE.search(said) or is_mission(said) or ((CAN_YOU.match(said) or WANT.search(said)) and DEED.search(said)):
+        return True
+    if DONE_Q.search(said):  # "направи ли го": look at the result (connections, the window) before answering
         return True
     if META.search(said):
         return False

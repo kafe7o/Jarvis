@@ -92,6 +92,9 @@ aiming: ctrl+l for the address bar, ctrl+f to find words on a page, tab/enter/es
 or click my own J.A.R.V.I.S. window. When a step fails, read the error, change one thing (another window, the \
 keyboard instead of the mouse, web_browser instead of the screen) and try again; two failures the same way \
 mean a different way, not a third try.
+- Keys, passwords and tokens never appear in your answers: save them with save_setting (the owner sees them in \
+Settings > Връзки) and say that it is saved. Say only what is true about them: a key is "active" only when \
+connections shows it set.
 - Once told to start, start, and keep going on your own: build the plan yourself, take the next step from what \
 you see on the screen or the page, and when a step fails try another way before you ask. Never end with "Готов?", \
 "да продължа ли?", "кажи ми когато" or a list of steps you could take: that is not work. request_approval is \
@@ -218,9 +221,47 @@ def asks_go_ahead(text: str) -> bool:
     return bool(ASKS_GO_AHEAD.search((text or "").strip()))
 
 
+# Said to the agent when its answer is the same as its previous one (a weak brain copies the last turn, e.g. "Спрях,
+# както каза" to the next question after a stop).
+REPEAT_CHECK = ("(Check before you answer: that is word for word your previous answer, not an answer to my new message. "
+                "Read my new message and answer it itself; if it asks whether something is done, check with your tools "
+                "(connections, the window, the file) and say what you find. Never mention this check in your answer.)")
+# Keys, passwords and tokens that must never be shown in an answer (they are saved with save_setting instead).
+SECRETS = re.compile(r"\b\d{8,11}:[A-Za-z0-9_-]{30,}\b"  # Telegram bot token
+                     r"|\b[a-z]{4} [a-z]{4} [a-z]{4} [a-z]{4}\b"  # Google app password
+                     r"|\bsk_(?:live|test)_[A-Za-z0-9]{10,}|\bsk-ant-[A-Za-z0-9_-]{20,}|\bsk-or-v1-[a-f0-9]{20,}"
+                     r"|\bAIza[0-9A-Za-z_-]{30,}|\bgsk_[A-Za-z0-9]{20,}|\bnvapi-[A-Za-z0-9_-]{20,}"
+                     r"|\bxox[abp]-[A-Za-z0-9-]{20,}|\bgh[pousr]_[A-Za-z0-9]{30,}|\bAC[a-f0-9]{32}\b"
+                     r"|\b(?:whsec|rk_live|rk_test)_[A-Za-z0-9]{10,}")
+HIDDEN = "•••• (скрито; записано е в настройките)"
+
+
+def redact_secrets(text: str) -> str:
+    """An answer with a key, password or token in it shows dots instead: the value belongs in Settings > Връзки."""
+    return SECRETS.sub(HIDDEN, text or "")
+
+
+def last_answer(messages: list) -> str:
+    """The text of the assistant's previous turn in the conversation (before the new message), or ""."""
+    for m in reversed(messages[:-1]):
+        if m.get("role") != "assistant":
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            return content
+        return " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def same_answer(a: str, b: str) -> bool:
+    norm = lambda t: " ".join((t or "").lower().split())  # noqa: E731
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
 # The checks above, as a weak brain sometimes repeats them instead of answering: such an answer is dropped.
 CHECK_MARKS = ("Check before you answer", "Before you finish this job", "Never mention this check",
-               "give your answer again unchanged", "you are asking me whether to go on")
+               "give your answer again unchanged", "you are asking me whether to go on",
+               "word for word your previous answer")
 
 
 def echoes_check(text: str) -> bool:
@@ -659,6 +700,7 @@ class Jarvis:
             answer = self.cheap_answer(text, conversation, confirmer, user, on_progress, on_step)
             if answer is not None:
                 self.store.add_message(conversation, "user", text)
+                answer = redact_secrets(answer)
                 self.store.add_message(conversation, "assistant", answer)
                 return answer
         messages = self._messages(conversation, text)
@@ -682,6 +724,7 @@ class Jarvis:
         if self.settings.learn and (user is None or user.is_owner) and (
                 any(failed for *_r, failed in steps) or router.corrects(text)):
             self.reflect_later(text, steps, answer, conversation)
+        answer = redact_secrets(answer)
         self.store.add_message(conversation, "user", text + (IMAGE_MARK if images else ""))
         self.store.add_message(conversation, "assistant", answer)
         return answer
@@ -911,6 +954,7 @@ class Jarvis:
         failed: list[str] = []  # the tools that failed in the last round of steps (empty when it went well)
         checked_done = False
         pushed = not (insist or verify)  # told to do something: one "Готов?" / "да продължа ли?" gets pushed on
+        previous, repeated = last_answer(messages), False  # a copy of the previous answer gets one more look
         mark = self._mark(user)
         for _ in range(rounds or self.settings.max_tool_rounds):
             if self._mark(user) != mark:  # "спри" came while working
@@ -925,6 +969,11 @@ class Jarvis:
             if response.stop_reason == "refusal":
                 return "Съжалявам, не мога да помогна с това."
             if response.stop_reason not in ("tool_use", "pause_turn"):
+                if not repeated and previous and same_answer(" ".join(texts), previous):
+                    repeated = True  # "Спрях, както каза" again, to a new question: answer the question
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": REPEAT_CHECK})
+                    continue
                 if insist and not acted:  # asked to do something, did nothing: once more, for real
                     insist = False
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
