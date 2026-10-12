@@ -302,3 +302,26 @@ def test_talk_about_jarvis_himself_gets_no_act_check():
         assert not router.wants_action(text), text
     for text in ["пусни музика", "искам да ми намериш клиенти", "обади се на мама", "как е времето сега"]:
         assert router.wants_action(text), text
+
+
+def test_a_copy_of_the_previous_answer_gets_one_more_look_and_secrets_stay_hidden(settings, ctx, registry):
+    """The owner's laptop: after "stop" he asked "а за бота направи ли го" and got "Спрях, както каза" again, word
+    for word; later Jarvis printed the Telegram token and the Gmail app password in the chat."""
+    from conftest import Approver, FakeClient, response, text_block
+    from jarvis import brain as brain_mod
+    from jarvis.brain import STOPPED, Jarvis, redact_secrets
+
+    ctx.store.add_message("main", "user", "stop")
+    ctx.store.add_message("main", "assistant", STOPPED)
+    client = FakeClient([response(text_block(STOPPED)),
+                         response(text_block("Да, ботът е готов: токенът е 7602632257:AAGAO8Xj58FHh50KzSK4GeMOAJvsIFX0UGg."))])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert not router.quick("a za bota napravi li go") and router.wants_action("а за бота направи ли го")
+    answer = jarvis.ask("a za bota napravi li go", route=False, insist=False)
+    assert answer == "Да, ботът е готов: токенът е •••• (скрито; записано е в настройките)."
+    assert len(client.requests) == 2 and client.requests[-1]["messages"][-1]["content"] == brain_mod.REPEAT_CHECK
+    assert ctx.store.history("main")[-1]["content"] == answer  # the saved conversation never holds the token
+
+    hidden = redact_secrets("Паролата за приложения е zcvq hsng bawg csoz, Stripe sk_live_51Abc9XyZ123456 и AIzaSyD-1234567890abcdefghijklmnopqrstu.")
+    assert "zcvq" not in hidden and "sk_live" not in hidden and "AIza" not in hidden and hidden.count("••••") == 3
+    assert redact_secrets("Готово, записах ключа в настройките.") == "Готово, записах ключа в настройките."
