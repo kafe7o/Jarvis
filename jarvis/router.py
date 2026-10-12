@@ -46,6 +46,8 @@ WEEKDAYS = ["понеделник", "вторник", "сряда", "четвъ�
 WAKE = rx(r"^(?:ей,? |хей,? )?(?:джарвис|жарвис|jarvis)\b[\s,.!:-]*")
 POLITE = rx(r"(?:^|\s)(?:моля те|моля|ако обичаш|please)(?=\s|$|[,.!?])")
 TRAILER = rx(r"[\s,]+(?:джарвис|jarvis|сър|бе|де|веднага)$")
+# Fillers a sentence may start with ("а кое те забави", "ама защо", "и какво сега"): dropped before the rules look.
+LEAD = rx(r"^(?:а|ама|абе|и|е|ми|но|та|значи|добре|ок|окей|и така|тогава|между другото|всъщност)[\s,]+(?=\S)")
 
 TIME = rx(r"^(?:колко|кой) (?:е )?часа?(?:ът|а)?(?: е)?(?: (?:сега|в момента|точно))?$|^часът\??$")
 DATE = rx(r"^(?:коя (?:е )?дата(?:та)?(?: е| сме)?|коя е датата|кой ден (?:е|сме)|какъв ден (?:е|сме))(?: днес| сега)?$")
@@ -196,6 +198,7 @@ def clean(text: str) -> str:
     text = POLITE.sub("", text)
     text = re.sub(r"\s+", " ", text).strip(" ,.!…")
     text = TRAILER.sub("", text).strip(" ,.!…")
+    text = LEAD.sub("", text)
     return text
 
 
@@ -433,9 +436,18 @@ def _play(s: str, info: Info) -> Step | None:
 
 # --- levels 2 and 3 ------------------------------------------------------------------------------------
 
+# "можеш ли да го оправиш" asks for the deed, not for an answer about ability.
+CAN_YOU = rx(r"^(?:може ли|можеш ли|би ли|ще можеш ли|ще може ли|имаш ли как|can you|could you|would you)(?=\s|$)")
+DEED = rx(r"(?:^|\s)(?:да |го |ги |ми |me |it )?(?:оправ|направ|пусн|спр|провер|прат|изпрат|намер|отвор|включ|изключ|"
+          r"инсталир|свал|изтегл|кач|запиш|запаз|смен|промен|поправ|покаж|изтри|обад|звънн|напиш|слож|плат|куп|поръч|"
+          r"резервир|подред|почист|стартир|рестартир|обнов|fix|do|send|open|run|install|start|stop)\w*")
+
+
 def quick(text: str) -> bool:
     """True when a question can go to the quick level (level 2): it asks something to know, not to do."""
     said = clean(text)
+    if CAN_YOU.match(said) and DEED.search(said):
+        return False
     if said and words(said) <= 12 and CHAT.search(said) and not NEEDS_TOOLS.search(TIME_WORDS.sub(" ", said)):
         return True
     return bool(said) and words(said) <= 40 and bool(QUESTION.match(said)) and not NEEDS_TOOLS.search(said)

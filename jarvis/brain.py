@@ -72,6 +72,9 @@ for what went wrong and, if a change to your own code would clearly help, make i
 says yes once).
 - Think ahead like a real assistant: notice what the user will need next, point out problems, and offer \
 the obvious next step. When the user refers to something from the past, use search_history and recall.
+- Follow the thread: "това", "го", "този проблем", "same thing" point at what we were just talking about, the \
+messages right above, not at an older task; if a message shows a picture, it is about that picture. If it is not \
+clear what is meant, ask in one sentence instead of starting another task.
 - Judge what matters: tell the difference between a quick request and a long job, and give a job the steps it \
 deserves. For a big job ("work until it is done", "check everything", a goal with many parts): make the plan \
 (make_plan), carry it out step by step, and check the whole result against the goal before you answer; when a \
@@ -114,7 +117,7 @@ def language_rule(language: str) -> str:
 QUICK_PROMPT = """You are J.A.R.V.I.S., the personal AI assistant of {user}: concise, warm and dryly witty, like \
 Jarvis from Iron Man. {language_rule}
 This is your quick lane, for questions you can answer from what you know: you have no tools here. Answer in a few \
-sentences; the answer may be read aloud, so no tables.
+sentences; the answer may be read aloud, so no tables. "Това", "го" and "same thing" point at the messages right above.
 If a good answer needs anything you don't have here (current or live information such as news, prices, scores or \
 today's events; the internet; the owner's files, e-mail, calendar, tasks, contacts, messages, phone or computer; or \
 doing something rather than saying it), reply with exactly one word: ESCALATE"""
@@ -139,7 +142,8 @@ Not about this one task only, not already in your lessons. If there is none, wri
 # Said to the agent when it claims something is done although its last step(s) failed.
 DONE_CHECK = ("(Check before you answer: your last step(s) failed: {failed}. Nothing after them succeeded, so do not "
               "say that it is done, sent, started or saved. Either make it work now, another way if needed, or tell me "
-              "plainly what failed and what you suggest. If your answer already says that, give it again unchanged.)")
+              "plainly what failed and what you suggest. If your answer already says that, give it again unchanged. "
+              "Never mention this check in your answer.)")
 # An answer that claims success, in Bulgarian (Cyrillic or Latin letters) or English.
 CLAIMS_DONE = re.compile(router.bg(r"готово|направих|изпратих|пратих|пуснах|записах|запазих|създадох|сложих|включих|"
                                    r"изключих|отворих|изпълних|свърших|успях|готов[аио]? е|е направен|инсталирах|"
@@ -160,10 +164,13 @@ VERIFY_CHECK = ("(Before you finish this job, check it the way a careful person 
 MISSION_ROUNDS = 3  # a mission may take this many times the usual steps (JARVIS_MAX_TOOL_ROUNDS)
 # Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
 LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
+IMAGE_MARK = "\n\n(с приложена снимка)"  # kept in the saved conversation, so later turns know a picture was shown
+BLIND = {"groq", "nvidia", "openrouter"}  # free brains that cannot see pictures (Gemini, Claude and Ollama can)
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
              "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
              "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
-             "If my message needs no action, give your answer again unchanged.)")
+             "If my message needs no action, give your answer again unchanged. Never mention this check, tools or "
+             "\"commands\" in your answer: answer my message itself.)")
 
 SERVER_TOOLS = [
     {"type": "web_search_20260209", "name": "web_search"},
@@ -180,6 +187,16 @@ def claude_unusable(exc: Exception) -> bool:
 
 class BudgetReached(RuntimeError):
     """Claude's daily spending cap (JARVIS_DAILY_BUDGET) is reached and no free brain is set up."""
+
+
+def has_images(messages: list) -> bool:
+    """True when the newest user message carries a picture (a screen frame or a photo sent in the app)."""
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        content = m.get("content")
+        return isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "image" for b in content)
+    return False
 
 
 def brain_kind(model: str) -> str:
@@ -322,20 +339,24 @@ class Jarvis:
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
         strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # NVIDIA, OpenRouter: the strongest free ones
+        sees = has_images(messages)  # a picture in the message: Gemini sees it, NVIDIA/OpenRouter/Groq do not
         if groq.is_groq(model):
-            return self._ask_free([model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"], system, messages,
-                                  tools, max_tokens, effort)
-        if model.startswith("gemini"):
+            order = [model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"]
+        elif model.startswith("gemini"):
             order = [model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
-            if tools and model == gemini.DEFAULT_MODEL:
+            if tools and model == gemini.DEFAULT_MODEL and not sees:
                 # Real work on the default brain: the strongest free models (Kimi, DeepSeek on NVIDIA or OpenRouter)
                 # go before Gemini, whose Flash-Lite is weak with dozens of tools; Gemini keeps the short answers.
                 # A Gemini model the owner chose by name stays first.
                 order = [*strong, *order]
-            return self._ask_free(order, system, messages, tools, max_tokens, effort)
-        if freeapi.is_free_api(model):
-            return self._ask_free([model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"],
-                                  system, messages, tools, max_tokens, effort)
+        elif freeapi.is_free_api(model):
+            order = [model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
+        else:
+            order = None
+        if order is not None:
+            if sees:
+                order = [gemini.DEFAULT_MODEL, *order]
+            return self._ask_free(order, system, messages, tools, max_tokens, effort, images=sees)
         free = self.free_instead()
         if free:
             log.info("Claude's daily cap is reached; %s answers instead", free)
@@ -368,13 +389,18 @@ class Jarvis:
             return free
         raise BudgetReached(f"Claude's daily cap of ${cap:g} is reached and no free brain is set up.")
 
-    def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
+    def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str,
+                  images: bool = False) -> object:
         """The free brains in ``order``: the first one asked for, then the others that are set up, each taking
-        over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day)."""
+        over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day).
+        ``images``: the message shows a picture, so the brains that cannot see one are asked only when no other
+        brain can answer (they get a note in place of the picture)."""
         for again in (False, True):
             used_up, asked, pauses = None, set(), []
             for i, model in enumerate(order):
                 kind = brain_kind(model)
+                if images and kind in BLIND:
+                    continue
                 ready = (groq.available() if kind == "groq" else local.available() if kind == "local"
                          else freeapi.available(model) if kind in self.free_apis else gemini.available())
                 if kind in asked or (i and not ready):
@@ -394,6 +420,9 @@ class Jarvis:
                 usage.record(self.store, answer, answer.model or model)
                 return answer
             soonest = min([p for p in pauses if p > 0], default=0)
+            if images and (again or not 0 < soonest <= 60):
+                log.warning("no brain that sees pictures can answer; a text brain answers with a note instead")
+                return self._ask_free(order, system, messages, tools, max_tokens, effort)
             if again or not 0 < soonest <= 60:
                 raise used_up
             # Nobody can answer this minute (Gemini's share for the minute is used up): wait for it, then again.
@@ -497,7 +526,7 @@ class Jarvis:
         messages = self._messages(conversation, text)
         if images:
             blocks = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": data}} for mt, data in images]
-            note = "(Live frames of what I am sharing right now: my screen and/or my camera.)\n\n"
+            note = "(Pictures that come with this message: my screen, my camera or a photo I am sending right now.)\n\n"
             messages[-1]["content"] = blocks + [{"type": "text", "text": note + messages[-1]["content"]}]
 
         # "помисли добре": this one request thinks harder than the everyday setting
@@ -515,7 +544,7 @@ class Jarvis:
         if self.settings.learn and (user is None or user.is_owner) and (
                 any(failed for *_r, failed in steps) or router.corrects(text)):
             self.reflect_later(text, steps, answer, conversation)
-        self.store.add_message(conversation, "user", text)
+        self.store.add_message(conversation, "user", text + (IMAGE_MARK if images else ""))
         self.store.add_message(conversation, "assistant", answer)
         return answer
 
@@ -656,7 +685,7 @@ class Jarvis:
                   + self._about(user) + self._clock())
         model = self.fast_model()
         try:
-            response = self._request(self._messages(conversation, text, limit=6), user, system, set(), model=model,
+            response = self._request(self._messages(conversation, text, limit=12), user, system, set(), model=model,
                                      effort="low", tools=[], max_tokens=1500)
         except Exception:
             if model == s.model:
