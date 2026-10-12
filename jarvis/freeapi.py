@@ -94,7 +94,7 @@ def rank(ids: list[str]) -> list[str]:
 
 def choose(provider: Provider, listing: list[dict]) -> list[str]:
     """The provider's models that suit Jarvis, best first. OpenRouter says which ones are free and can use tools;
-    NVIDIA lists everything it hosts, so only the known good families are kept."""
+    NVIDIA lists everything it hosts. On both only the known good families (PREFER) are kept."""
     if provider.key == "openrouter":
         def free(m: dict) -> bool:
             price = m.get("pricing") or {}
@@ -103,8 +103,10 @@ def choose(provider: Provider, listing: list[dict]) -> list[str]:
 
         ids = [m["id"] for m in listing if m.get("id") and free(m) and "tools" in (m.get("supported_parameters") or [])
                and not SKIP.search(m["id"].lower())]
-        return rank(ids)
-    ids = [m["id"] for m in listing if m.get("id") and not SKIP.search(m["id"].lower())]
+    else:
+        ids = [m["id"] for m in listing if m.get("id") and not SKIP.search(m["id"].lower())]
+    # Only the known good families, on both: OpenRouter's "openrouter/free" router and small ":free" models answer
+    # at once but cannot carry a task, and an answer from them costs more than handing over to the next brain.
     return rank([i for i in ids if any(name in i.lower() for name in PREFER)])
 
 

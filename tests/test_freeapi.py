@@ -68,8 +68,8 @@ def test_the_strongest_models_that_can_use_tools_go_first():
                       "deepseek-ai/deepseek-v3.1", "openai/gpt-oss-120b", "meta/llama-3.3-70b-instruct",
                       "moonshotai/kimi-k2-thinking"]  # no search, safety, picture or coder models, no unknown ones
     openrouter = freeapi.choose(freeapi.PROVIDERS["openrouter"], OPENROUTER_LIST)
-    assert openrouter == ["deepseek/deepseek-chat-v3.1:free", "meta-llama/llama-3.3-70b-instruct:free",
-                          "tiny/helper:free"]  # only free ones that can use tools; paid gpt-5 is left out
+    assert openrouter == ["deepseek/deepseek-chat-v3.1:free", "meta-llama/llama-3.3-70b-instruct:free"]
+    # only free ones that can use tools; paid gpt-5, the tiny helper and OpenRouter's own "free" router are left out
 
 
 def test_nvidia_is_the_brain_with_every_tool_and_costs_nothing(settings, ctx, registry, nvidia_key):
@@ -199,19 +199,35 @@ def test_without_gemini_or_groq_a_free_key_still_makes_jarvis_free(settings, ctx
     assert err and "build.nvidia.com" in out
 
 
-def test_with_a_strong_free_key_the_real_work_goes_there_before_gemini(settings, ctx, registry, nvidia_key, monkeypatch):
+def test_gemini_flash_does_the_real_work_while_its_day_lasts_then_the_strong_free_models(settings, ctx, registry,
+                                                                                         nvidia_key, monkeypatch):
+    """The owner's laptop: Flash (which sees the screen and carries a task) sat unused while NVIDIA's and
+    OpenRouter's small models answered. Flash goes first while it has free requests; once its day is spent
+    the strong free models go before Flash-Lite; a scheduled job nobody watches never spends Flash."""
+    from google.genai import types
     from jarvis.brain import free_brain
 
-    settings.model = gemini.DEFAULT_MODEL  # the default brain saved earlier; Gemini keeps the short answers
+    settings.model = gemini.DEFAULT_MODEL
     monkeypatch.setenv("GEMINI_API_KEY", "x")
     assert free_brain() == "nvidia"
-    google = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **kw: (_ for _ in ()).throw(
-        AssertionError("Gemini should not do the real work while NVIDIA can"))))
-    brain = gemini.GeminiBrain(google, wait=lambda s: None)
-    fake = FakeAPI([said("Свърших го през NVIDIA.")])
+    asked = []
+
+    def generate_content(model, contents, config):
+        asked.append(model)
+        return types.GenerateContentResponse(candidates=[types.Candidate(
+            content=types.Content(role="model", parts=[types.Part(text="Свърших го през Gemini.")]), finish_reason="STOP")])
+
+    brain = gemini.GeminiBrain(SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)), wait=lambda s: None)
+    fake = FakeAPI([said("Свърших го през NVIDIA.")] * 4)
     jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]), gemini_brain=brain,
                     free_brains={"nvidia": freeapi.FreeBrain("nvidia", post=fake, get=lambda: NVIDIA_LIST)})
-    assert jarvis.ask("направи го") == "Свърших го през NVIDIA."
+    assert jarvis.ask("направи го") == "Свърших го през Gemini."
+    assert set(asked) == {gemini.AGENT_MODEL} and fake.bodies == []
+    brain.spent[gemini.AGENT_MODEL] = time.time() + 3600  # Flash's free day is over: NVIDIA before Flash-Lite
+    assert jarvis.ask("направи го пак") == "Свърших го през NVIDIA." and set(asked) == {gemini.AGENT_MODEL}
+    brain.spent.clear()
+    job = "(Scheduled job, the user is not watching; report the outcome briefly.) провери пощата"
+    assert jarvis.ask(job, route=False) == "Свърших го през NVIDIA." and set(asked) == {gemini.AGENT_MODEL}
 
 
 def test_a_slow_queue_hands_over_at_once_and_cheap_refusals_cost_no_tries(nvidia_key, tmp_path):
