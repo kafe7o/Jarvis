@@ -281,6 +281,33 @@ def test_a_slow_queue_hands_over_at_once_and_cheap_refusals_cost_no_tries(nvidia
     assert again.models("nvidia")[0] == "moonshotai/kimi-k2-instruct"
 
 
+def test_a_model_that_keeps_running_out_of_time_rests_a_day_until_it_answers_again(nvidia_key, tmp_path):
+    """The owner's NVIDIA account has only slow thinkers (deepseek-v4.1-flash, glm-5.3): 45 s waited for each on
+    every request made every answer a minute late. Ten minutes' rest the first time, six hours the second, a
+    day from the third; remembered across restarts; forgiven once the model answers in time."""
+    def timing_out(body):
+        raise urllib.error.URLError("The read operation timed out")
+    listing = [{"id": "deepseek-ai/deepseek-v4.1-flash"}]
+    state = tmp_path / "resting-nvidia.json"
+    brain = freeapi.FreeBrain("nvidia", post=timing_out, get=lambda: listing, state=state)
+    rests = []
+    for _ in range(3):
+        with pytest.raises(freeapi.UsedUp):
+            brain.create(model="nvidia", system="", messages=[], tools=[], max_tokens=100, effort="low")
+        rests.append(brain.resting["deepseek-ai/deepseek-v4.1-flash"] - time.time())
+        brain.resting.clear()
+    assert 500 < rests[0] <= 600 and 6 * 3600 - 100 < rests[1] <= 6 * 3600 and 86400 - 100 < rests[2] <= 86400
+    again = freeapi.FreeBrain("nvidia", post=FakeAPI([said("Най-после.")]), get=lambda: listing, state=state)
+    assert again.slow == {"deepseek-ai/deepseek-v4.1-flash": 3}
+    assert again.models("nvidia") == []  # it rests: the provider is skipped at once, the next brain answers now
+    again.resting.clear()
+    assert again.create(model="nvidia", system="", messages=[], tools=[], max_tokens=100, effort="low").content[0].text == "Най-после."
+    assert again.slow == {} and json.loads(state.read_text())["slow"] == {}
+    # The old state file (models only) still reads.
+    state.write_text(json.dumps({"z-ai/glm-5.3": time.time() + 999}))
+    assert "z-ai/glm-5.3" in freeapi.FreeBrain("nvidia", post=timing_out, get=lambda: listing, state=state).resting
+
+
 def test_long_thinkers_go_last():
     listing = [{"id": i} for i in ["deepseek-ai/deepseek-v4.1-flash", "z-ai/glm-5.3-flash", "moonshotai/kimi-k2-instruct",
                                    "deepseek-ai/deepseek-v3.2"]]
