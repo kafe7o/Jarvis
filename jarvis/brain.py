@@ -254,8 +254,9 @@ def last_answer(messages: list) -> str:
 
 
 def same_answer(a: str, b: str) -> bool:
+    """True when ``a`` is ``b`` again, word for word; a short acknowledgement ("Добре.") may well repeat."""
     norm = lambda t: " ".join((t or "").lower().split())  # noqa: E731
-    return bool(norm(a)) and norm(a) == norm(b)
+    return len(norm(b).split()) >= 4 and norm(a) == norm(b)
 
 
 # The checks above, as a weak brain sometimes repeats them instead of answering: such an answer is dropped.
@@ -305,13 +306,16 @@ GROUP_RX = {g: re.compile(router.bg(words), re.I) for g, words in GROUP_WORDS.it
 
 
 def recent_text(messages: list, turns: int = 2) -> str:
-    """The text of the last few user messages (what the request is about)."""
+    """The text of the last few user messages (what the request is about); the check notes Jarvis sends himself
+    (ACT_CHECK and kin) and tool results do not count."""
     out = []
     for m in reversed(messages):
         if m.get("role") != "user":
             continue
         content = m.get("content")
         if isinstance(content, str):
+            if echoes_check(content):
+                continue
             out.append(content)
         elif isinstance(content, list):
             out.extend(str(b.get("text", "")) for b in content if isinstance(b, dict) and b.get("type") == "text")
@@ -969,7 +973,7 @@ class Jarvis:
             if response.stop_reason == "refusal":
                 return "Съжалявам, не мога да помогна с това."
             if response.stop_reason not in ("tool_use", "pause_turn"):
-                if not repeated and previous and same_answer(" ".join(texts), previous):
+                if not repeated and not acted and previous and same_answer(" ".join(texts), previous):
                     repeated = True  # "Спрях, както каза" again, to a new question: answer the question
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
                     messages.append({"role": "user", "content": REPEAT_CHECK})
