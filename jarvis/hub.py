@@ -461,6 +461,7 @@ EXTRA_SETTINGS = [
     ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
         ("JARVIS_TTS_VOICE", "Безплатен глас на български (bg-BG-BorislavNeural)"),
         ("JARVIS_SILENCE", "Колко секунди тишина да изчака, преди да започне, за да не те прекъсва (празно = 2)"),
+        ("JARVIS_STT", "Как да те чува в приложението: празно = гласа на браузъра, а където той не работи (Avast, Brave) сам минава на Whisper; whisper = винаги Whisper през безплатния Groq ключ (по-точен български)"),
         ("ELEVENLABS_API_KEY", "ElevenLabs ключ, за глас като във филма или твой клониран глас (по желание)"),
         ("ELEVENLABS_VOICE_ID", "ElevenLabs глас (празно = George, британски мъжки)"),
     ]),
@@ -780,6 +781,7 @@ class Hub:
 
             return 200, {"user": user.public() if user else None, "needs_setup": self.accounts.count() == 0,
                          "brain": brain_key(self.ctx.settings.model), "silence": silence_seconds(),
+                         "stt": os.environ.get("JARVIS_STT", "").strip().lower(),
                          "can_setup": req.local or req.via == "token", "restartable": self.restartable,
                          "groups": [{"key": k, "label": l, "desc": d, "sensitive": s} for k, l, d, s in GROUPS]}
         if p == "/api/setup" and m == "POST":
@@ -888,6 +890,24 @@ class Hub:
                 threading.Thread(target=lambda: self.events.add("answer", to=user.id or None, job=job, **answer()),
                                  name=f"jarvis-ask-{job}", daemon=True).start()
                 return 200, {"job": job}
+
+        if p == "/api/stt" and m == "POST":  # the app's microphone when the browser cannot recognize speech itself
+            import base64
+
+            from . import stt
+
+            match = re.fullmatch(r"data:(audio/[\w.+-]+)(?:;[\w=.-]+)*;base64,([A-Za-z0-9+/=]+)", str(b.get("audio") or ""))
+            if not match:
+                raise HTTPError(400, "Няма запис.")
+            try:
+                text = stt.transcribe(base64.b64decode(match[2]), match[1], str(b.get("lang") or "bg")[:5],
+                                      self.ctx.settings.whisper_model)
+            except ValueError as exc:
+                raise HTTPError(413, str(exc))
+            except RuntimeError as exc:
+                raise HTTPError(503, "Не мога да разпозная говора: сложи безплатния Groq ключ в Настройки > Връзки "
+                                     f"или инсталирай гласа (`pip install faster-whisper`). ({exc})")
+            return 200, {"text": text}
 
         if p == "/api/tts" and m == "POST":
             from .tts import synthesize

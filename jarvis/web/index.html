@@ -890,7 +890,7 @@ async function start() {
   let me;
   try { me = await api("/api/me"); }
   catch (e) { $("boot").innerHTML = `<div class="card" style="text-align:center"><div class="reactor" style="--s:56px;margin:0 auto 16px"></div><p>${esc(e.message)}</p><button class="btn primary" onclick="location.reload()">Опитай пак</button></div>`; return; }
-  state.groups = me.groups; state.restartable = me.restartable; state.silence = me.silence;
+  state.groups = me.groups; state.restartable = me.restartable; state.silence = me.silence; state.stt = me.stt || "";
   if (!me.user) { showAuth(me); return; }
   state.me = me.user;
   $("auth").classList.add("hidden"); $("boot").classList.add("hidden"); $("app").classList.remove("hidden");
@@ -1197,8 +1197,45 @@ function silenceMs() { return (state.silence || 2) * 1000; }
 // When to act: the pause counts from the last sound (interim results come while you speak; the final one comes
 // only after the browser has heard a short pause itself).
 function quietIn(final, last) { return final ? Math.max(150, last + silenceMs() - Date.now()) : silenceMs(); }
+// Whisper (Groq, free) when the browser has no speech service of its own: Avast, Brave and Opera have the API but
+// fail with "network". Records until a pause (JARVIS_SILENCE) or a second tap, then Jarvis turns it into text.
+let whisperRec = null;
+async function whisperListen() {
+  if (whisperRec) { whisperRec.stop(); return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { toast("Този браузър не може да записва глас.", "Глас", "warn"); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { toast("Разреши микрофона в браузъра.", "Глас", "warn"); return; }
+  const chunks = [], recorder = new MediaRecorder(stream), before = input.value;
+  const ctx = new (window.AudioContext || window.webkitAudioContext)(), meter = ctx.createAnalyser();
+  ctx.createMediaStreamSource(stream).connect(meter);
+  const level = new Uint8Array(meter.fftSize), started = Date.now();
+  let heard = false, lastSound = Date.now();
+  const watch = setInterval(() => {  // stop after a pause once something was said, or after a minute
+    meter.getByteTimeDomainData(level);
+    const loud = Math.max(...level.map((v) => Math.abs(v - 128))) > 12;
+    if (loud) { heard = true; lastSound = Date.now(); }
+    if ((heard && Date.now() - lastSound > silenceMs()) || Date.now() - started > 60000 || (!heard && Date.now() - started > 15000)) recorder.stop();
+  }, 150);
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = async () => {
+    clearInterval(watch); stream.getTracks().forEach((t) => t.stop()); ctx.close();
+    whisperRec = null; $("mic").classList.remove("rec");
+    if (!heard || !chunks.length) return;
+    const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+    const audio = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
+    const placeholder = input.placeholder; input.placeholder = "Разпознавам…";
+    try {
+      const { text } = await api("/api/stt", { audio, lang: "bg" });
+      if (text) { input.value = (before ? before + " " : "") + text; send(); }
+    } catch (e) { toast(e.message, "Глас", "warn"); }
+    finally { input.placeholder = placeholder; }
+  };
+  whisperRec = recorder; $("mic").classList.add("rec");
+  recorder.start();
+}
 $("mic").addEventListener("click", () => {
-  if (!Recognition) { toast("Този браузър не поддържа гласово въвеждане. Пробвай Chrome или Edge.", "Глас", "warn"); return; }
+  if (state.stt === "whisper" || state.sttFallback || !Recognition) { whisperListen(); return; }
   if (rec) { rec.stop(); return; }  // tapped again: done talking
   rec = new Recognition();
   rec.lang = "bg-BG"; rec.interimResults = true; rec.continuous = true;
@@ -1216,7 +1253,13 @@ $("mic").addEventListener("click", () => {
     clearTimeout(quiet); rec = null; $("mic").classList.remove("rec");
     if (input.value.trim() && input.value !== before) send();
   };
-  rec.onerror = (e) => { if (e.error === "not-allowed") toast("Разреши микрофона в браузъра.", "Глас", "warn"); };
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed") toast("Разреши микрофона в браузъра.", "Глас", "warn");
+    if (e.error === "network" || e.error === "service-not-allowed" || e.error === "language-not-supported") {
+      state.sttFallback = true;  // this browser has no speech service (Avast, Brave): Whisper from now on
+      toast("Този браузър не разпознава говор сам; минавам на Whisper. Говори пак.", "Глас");
+    }
+  };
   $("mic").classList.add("rec");
   rec.start();
 });
