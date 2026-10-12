@@ -208,6 +208,51 @@ class BudgetReached(RuntimeError):
     """Claude's daily spending cap (JARVIS_DAILY_BUDGET) is reached and no free brain is set up."""
 
 
+# Which tools a free brain gets for one request. Claude takes all of them (they are cached); the free brains do
+# worse with a hundred tools than with the thirty that matter here, so the groups below join only when the
+# recent messages are about them. The owner's permissions still apply on top.
+ALWAYS_GROUPS = {"core", "system", "browser", "memory", "tasks", "web"}
+GROUP_WORDS = {
+    "android": r"телефон|phone|sms|смс|обад|звънн|позвън|телевиз|\btv\b|android|контакт|приложени",
+    "comms": r"обад|звънн|позвън|sms|смс|имейл|мейл|поща|e-?mail|писмо|gmail|разговор по телефона",
+    "messaging": r"whatsapp|viber|telegram|съобщени|отговаряй|известие|push",
+    "google": r"календар|calendar|gmail|срещ|събити|покан|поща|имейл|мейл",
+    "payments": r"плат|фактур|stripe|пари|баланс|възстанов|invoice|payment",
+    "sendmoney": r"превод|paypal|wise|iban|изпрати пари|прати пари",
+    "home": r"лампа|лампи|светлин|климат|камер|врата|ключалк|аларм|умен дом|home assistant|прахосмукач|щори",
+    "team": r"екип|делегир|специалист|агенти|паралелно",
+    "agent": r"умени|skill|код|надстро|обнов|update|ключ|настрой|свърж|връзки|одит|\bapi\b|github|git",
+    "upgrade": r"урок|научи|самоусъвърш|грешк|прегледай се|подобри се",
+}
+GROUP_RX = {g: re.compile(router.bg(words), re.I) for g, words in GROUP_WORDS.items()}
+
+
+def recent_text(messages: list, turns: int = 2) -> str:
+    """The text of the last few user messages (what the request is about)."""
+    out = []
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            out.append(content)
+        elif isinstance(content, list):
+            out.extend(str(b.get("text", "")) for b in content if isinstance(b, dict) and b.get("type") == "text")
+        if len(out) >= turns:
+            break
+    return "\n".join(out)
+
+
+def select_tools(tools: list[dict], groups: dict[str, str], text: str) -> list[dict]:
+    """The tools worth sending to a free brain for this request: the always-on groups, plus the groups the recent
+    messages talk about. A mission (a long job) keeps every tool."""
+    if router.is_mission(text):
+        return tools
+    wanted = set(ALWAYS_GROUPS) | {g for g, rx in GROUP_RX.items() if rx.search(text)}
+    chosen = [t for t in tools if groups.get(t["name"], "agent") in wanted]
+    return chosen or tools
+
+
 def has_images(messages: list) -> bool:
     """True when the newest user message carries a picture (a screen frame or a photo sent in the app)."""
     for m in reversed(messages):
@@ -353,6 +398,9 @@ class Jarvis:
             allowed = user.allowed_groups()
         if tools is None:
             tools = self.registry.definitions(allowed)
+            if tools and not model.startswith("claude"):  # a free brain: the tools this request is about
+                groups = {name: (tool.group or "agent") for name, tool in self.registry.tools.items()}
+                tools = select_tools(tools, groups, recent_text(messages))
         system = system if system is not None else self.system_prompt(user)
         again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
         if local.is_local(model):

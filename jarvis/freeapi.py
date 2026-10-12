@@ -43,9 +43,10 @@ PROVIDERS = {
                            "openrouter.ai/keys", ("deepseek/deepseek-chat-v3.1:free", "openai/gpt-oss-120b:free",
                                                   "meta-llama/llama-3.3-70b-instruct:free")),
 }
-# Families that answer well in Bulgarian and use tools reliably, best first.
-PREFER = ("kimi-k2", "deepseek", "glm", "qwen3", "minimax-m", "gpt-oss-120b", "mistral-large", "nemotron-super",
-          "llama-4-maverick", "llama-3.3-70b", "gpt-oss-20b", "mistral", "gemma-3")
+# Families that answer well in Bulgarian and use tools reliably, best first. Small models (gpt-oss-20b, gemma,
+# 7-12b mistrals) are left out on purpose: with a hundred tools they refuse or lecture instead of acting.
+PREFER = ("kimi-k2", "deepseek", "glm", "qwen3", "minimax-m", "gpt-oss-120b", "mistral-large", "nemotron-ultra",
+          "nemotron-super", "llama-4-maverick", "llama-3.3-70b")
 # Models that are not chat brains (search, safety, pictures, speech) or think for a long time before answering.
 SKIP = re.compile(r"embed|rerank|guard|safety|reward|retriev|parse|ocr|clip|vision|-vl|audio|speech|tts|asr|whisper|"
                   r"translat|coder|math|detector|pii|base$")
@@ -56,6 +57,7 @@ TRIES = 3  # models that cost time (busy, down, slow) tried for one answer befor
 TIMEOUT = 45.0  # seconds to wait for an answer with tools; a free queue slower than that is handed over
 QUICK_TIMEOUT = 20.0  # seconds for a short answer without tools (the quick lane)
 CHEAP = {400, 402, 403, 404, 410}  # the model refuses at once: costs no time, so it is not one of the TRIES
+SLOW_STRIKES, SLOW_WINDOW, SLOW_REST = 2, 900, 1800  # two timeouts in 15 minutes: the whole provider rests half an hour
 DAILY = re.compile(r"per.?day|daily", re.I)
 
 
@@ -118,6 +120,7 @@ class FreeBrain:
         self.state = state  # a file that keeps ``resting`` across restarts, or None
         self.resting: dict[str, float] = self._load()  # model ("*" = all of them) -> when it may be asked again
         self._listed: tuple[float, list[str]] = (0.0, [])
+        self.timeouts: list[float] = []  # when answers ran out of time lately (a slow queue, not one slow model)
 
     def _load(self) -> dict[str, float]:
         """The models still resting from the last run, so a model that is gone or slow is not asked again on
@@ -206,6 +209,8 @@ class FreeBrain:
                     rest = 86400  # not free for this account
                 elif code in (0, 408, 504):
                     rest = 600  # too slow right now
+                elif code == 429:
+                    rest = 600 if re.search(r"upstream|temporar", detail, re.I) else 60  # the provider itself is short
                 else:
                     rest = 60  # busy, too big or down for a moment
                 log.warning("%s: %s; trying the next model", p.name, last)
@@ -216,6 +221,12 @@ class FreeBrain:
             if code in (0, 408, 504):
                 # Waiting the whole timeout once is enough: the next free brain answers now instead of this
                 # provider's next model, which is likely as slow (the queue, not the model, is the problem).
+                now = time.time()
+                self.timeouts = [t for t in self.timeouts if now - t < SLOW_WINDOW] + [now]
+                if len(self.timeouts) >= SLOW_STRIKES:
+                    log.warning("%s keeps running out of time; it rests for %d minutes", p.name, SLOW_REST // 60)
+                    self.rest("*", SLOW_REST)
+                    self.timeouts = []
                 break
         raise UsedUp(f"{p.name} could not answer just now ({last}).")
 
