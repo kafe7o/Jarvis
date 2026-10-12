@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +16,8 @@ from pathlib import Path
 from .. import winui
 from ..procs import run_capture, run_text
 from ..tools import Image, ToolRegistry, obj
+
+log = logging.getLogger("jarvis.system")
 
 MAX_OUTPUT = 20_000
 
@@ -251,13 +255,9 @@ def register(registry: ToolRegistry, ctx) -> None:
     def click_text(target: str, window: str | None = None, text: str | None = None, enter: bool = False):
         return winui.click(target, window, text, enter)
 
-    @registry.tool(
-        "Look at the computer screen: returns a screenshot you can see. For buttons, links and fields use "
-        "read_window and click_text first; this with control_input is for what has no words (pictures, games, "
-        "maps): look, act, look again to check.",
-        obj({"save_to?": ("string", "Also save the full-size PNG here")}),
-    )
-    def look_at_screen(save_to: str | None = None):
+    def shoot(save_to: str | None = None) -> tuple[bytes, tuple[int, int]]:
+        """A screenshot scaled to at most 1280 px wide, as PNG bytes and its size; control_input and
+        work_on_screen take coordinates in these pixels."""
         import io
 
         import pyautogui
@@ -274,31 +274,24 @@ def register(registry: ToolRegistry, ctx) -> None:
         screen["size"] = small.size
         buf = io.BytesIO()
         small.convert("RGB").save(buf, format="PNG", optimize=True)
-        note = (f"Screenshot {small.size[0]}x{small.size[1]}. Give control_input coordinates in this image's pixels "
-                f"(x 0-{small.size[0] - 1}, y 0-{small.size[1] - 1}). To press something with words on it, click_text is "
-                "more reliable.")
-        return Image(buf.getvalue(), "image/png", note)
+        return buf.getvalue(), small.size
 
     @registry.tool(
-        "Control the mouse and keyboard. Coordinates are pixels in the latest look_at_screen image. "
-        "Actions: click, double_click, right_click, move, drag (to x2,y2), scroll (amount, + up / - down), "
-        "type (text), hotkey (keys, e.g. ['ctrl','c']), press (keys, one after another).",
-        obj({
-            "action": ("string", "click | double_click | right_click | move | drag | scroll | type | hotkey | press"),
-            "x?": ("integer", "X in the screenshot"),
-            "y?": ("integer", "Y in the screenshot"),
-            "x2?": ("integer", "Drag target X"),
-            "y2?": ("integer", "Drag target Y"),
-            "text?": ("string", "Text to type"),
-            "keys?": ("array", "Key names"),
-            "amount?": ("integer", "Scroll clicks"),
-        }),
-        confirm=True,
-        local=True,
-        summarize=lambda a: f"Мишка/клавиатура: {a}",
+        "Look at the computer screen: returns a screenshot you can see. For buttons, links and fields use "
+        "read_window and click_text first; this with control_input is for what has no words (pictures, games, "
+        "maps): look, act, look again to check.",
+        obj({"save_to?": ("string", "Also save the full-size PNG here")}),
     )
-    def control_input(action: str, x: int | None = None, y: int | None = None, x2: int | None = None,
-                      y2: int | None = None, text: str = "", keys: list | None = None, amount: int = -5):
+    def look_at_screen(save_to: str | None = None):
+        data, size = shoot(save_to)
+        note = (f"Screenshot {size[0]}x{size[1]}. Give control_input coordinates in this image's pixels "
+                f"(x 0-{size[0] - 1}, y 0-{size[1] - 1}). To press something with words on it, click_text is "
+                "more reliable.")
+        return Image(data, "image/png", note)
+
+    def do_input(action: str, x=None, y=None, x2=None, y2=None, text: str = "", keys: list | None = None,
+                 amount: int = -5) -> None:
+        """One mouse or keyboard action, coordinates in the pixels of the latest screenshot."""
         import pyautogui
 
         def real(v):
@@ -332,9 +325,81 @@ def register(registry: ToolRegistry, ctx) -> None:
         elif action == "press":
             for key in keys or []:
                 pyautogui.press(key)
+        elif action == "wait":
+            time.sleep(min(10, max(0.5, float(amount if amount and amount > 0 else 2))))
         else:
             raise ValueError(f"Unknown action {action}")
+
+    @registry.tool(
+        "Control the mouse and keyboard. Coordinates are pixels in the latest look_at_screen image. "
+        "Actions: click, double_click, right_click, move, drag (to x2,y2), scroll (amount, + up / - down), "
+        "type (text), hotkey (keys, e.g. ['ctrl','c']), press (keys, one after another).",
+        obj({
+            "action": ("string", "click | double_click | right_click | move | drag | scroll | type | hotkey | press"),
+            "x?": ("integer", "X in the screenshot"),
+            "y?": ("integer", "Y in the screenshot"),
+            "x2?": ("integer", "Drag target X"),
+            "y2?": ("integer", "Drag target Y"),
+            "text?": ("string", "Text to type"),
+            "keys?": ("array", "Key names"),
+            "amount?": ("integer", "Scroll clicks"),
+        }),
+        confirm=True,
+        local=True,
+        summarize=lambda a: f"Мишка/клавиатура: {a}",
+    )
+    def control_input(action: str, x: int | None = None, y: int | None = None, x2: int | None = None,
+                      y2: int | None = None, text: str = "", keys: list | None = None, amount: int = -5):
+        do_input(action, x, y, x2, y2, text, keys, amount)
         return "Done. Look at the screen to check the result."
+
+    @registry.tool(
+        "Take over the screen for a goal that needs many quick looks and moves with no words to click: a game, "
+        "a map, a drawing, a video player, a program read_window cannot read. You look at the screen, make one "
+        "mouse or keyboard move, look again, and so on, on your own, until the goal is reached, you are stuck, or "
+        "the moves run out; every move shows on the live screen. Give a goal that can be seen when it is done "
+        "(\"win this round\", \"zoom the map to Sofia\", \"close every pop-up\"). For buttons and links with words "
+        "use read_window and click_text instead.",
+        obj({"goal": ("string", "What the screen should show at the end, and how to play"),
+             "window?": ("string", "Part of the window's title to bring in front first (Windows)"),
+             "steps?": ("integer", "At most this many moves (default 20, up to 60)")}),
+        confirm=True,
+        local=True,
+        summarize=lambda a: f"Поема екрана: {a.get('goal')}" + (f" (прозорец „{a['window']}“)" if a.get("window") else ""),
+    )
+    def work_on_screen(goal: str, window: str | None = None, steps: int = 20):
+        from .. import screenwork
+        from ..brain import TURN
+
+        jarvis = getattr(ctx, "jarvis", None)
+        if jarvis is None:
+            raise RuntimeError("The brain is not running here.")
+        if window and winui.on_windows():
+            try:
+                with winui._session(lambda auto: winui.bring_to_front(auto, winui.find_window(auto, window))):
+                    pass
+            except Exception as exc:  # a window that cannot be found or focused: the loop still looks at the screen
+                log.info("could not bring %r in front: %s", window, exc)
+        turn = TURN.get() or {}
+        user = turn.get("user")
+        mark = jarvis._mark(user)  # "спри" while the loop runs: it ends at the next move
+
+        def decide(prompt: str, image: bytes) -> str:
+            import base64
+
+            content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                    "data": base64.b64encode(image).decode()}},
+                       {"type": "text", "text": prompt}]
+            response = jarvis._request([{"role": "user", "content": content}], None, screenwork.SYSTEM, set(),
+                                       tools=[], max_tokens=300, effort="low")
+            return " ".join(b.text for b in response.content if b.type == "text")
+
+        def act(move: dict) -> None:
+            do_input(move["action"], move.get("x"), move.get("y"), move.get("x2"), move.get("y2"),
+                     move.get("text") or "", move.get("keys"), move.get("amount") if move.get("amount") is not None else -5)
+
+        return screenwork.run(goal, lambda: shoot(), decide, act, steps=min(60, max(1, int(steps or 20))),
+                              stopped=lambda: jarvis._mark(user) != mark, report=turn.get("on_step"))
 
     @registry.tool(
         "Run Python code on this computer and return what it prints. Good for calculations, data, "
