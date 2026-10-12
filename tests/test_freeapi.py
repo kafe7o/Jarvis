@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import urllib.error
 from types import SimpleNamespace
 
@@ -9,7 +10,8 @@ import pytest
 from google.genai import errors
 
 from conftest import Approver, FakeClient
-from jarvis import freeapi, gemini, usage
+from jarvis import local, freeapi, gemini, usage
+from jarvis import brain as brain_module
 from jarvis.brain import Jarvis
 from jarvis.config import default_brain
 
@@ -78,7 +80,10 @@ def test_nvidia_is_the_brain_with_every_tool_and_costs_nothing(settings, ctx, re
     assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних, сър."
     first, second = fake.bodies
     assert first["model"] == "moonshotai/kimi-k2-instruct-0905" and first["tool_choice"] == "auto"
-    assert len(first["tools"]) == len(registry.definitions(None))  # every tool, not only Groq's short list
+    names = {t["function"]["name"] for t in first["tools"]}
+    everything = {t["name"] for t in registry.definitions(None)}
+    assert "remember" in names and len(names) > len(local.LOCAL_TOOLS)  # more than Groq's short list ...
+    assert names < everything and not names & {"call", "send_sms", "pay"}  # ... but not the phone and money tools
     assert second["messages"][-1] == {"role": "tool", "tool_call_id": "call_1", "content": "Remembered (id 1)."}
     assert ctx.store.query("SELECT fact FROM facts")[0]["fact"] == "без захар"
     models = {r["model"] for r in ctx.store.query("SELECT model FROM usage")}
@@ -101,6 +106,44 @@ def test_a_busy_missing_or_slow_model_hands_over_to_the_next_one(nvidia_key):
     with pytest.raises(freeapi.UsedUp):
         freeapi.FreeBrain("nvidia", post=FakeAPI([(503, "down")] * 3), get=lambda: NVIDIA_LIST).create(
             model="nvidia", system="", messages=[], tools=[], max_tokens=100, effort="low")
+
+
+def test_a_provider_that_runs_out_of_time_twice_rests_as_a_whole(nvidia_key, monkeypatch):
+    """Yesterday's log: 105 read timeouts in a day, each one waited 45 seconds and then asked the next model of
+    the same slow queue. After two timeouts the whole provider rests and the next free brain answers at once."""
+    rests = []
+    monkeypatch.setattr(freeapi, "SLOW_WINDOW", 900)
+
+    def slow(body):
+        raise urllib.error.URLError("timed out")
+
+    brain = freeapi.FreeBrain("nvidia", post=slow, get=lambda: NVIDIA_LIST, wait=rests.append)
+    for _ in range(2):
+        with pytest.raises(freeapi.UsedUp):
+            brain.create(model="nvidia", system="", messages=[{"role": "user", "content": "ехо"}], tools=[],
+                         max_tokens=100, effort="low")
+    assert brain.models("nvidia") == [] and brain.resting["*"] > time.time() + freeapi.SLOW_REST - 5
+    assert brain.timeouts == [] and rests == []  # no waiting on top of the timeouts themselves
+
+
+def test_free_brains_get_the_tools_the_request_is_about(registry):
+    """A hundred tool schemas drown a small free model: it talks about the tools instead of calling them. A
+    plain request gets the always-on groups; the phone, mail and money tools join when the words call for them;
+    a mission keeps everything."""
+    tools = registry.definitions(None)
+    groups = {name: (tool.group or "agent") for name, tool in registry.tools.items()}
+
+    def picked(text):
+        return {groups[t["name"]] for t in brain_module.select_tools(tools, groups, text)}
+
+    assert picked("какво е времето") == brain_module.ALWAYS_GROUPS
+    assert {"web_browser", "click_text", "remember", "connections"} <= {t["name"] for t in brain_module.select_tools(
+        tools, groups, "какво е времето")}
+    assert picked("svurji telefona mi") >= {"android", "agent"} and "comms" not in picked("svurji telefona mi")
+    assert picked("обади се на мама") >= {"android", "comms"}
+    assert picked("плати фактурата по paypal") >= {"payments", "sendmoney"}
+    assert picked("работи докато не стане: намери клиенти") == set(groups.values())
+    assert brain_module.select_tools(tools, {}, "ехо") == tools  # unknown groups: send everything rather than nothing
 
 
 def test_openrouter_daily_limit_rests_it_until_tomorrow_and_its_list_falls_back(monkeypatch):
