@@ -306,7 +306,7 @@ class GeminiBrain:
                         log.warning("Gemini has no %s for this key, trying the next model: %s", current, exc)
                         self.spent[current] = next_reset()
                         break
-                    if exc.code not in (429, 500, 502, 503, 504):
+                    if exc.code not in (408, 429, 499, 500, 502, 503, 504):  # 499 CANCELLED: Google dropped it
                         raise
                     pause = retry_after(exc, 5 * 2 ** attempt)
                     # Too slow (DEADLINE_EXCEEDED), still busy, or this minute's share is used up (e.g. 250,000

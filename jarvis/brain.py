@@ -524,6 +524,7 @@ class Jarvis:
         over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day).
         ``images``: the message shows a picture, so the brains that cannot see one are asked only when no other
         brain can answer (they get a note in place of the picture)."""
+        broken = None
         for again in (False, True):
             used_up, asked, pauses = None, set(), []
             for i, model in enumerate(order):
@@ -548,6 +549,12 @@ class Jarvis:
                     used_up = exc
                     pauses.append(getattr(exc, "retry_in", 0))
                     continue
+                except Exception as exc:  # an odd error from one brain (a dropped call, a bad reply) must not end
+                    # the whole task when another brain can carry on; it is raised only when none can
+                    log.warning("%s failed (%s: %s); the next free brain answers", kind, type(exc).__name__,
+                                str(exc)[:200])
+                    broken = broken or exc
+                    continue
                 usage.record(self.store, answer, answer.model or model)
                 return answer
             soonest = min([p for p in pauses if p > 0], default=0)
@@ -555,7 +562,7 @@ class Jarvis:
                 log.warning("no brain that sees pictures can answer; a text brain answers with a note instead")
                 return self._ask_free(order, system, messages, tools, max_tokens, effort)
             if again or not 0 < soonest <= 60:
-                raise used_up
+                raise used_up or broken
             # Nobody can answer this minute (Gemini's share for the minute is used up): wait for it, then again.
             log.warning("every free brain is busy; waiting %.0f s", soonest)
             self.wait(soonest + 1)
