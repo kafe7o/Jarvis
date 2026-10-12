@@ -4,6 +4,7 @@ request with 400 INVALID_ARGUMENT "unrecognized type 'int' at properties.port", 
 from __future__ import annotations
 
 import inspect
+import time
 
 from jarvis import gemini, router
 from jarvis.brain import DONE_CHECK, VERIFY_CHECK, Jarvis
@@ -225,8 +226,65 @@ def test_a_picture_goes_to_a_brain_that_sees_it(settings, ctx, registry, monkeyp
     assert jarvis.ask("какво виждаш", images=[("image/png", "aGk=")]) == "Виждам екрана."
     assert seen["images"] and brain_mod.brain_kind(seen["order"][0]) == "gemini"
     assert ctx.store.history("main")[0]["content"].endswith("(с приложена снимка)")
-    jarvis.ask("а какво става тук", images=None)  # no picture: the strong text brains go first again
+    jarvis.ask("а какво става тук", images=None)  # no picture: Gemini Flash first while its day lasts, then NVIDIA
+    assert not seen["images"] and seen["order"][0] == brain_mod.gemini.AGENT_MODEL
+    assert brain_mod.brain_kind(seen["order"][1]) == "nvidia"
+    jarvis.gemini.spent[brain_mod.gemini.AGENT_MODEL] = time.time() + 3600  # Flash's free day is over
+    jarvis.ask("а какво става тук", images=None)
     assert not seen["images"] and brain_mod.brain_kind(seen["order"][0]) == "nvidia"
+
+
+def test_a_screenshot_a_tool_just_took_goes_to_a_brain_that_sees_it():
+    from jarvis.brain import has_images
+
+    shot = {"type": "tool_result", "tool_use_id": "t1", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}},
+        {"type": "text", "text": "Screenshot 1280x720."}]}
+    assert has_images([{"role": "user", "content": "виж екрана"}, {"role": "assistant", "content": []},
+                       {"role": "user", "content": [shot]}])
+    assert not has_images([{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}])
+    assert not has_images([{"role": "user", "content": [shot]}, {"role": "assistant", "content": []},
+                           {"role": "user", "content": "и сега?"}])  # only the newest message counts
+
+
+def test_told_to_start_jarvis_does_not_stop_to_ask_whether_to_go_on(settings, ctx, registry):
+    """The owner's screen: "давай, свърши си работата" got a list of keys and "Готов? ✅", then "влез в акаунта си
+    и копирай от тук". Such an answer is pushed on once; a real result passes."""
+    from conftest import Approver, FakeClient, response, text_block, tool_block
+    from jarvis import brain as brain_mod
+    from jarvis.brain import Jarvis
+
+    client = FakeClient([
+        response(tool_block("remember", {"topic": "план", "fact": "стъпка 1"}, id="t1"), stop="tool_use"),
+        response(text_block("Записах стъпка 1. Сега ще отворя Twilio. Готов? ✅")),
+        response(tool_block("remember", {"topic": "план", "fact": "стъпка 2"}, id="t2"), stop="tool_use"),
+        response(text_block("Готово: двете стъпки са записани.")),
+        response(text_block("Готово: двете стъпки са записани и проверени.")),  # after the mission's own check
+    ])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert jarvis.ask("da davai svurshi si rabotata") == "Готово: двете стъпки са записани и проверени."
+    nudges = [m for m in client.requests[-1]["messages"] if m["content"] == brain_mod.GO_ON_CHECK]
+    assert len(nudges) == 1 and len(client.requests) == 5
+    assert len(ctx.store.query("SELECT fact FROM facts")) == 2
+
+    for text in ["Да продължа ли с Stripe?", "Влез в акаунта си и копирай от тук: Account SID.",
+                 "Когато имаш трите парчета, ги подавай тук.", "Готов?"]:
+        assert brain_mod.asks_go_ahead(text), text
+    for text in ["Готово, записах ключа и телефонът е свързан.", "Обадих се на мама, не вдигна. Да опитам ли пак след 10 минути?",
+                 "Кой от двата контакта: Иван Петров или Иван Георгиев?", "Twilio иска твоя карта; телефонът ти върши същото безплатно."]:
+        assert not brain_mod.asks_go_ahead(text), text
+    # plain questions are not pushed: a question with no action asked gets no nudge
+    client = FakeClient([response(text_block("Да ти кажа ли и прогнозата за утре?"))])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert jarvis.ask("какво мислиш за времето", route=False) == "Да ти кажа ли и прогнозата за утре?"
+    assert len(client.requests) == 1
+
+
+def test_a_mission_typed_in_latin_letters_is_one_too():
+    for text in ["zashto prosto ne zapochnesh rabota i da ne spirash dokato ne svirshish", "da davai svurshi si rabotata",
+                 "raboti dokato ne stane", "без да спираш, докато не е перфектно"]:
+        assert router.is_mission(text), text
+    assert not router.is_mission("направи ми план за утре") and not router.is_mission("kakvo e vremeto")
 
 
 def test_a_repeated_check_note_never_becomes_the_answer(settings, ctx, registry):

@@ -85,6 +85,12 @@ made (browser), do everything on it that needs no personal identity, and when th
 and save it with save_setting. Ask the owner, in one line, only for what truly needs them (a sign-in, a card, a \
 code sent to their phone) and carry on with the rest meanwhile. Some services (Twilio, Stripe, PayPal, Wise) \
 need the owner's identity or money: say so plainly, do the setup around them, and never invent a key.
+- Once told to start, start, and keep going on your own: build the plan yourself, take the next step from what \
+you see on the screen or the page, and when a step fails try another way before you ask. Never end with "Готов?", \
+"да продължа ли?", "кажи ми когато" or a list of steps you could take: that is not work. request_approval is \
+for a risky action you are about to take, never a way to ask the owner for keys or information. Prefer what \
+the owner already has and what is free (the Android phone for calls and SMS) over a paid service nobody asked \
+for; a key the owner does not have is reported in one line, not chased.
 - Judge what matters: tell the difference between a quick request and a long job, and give a job the steps it \
 deserves. For a big job ("work until it is done", "check everything", a goal with many parts): make the plan \
 (make_plan), carry it out step by step, and check the whole result against the goal before you answer; when a \
@@ -182,9 +188,32 @@ ACT_CHECK = ("(Check before you answer: you have not used a single tool in this 
              "If my message needs no action, give your answer again unchanged. Never mention this check, tools or "
              "\"commands\" in your answer: answer my message itself.)")
 
+# Said to the agent when, told to do something, it stops to ask whether it may go on ("Готов?", "да продължа ли?").
+GO_ON_CHECK = ("(Check before you answer: you are asking me whether to go on, or waiting for me to hand you something. "
+               "I already told you to do it: don't ask, continue now with your tools, step by step, until it is done "
+               "or truly blocked by something only I have (a sign-in, a card, a code on my phone); then say exactly "
+               "which one in one line and carry on with the rest. If your answer is a finished result, give it again "
+               "unchanged. Never mention this check in your answer.)")
+# An answer that stops to ask for a go-ahead instead of going on.
+ASKS_GO_AHEAD = re.compile(router.bg(r"готови?\s*\??\s*[✅👍]?\s*$|да (?:започвам|започна|продължа|продължавам|го направя|"
+                                     r"действам|тръгвам|пристъпя)(?: ли)?\b[^?.!\n]{0,40}\?|искаш ли (?:да|първо)|да (?:ти )?(?:го |я )?"
+                                     r"(?:направя|пусна|отворя|пратя|изпратя|запиша|проверя)(?: ли)?\b[^?.!\n]{0,40}\?|"
+                                     r"(?:кажи|пиши|прати)(?: ми)? (?:когато|като|щом|ако|дали|кога) |"
+                                     r"(?:копирай|постави|подай|подавай|дай|прати|изпрати)(?: ми)?(?: ги| го)?(?: от)? (?:тук|ми)|"
+                                     r"влез (?:си )?в (?:акаунта|профила) си|потвърди(?: ли)?\s*\?|"
+                                     r"след твоето (?:одобрение|потвърждение)|изчаквам (?:те|одобрение|потвърждение)")
+                           + r"|\b(?:shall|should|may) I\b|\bdo you want me to\b|\bready\??\s*$|\blet me know (?:when|if)\b",
+                           re.I)
+
+
+def asks_go_ahead(text: str) -> bool:
+    """True when an answer stops to ask whether to proceed, or waits for the owner to hand something over."""
+    return bool(ASKS_GO_AHEAD.search((text or "").strip()))
+
+
 # The checks above, as a weak brain sometimes repeats them instead of answering: such an answer is dropped.
 CHECK_MARKS = ("Check before you answer", "Before you finish this job", "Never mention this check",
-               "give your answer again unchanged")
+               "give your answer again unchanged", "you are asking me whether to go on")
 
 
 def echoes_check(text: str) -> bool:
@@ -254,13 +283,29 @@ def select_tools(tools: list[dict], groups: dict[str, str], text: str) -> list[d
 
 
 def has_images(messages: list) -> bool:
-    """True when the newest user message carries a picture (a screen frame or a photo sent in the app)."""
+    """True when the newest user message carries a picture: a photo sent in the app, a screen frame, or a
+    screenshot a tool just took (look_at_screen, the phone's screen), which is inside a tool result."""
     for m in reversed(messages):
         if m.get("role") != "user":
             continue
         content = m.get("content")
-        return isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "image" for b in content)
+        if not isinstance(content, list):
+            return False
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "image":
+                return True
+            inner = b.get("content") if b.get("type") == "tool_result" else None
+            if isinstance(inner, list) and any(isinstance(x, dict) and x.get("type") == "image" for x in inner):
+                return True
+        return False
     return False
+
+
+def is_background(messages: list) -> bool:
+    """True for work nobody is watching (a scheduled job), which should not spend the brain the owner needs."""
+    return recent_text(messages, turns=1).lstrip().startswith("(Scheduled job")
 
 
 def brain_kind(model: str) -> str:
@@ -412,10 +457,13 @@ class Jarvis:
         elif model.startswith("gemini"):
             order = [model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
             if tools and model == gemini.DEFAULT_MODEL and not sees:
-                # Real work on the default brain: the strongest free models (Kimi, DeepSeek on NVIDIA or OpenRouter)
-                # go before Gemini, whose Flash-Lite is weak with dozens of tools; Gemini keeps the short answers.
-                # A Gemini model the owner chose by name stays first.
+                # Real work on the default brain: Gemini Flash first while its free requests last (it sees the
+                # screen and carries a task), then the strong free models of NVIDIA or OpenRouter, then Flash-Lite,
+                # which is weak with dozens of tools, and Groq. A scheduled job nobody is watching does not spend
+                # Flash. A Gemini model the owner chose by name stays first.
                 order = [*strong, *order]
+                if self.flash_ready() and not is_background(messages):
+                    order = [gemini.AGENT_MODEL, *order]
         elif freeapi.is_free_api(model):
             order = [model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
         else:
@@ -446,6 +494,13 @@ class Jarvis:
             keep_brain(takeover)
             return self._request(messages, user, system, allowed, model=s.model, **again)
 
+    def flash_ready(self) -> bool:
+        """True while Gemini's agent model (Flash) still has free requests today and is not resting."""
+        try:
+            return gemini.available() and gemini.AGENT_MODEL in self.gemini.models(gemini.AGENT_MODEL)
+        except Exception:
+            return False
+
     def free_instead(self) -> str | None:
         """A free brain to use instead of Claude once today's spending reached the cap (JARVIS_DAILY_BUDGET)."""
         cap = self.settings.budget()
@@ -472,6 +527,8 @@ class Jarvis:
                          else freeapi.available(model) if kind in self.free_apis else gemini.available())
                 if kind in asked or (i and not ready):
                     continue
+                if kind in self.free_apis and not self.free_apis[kind].models(model):
+                    continue  # every model of this provider rests (too slow or used up today): quietly the next one
                 asked.add(kind)
                 if kind == "local":
                     return self._ask_local(model, system, messages, tools, max_tokens, effort)
@@ -839,6 +896,7 @@ class Jarvis:
         acted = False
         failed: list[str] = []  # the tools that failed in the last round of steps (empty when it went well)
         checked_done = False
+        pushed = not (insist or verify)  # told to do something: one "Готов?" / "да продължа ли?" gets pushed on
         mark = self._mark(user)
         for _ in range(rounds or self.settings.max_tool_rounds):
             if self._mark(user) != mark:  # "спри" came while working
@@ -857,6 +915,11 @@ class Jarvis:
                     insist = False
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
                     messages.append({"role": "user", "content": ACT_CHECK})
+                    continue
+                if not pushed and asks_go_ahead(" ".join(texts)):  # stopped to ask for a go-ahead: go on instead
+                    pushed = True
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": GO_ON_CHECK})
                     continue
                 if failed and not checked_done and claims_done(" ".join(texts)):
                     # "Готово" right after a failed step: once more, to fix it or to say what really happened
