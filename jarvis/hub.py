@@ -903,6 +903,26 @@ class Hub:
         if not user.is_owner:
             raise HTTPError(403, "Само собственикът може да прави това.")
 
+        match = re.fullmatch(r"/api/jobs/(\d+)/(run|delete)", p)
+        if match and m == "POST":  # the Задачи tab's buttons: run a scheduled job now, or drop it
+            job_id, verb = int(match.group(1)), match.group(2)
+            rows = self.ctx.store.query("SELECT * FROM reminders WHERE id=? AND fired=0", (job_id,))
+            if not rows:
+                raise HTTPError(404, "Няма такава задача (може вече да е минала).")
+            job = rows[0]
+            if verb == "delete":
+                from .routines import routine_of
+
+                if routine_of(job["text"]):
+                    raise HTTPError(400, "Рутините се спират от Настройки > Рутини, не се трият.")
+                self.ctx.store.execute("DELETE FROM reminders WHERE id=?", (job_id,))
+                return 200, {"deleted": job_id}
+            scheduler = getattr(self.ctx, "scheduler", None)
+            if scheduler is None:
+                raise HTTPError(503, "Задачите по график не вървят в момента.")
+            threading.Thread(target=scheduler.run_job, args=(job,), name="jarvis-job-now", daemon=True).start()
+            return 200, {"started": job_id}
+
         if p == "/api/memory" and m == "GET":  # the „Памет“ map
             return 200, self.memory_graph(fresh=bool(req.query.get("fresh")))
 
@@ -965,7 +985,7 @@ class Hub:
             for r in self.ctx.store.query("SELECT * FROM reminders WHERE fired=0 ORDER BY at LIMIT 30"):
                 routine = routine_of(r["text"])
                 kind = "routine" if routine else "job" if r["channels"] == JOB else "reminder"
-                upcoming.append({"at": r["at"], "repeat": r["repeat"], "kind": kind,
+                upcoming.append({"id": r["id"], "at": r["at"], "repeat": r["repeat"], "kind": kind,
                                  "text": routine["title"] if routine else strip_marker(r["text"])})
             now = time.time()
             return 200, {"running": [{**r, "seconds": int(now - r["since"])} for r in list(self.running.values())],

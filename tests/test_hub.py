@@ -97,6 +97,22 @@ def test_tasks_tab_shows_what_runs_now_and_what_comes_next(settings, ctx, regist
     assert kinds == {"Сутрешен брифинг": "routine", "Провери цената на тока": "job"}
     hub.board.finish(run_id)
     assert json.loads(call(port, "/api/now")[1])["running"] == []
+    job = next(r for r in now["upcoming"] if r["kind"] == "job")
+    import urllib.error
+
+    try:  # a routine is switched off in its own tab, never deleted here
+        routine = next(r for r in now["upcoming"] if r["kind"] == "routine")
+        call(port, f"/api/jobs/{routine['id']}/delete", {})
+        raise AssertionError("a routine was deleted")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400
+    assert json.loads(call(port, f"/api/jobs/{job['id']}/delete", {})[1]) == {"deleted": job["id"]}
+    assert all(r["kind"] != "job" for r in json.loads(call(port, "/api/now")[1])["upcoming"])
+    try:
+        call(port, f"/api/jobs/{job['id']}/run", {})
+        raise AssertionError("a deleted job ran")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 404
     usage = json.loads(call(port, "/api/usage")[1])
     assert usage["today"] == {"cost": 0, "requests": 0} and len(usage["days"]) == 14
 
@@ -163,3 +179,20 @@ def test_tasks_are_done_one_after_another_and_stop_is_heard_at_once(settings, ct
     first.join(10), second.join(10)
     assert sorted(said) == sorted([STOPPED, "Не го почнах: каза ми да спра."])
     assert len(client.requests) == 4  # the third stopped at its next step; the fourth never started
+
+
+def test_the_tasks_tab_runs_a_scheduled_job_right_now(settings, ctx, registry):
+    import time
+
+    from jarvis import notices
+
+    hub, port = make_hub(settings, ctx, registry, [response(text_block("Токът е 0.20 лв."), stop="end_turn")])
+    ctx.scheduler.start() if hasattr(ctx.scheduler, "start") else None
+    ctx.store.insert("reminders", text="Провери цената на тока", at="2099-01-01T09:00:00", channels="agent")
+    job = next(r for r in json.loads(call(port, "/api/now")[1])["upcoming"] if r["kind"] == "job")
+    assert json.loads(call(port, f"/api/jobs/{job['id']}/run", {})[1]) == {"started": job["id"]}
+    for _ in range(100):
+        if notices.unseen(ctx.store):
+            break
+        time.sleep(0.05)
+    assert notices.unseen(ctx.store)[0]["text"] == "Задачата „Провери цената на тока“ мина: Токът е 0.20 лв."

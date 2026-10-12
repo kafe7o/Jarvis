@@ -2651,7 +2651,9 @@ async function tabActivity() {
         <span class="badge ok">работи</span></div>`).join("") : `<div class="hint">Jarvis не работи по нищо в момента.</div>`}</div>
     ${now.upcoming.length ? `<div class="section"><h5>Предстои</h5>${now.upcoming.map((r) => `
       <div class="act"><div class="when">${when(r.at)}</div>
-        <div class="what">${esc(r.text)}<small>${KIND[r.kind]}${r.repeat ? " · " + (REPEAT[r.repeat] || esc(r.repeat)) : ""}</small></div></div>`).join("")}</div>` : ""}`;
+        <div class="what">${esc(r.text)}<small>${KIND[r.kind]}${r.repeat ? " · " + (REPEAT[r.repeat] || esc(r.repeat)) : ""}</small></div>
+        ${r.kind === "job" ? `<button class="btn ghost small" data-job-run="${r.id}" title="Пусни тази задача сега">${icon("pulse")}Сега</button>
+        <button class="btn ghost small" data-job-del="${r.id}" title="Изтрий тази задача">Изтрий</button>` : ""}</div>`).join("")}</div>` : ""}`;
   $("tabBody").innerHTML = head + (rows.length ? `
     <div class="note">${icon("info")}<div>Всичко, което Jarvis и екипът му са направили, най-новото най-горе.</div></div>
     <div class="section activity">${rows.map((r) => `
@@ -2663,6 +2665,17 @@ async function tabActivity() {
     </div>` : `<div class="hint">Още няма свършени действия.</div>`);
   $("actLive").addEventListener("click", () => openLive());
   $("tabBody").querySelectorAll(".act[data-run]").forEach((el) => el.addEventListener("click", () => openLive(Number(el.dataset.run))));
+  $("tabBody").querySelectorAll("[data-job-run]").forEach((el) => el.addEventListener("click", async (e) => {
+    e.stopPropagation(); el.disabled = true;
+    try { await api(`/api/jobs/${el.dataset.jobRun}/run`, {}); toast("Пуснах задачата; виж я в „На живо“."); setTimeout(tabActivity, 1500); }
+    catch (err) { toast(err.message); el.disabled = false; }
+  }));
+  $("tabBody").querySelectorAll("[data-job-del]").forEach((el) => el.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!confirm("Да изтрия ли тази задача по график?")) return;
+    try { await api(`/api/jobs/${el.dataset.jobDel}/delete`, {}); toast("Изтрих задачата."); tabActivity(); }
+    catch (err) { toast(err.message); }
+  }));
 }
 
 async function tabUsage() {
