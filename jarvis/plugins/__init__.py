@@ -13,7 +13,7 @@ from ..tools import ToolRegistry
 
 log = logging.getLogger("jarvis.plugins")
 
-BUILTIN = ["memory", "tasks", "system", "browser", "android", "home", "comms", "messaging", "replies", "google",
+BUILTIN = ["memory", "tasks", "system", "browser", "android", "home", "comms", "messaging", "reach", "replies", "google",
            "payments", "sendmoney", "team", "brain_switch", "websearch", "daily", "leads", "vault", "upgrade", "connections",
            "agent"]  # agent last: loads skills
 
@@ -34,7 +34,7 @@ class Context:
 
 # Tools that belong to a different permission group than the plugin that defines them.
 # "core" tools are always available: they only plan and ask the user for approval.
-GROUP_OVERRIDES = {"request_approval": "core", "make_plan": "core", "update_plan_step": "core",
+GROUP_OVERRIDES = {"request_approval": "core", "ask_owner": "core", "make_plan": "core", "update_plan_step": "core",
                    "show_plan": "core", "search_history": "memory", "switch_brain": "core",
                    "google_search": "web", "weather": "web", "play_youtube": "system", "watch_video": "system",
                    "auto_reply": "messaging", "phone_reply": "messaging", "find_leads": "web", "build_website": "system",

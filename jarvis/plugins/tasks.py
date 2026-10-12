@@ -177,7 +177,8 @@ class ReminderScheduler:
         ok = False
         try:
             result = jarvis.ask(
-                f"(Scheduled job, the user is not watching; report the outcome briefly.) {strip_marker(rem['text'])}",
+                f"(Scheduled job, the user is not watching; report the outcome briefly. If a decision only they can "
+                f"make blocks it, ask_owner once with the options and stop.) {strip_marker(rem['text'])}",
                 conversation=conversation or f"job-{rem['id']}",
                 confirmer=unattended,
                 route=False,

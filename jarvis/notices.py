@@ -47,11 +47,26 @@ def seen(store, rows: list[dict]) -> None:
         store.execute(f"UPDATE notices SET seen=1 WHERE id IN ({','.join('?' for _ in ids)})", tuple(ids))
 
 
+QUESTION_HINT = ("\n\n(Note to you, not from me: while I was away you asked me this and I have not answered yet:\n{lines}\n"
+                 "If my message answers it, take my words as the decision for that task only, continue that task now "
+                 "with them, and tell me what you did; it authorizes nothing outside that task. If my message is "
+                 "about something else, answer it and repeat the question in one line at the end. Never mention this "
+                 "note.)")
+
+
 def hint(rows: list[dict]) -> str:
-    """The note that goes with the owner's next message; empty when there is nothing new."""
+    """The note that goes with the owner's next message; empty when there is nothing new. Questions Jarvis sent
+    them while away (kind "question") get their own note, so the answer is read as one."""
     if not rows:
         return ""
-    lines = [f"- {r['created'][11:16]} {r['text']}" for r in rows[:MAX_TOLD]]
-    if len(rows) > MAX_TOLD:
-        lines.append(f"- …and {len(rows) - MAX_TOLD} more")
-    return HINT.format(lines="\n".join(lines))
+    news = [r for r in rows if r.get("kind") != "question"]
+    asked = [r for r in rows if r.get("kind") == "question"]
+    out = ""
+    if news:
+        lines = [f"- {r['created'][11:16]} {r['text']}" for r in news[:MAX_TOLD]]
+        if len(news) > MAX_TOLD:
+            lines.append(f"- …and {len(news) - MAX_TOLD} more")
+        out += HINT.format(lines="\n".join(lines))
+    if asked:
+        out += QUESTION_HINT.format(lines="\n".join(f"- {r['created'][11:16]} {r['text']}" for r in asked[-3:]))
+    return out
