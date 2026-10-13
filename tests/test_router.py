@@ -299,3 +299,46 @@ def test_the_vault_keeps_notes_in_three_folders(settings, ctx, registry):
     assert list((settings.vault / "raw" / "_done").glob("*.md"))
     assert registry.tools["vault_search"].group == "memory"
     assert "vault" in ROUTINES
+
+
+def test_checking_the_mail_needs_no_ai(settings, ctx, registry, monkeypatch):
+    """The owner timed "open my browser and check my e-mail" at 99 s on the free brains and wants it in 5 s: the
+    count and the newest senders come straight from the inbox headers, Gmail opens when he asks for the browser."""
+    assert steps("Отвори браузъра ми и виж имейлите ми: кажи ми колко непрочетени имам и от кого са последните три.") \
+        == [("mail_count", {"newest": 3}), ("open_target", {"target": "https://mail.google.com"})]
+    assert steps("vij imeilite mi") == steps("провери пощата") == [("mail_count", {"newest": 3})]
+    for needs_ai in ("изпрати имейл на Иван", "какво пише в последния имейл от банката", "обобщи пощата ми"):
+        assert steps(needs_ai) is None
+    assert steps("виж имейлите ми", owner=False) is None
+
+    class FakeImap:
+        def __init__(self, host, timeout=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def login(self, user, password):
+            pass
+
+        def select(self, box, readonly=False):
+            assert readonly  # never marks anything as read
+
+        def search(self, charset, what):
+            return "OK", [b"3 7 9"]
+
+        def fetch(self, mid, what):
+            assert "HEADER.FIELDS" in what  # headers only: fast
+            return "OK", [(b"", {b"9": b"From: Bolt Food <hi@bolt.eu>\r\nSubject: Your order\r\n\r\n",
+                                 b"7": b"From: =?utf-8?b?0JjQstCw0L0=?= <ivan@x.bg>\r\nSubject: Hi\r\n\r\n",
+                                 b"3": b"From: news@x.bg\r\n\r\n"}[mid])]
+
+    import imaplib
+
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeImap)
+    settings.imap_host, settings.email_user, settings.email_password = "imap.x", "me", "pw"
+    out, err = registry.run("mail_count", {}, Approver())
+    assert not err and out == "Имаш 3 непрочетени имейла. Последните: Bolt Food („Your order“); Иван („Hi“); news@x.bg."

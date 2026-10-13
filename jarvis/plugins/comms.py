@@ -6,6 +6,7 @@ Every action here that reaches another person asks the user first, every time.
 from __future__ import annotations
 
 import email
+import email.utils
 import imaplib
 import os
 import smtplib
@@ -193,6 +194,32 @@ def register(registry: ToolRegistry, ctx) -> None:
             smtp.login(s.email_user, s.email_password)
             smtp.send_message(msg)
         return f"E-mail sent to {msg['To']}."
+
+    @registry.tool(
+        "How many unread e-mails the inbox has and who sent the newest ones. Reads only the headers, so it answers "
+        "in a second or two: use it for 'check my mail' before read_email.",
+        obj({"newest?": ("integer", "How many of the newest unread to name (default 3)")}),
+    )
+    def mail_count(newest: int = 3):
+        if not (s.imap_host and s.email_user and s.email_password):
+            raise NotConfigured("E-mail inbox", ["JARVIS_IMAP_HOST", "JARVIS_EMAIL_USER", "JARVIS_EMAIL_PASSWORD"])
+        with imaplib.IMAP4_SSL(s.imap_host, timeout=20) as imap:
+            imap.login(s.email_user, s.email_password)
+            imap.select("INBOX", readonly=True)
+            _, data = imap.search(None, "UNSEEN")
+            ids = data[0].split()
+            if not ids:
+                return "Нямаш непрочетени имейли."
+            names = []
+            for mid in reversed(ids[-max(1, newest):]):
+                _, parts = imap.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+                msg = email.message_from_bytes(parts[0][1])
+                sender = str(make_header(decode_header(msg.get("From", ""))))
+                name, address = email.utils.parseaddr(sender)
+                subject = str(make_header(decode_header(msg.get("Subject", "")))).strip()
+                names.append(f"{name or address}" + (f" („{subject[:70]}“)" if subject else ""))
+        word = "непрочетен имейл" if len(ids) == 1 else "непрочетени имейла"
+        return f"Имаш {len(ids)} {word}. Последните: " + "; ".join(names) + "."
 
     @registry.tool(
         "Read recent e-mails from the inbox.",

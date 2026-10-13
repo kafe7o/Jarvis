@@ -76,6 +76,11 @@ NOT_MEDIA = rx(r"таймер|аларм|напомн|съобщ|смс|sms|им
                r"прахосмукач|пералня|бойлер|отоплени|парно|вентилатор|щори|кафемашина|робот|колата|камерат|"
                r"компютъра|лаптопа|wifi|wi-fi|блутут|bluetooth|^телефона$|^тв$|^(?:го|я|ги|това|него|нея|тях)$")
 
+MAIL = rx(r"(?:^|\s)(?:имейл|мейл|е-мейл|писма(?:та)?|поща(?:та)?|gmail|джимейл|inbox)")
+MAIL_LOOK = rx(r"(?:^|\s)(?:виж|провери|прочети|покажи|кажи|колко|имам ли|какви|какво|нови|новите|непрочетени)(?=\s|$|[,.!?:])")
+MAIL_NOT = rx(r"(?:^|\s)(?:изпрати|прати|пиши|напиши|отговори|препрати|изтрий|архивирай|маркирай|намери|търси|"
+              r"резюмирай|обобщи|анализирай|от кого е|за какво|съдържание|прикачен|снимк|файл|пише|последния|последното)")
+MAIL_BROWSER = rx(r"(?:^|\s)(?:браузър|браузъра|браузера|отвори|gmail|джимейл)")
 LOCK = rx(r"^(?:заключи|lock) (?:компютъра|лаптопа|компа|екрана|пц-то|pc-то)$")
 SLEEP = rx(r"^(?:приспи|сложи да спи) (?:компютъра|лаптопа|компа)$")
 SHUTDOWN = rx(r"^(?:изключи|угаси|спри) (?:компютъра|лаптопа|компа)$")
@@ -212,6 +217,9 @@ def match(text: str, info: Info | None = None) -> list[Step] | None:
     said = clean(text)
     if not said or len(said) > 200 or "\n" in said:
         return None
+    mail = _mail(said.rstrip("?").strip(), info)
+    if mail:
+        return mail
     one = _one(said, info)
     if one:
         return [one]
@@ -258,6 +266,18 @@ def _talk(s: str, info: Info) -> Step | None:
     if UPDATE_SELF.match(s) and info.owner:
         return Step(lambda out: out, "update_jarvis", {})
     return None
+
+
+def _mail(s: str, info: Info) -> list[Step] | None:
+    """„Виж имейлите ми“, „колко непрочетени имейла имам“, „отвори браузъра и виж пощата“: the count and the newest
+    senders straight from the inbox in a second or two (the owner wants this in under 5 s), Gmail opened when asked."""
+    if not info.owner or words(s) > 25 or not MAIL.search(" " + s) or not MAIL_LOOK.search(" " + s) \
+            or MAIL_NOT.search(" " + s):
+        return None
+    steps = [Step(lambda out: out, "mail_count", {"newest": 3}, s)]
+    if MAIL_BROWSER.search(" " + s):  # the answer first, then Gmail in the browser for the owner to look at
+        steps.append(Step(lambda _o: "", "open_target", {"target": "https://mail.google.com"}, s))
+    return steps
 
 
 def _clock(s: str, info: Info) -> Step | None:
