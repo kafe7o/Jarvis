@@ -60,6 +60,25 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .brand-big h1 { margin: 0; font-size: 22px; letter-spacing: .32em; font-weight: 600; padding-left: .32em; }
 .brand-big p { margin: 0; color: var(--muted); font-size: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.scale { border: 1px solid var(--line2); border-radius: 14px; padding: 14px 16px 10px; margin-bottom: 16px; }
+.scale-top { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.scale-track { position: relative; height: 34px; margin: 8px 0 4px; }
+.scale-track .rail { position: absolute; inset: 4px 0; background: var(--line); border-radius: 13px; }
+.scale-track .dots { position: absolute; inset: 0 13px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+.scale-track .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+.scale-track .dots i.rec { width: 3px; height: 14px; border-radius: 2px; }
+.scale-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+.scale-range::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.scale-range::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
+.scale-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--glow); }
+.scale-names { position: relative; height: 46px; margin-top: 2px; }
+.scale-names button { position: absolute; transform: translateX(-50%); background: none; border: 0; padding: 0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; font: inherit; color: var(--muted); white-space: nowrap; }
+.scale-names button.first { transform: none; align-items: flex-start; } .scale-names button.last { transform: translateX(-100%); align-items: flex-end; }
+.scale-names b { font-size: 13px; font-weight: 600; } .scale-names small { font-size: 11px; color: var(--faint); }
+.scale-names button.on { color: var(--text); } .scale-names button.on small { color: var(--muted); }
+.scale-names em { font-style: normal; font-size: 11px; color: var(--accent); }
+.scale-now { font-size: 14px; margin-top: 6px; } .scale-now b { color: var(--text); } .scale-now span { color: var(--muted); }
 .field label { font-size: 13px; color: var(--muted); }
 .input { width: 100%; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; padding: 11px 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,209,255,.15); }
@@ -165,6 +184,12 @@ header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-spa
 #mic.rec { color: #fff; background: var(--danger); animation: pulse-red 1.4s infinite; }
 @keyframes pulse-red { 50% { box-shadow: 0 0 0 6px rgba(255,93,108,.2); } }
 #send { width: 40px; height: 40px; padding: 0; border-radius: 12px; }
+.composer-wrap { position: relative; }
+#brainBtn { align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.brain-pop { position: absolute; bottom: calc(100% - 4px); left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 20px));
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 16px; padding: 14px 16px 6px; box-shadow: 0 16px 50px rgba(0,0,0,.5); z-index: 30; }
+.brain-pop h6 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); } .brain-pop h6 b { color: var(--text); }
+.brain-pop .scale { border: 0; padding: 0; margin: 0; }
 .attachments { max-width: 860px; margin: 0 auto 8px; }
 .attachments .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; }
 .attachments .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -627,9 +652,11 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
     </div>
     <div class="composer-wrap">
       <div id="attachments" class="chips attachments hidden"></div>
+      <div id="brainPop" class="brain-pop hidden"></div>
       <form id="composer">
         <textarea id="input" rows="1" placeholder="Кажи на Jarvis…" autocomplete="off"></textarea>
         <input type="file" id="fileInput" multiple hidden>
+        <button type="button" class="icon-btn hidden" id="brainBtn" title="Мозък: по-бърз или по-умен"><svg class="i"><use href="#i-gauge"/></svg><span id="brainName"></span></button>
         <button type="button" class="icon-btn" id="attach" title="Прикачи снимка, видео или файл"><svg class="i"><use href="#i-clip"/></svg></button>
         <button type="button" class="icon-btn" id="mic" title="Говори"><svg class="i"><use href="#i-mic"/></svg></button>
         <button class="btn primary" id="send" title="Изпрати"><svg class="i"><use href="#i-send"/></svg></button>
@@ -746,6 +773,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
   <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21.4 11.1 12.3 20.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.1a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
   <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
@@ -901,6 +929,7 @@ async function start() {
   $("memBtn").classList.toggle("hidden", me.user.role !== "owner");  // the memory is the owner's
   $("hudMemBtn").classList.toggle("hidden", me.user.role !== "owner");
   setBrain(me.brain);
+  loadBrainBtn();
   greet();
   await loadChats();
   const last = store.get("jarvis.chat." + me.user.id, null);
@@ -2760,6 +2789,63 @@ async function tabUsage() {
     </div>`;
 }
 
+// The brain slider (Мозък): the brains whose key is in .env, from the fastest to the smartest; letting go saves it.
+function brainSlider(sc) {
+  const n = sc.stops.length, rec = sc.stops.findIndex((x) => x.recommended);
+  const at = sc.at >= 0 ? sc.at : Math.max(rec, 0);
+  const left = (i) => `calc(13px + (100% - 26px) * ${i / (n - 1)})`;
+  return `<div class="scale">
+    <div class="scale-top"><span>По-бърз</span><span>По-умен</span></div>
+    <div class="scale-track"><div class="rail"></div>
+      <div class="dots">${sc.stops.map((x, i) => `<i class="${i === rec ? "rec" : ""}"></i>`).join("")}</div>
+      <input type="range" class="scale-range" min="0" max="${n - 1}" step="1" value="${at}" aria-label="Мозък: по-бърз или по-умен"></div>
+    <div class="scale-names">${sc.stops.map((x, i) => `<button type="button" data-stop="${i}" style="left:${i === 0 ? "0" : i === n - 1 ? "100%" : left(i)}"
+      class="${i === 0 ? "first" : i === n - 1 ? "last" : ""}${i === at && sc.at >= 0 ? " on" : ""}"><b>${esc(x.name)}</b><small>${esc(x.model.split("/").pop())}</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`).join("")}</div>
+    <div class="scale-now">${sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b> <span>(написан ръчно; премести кръгчето, за да избереш от списъка)</span>`}</div>
+  </div>`;
+}
+// Moving the knob shows the brain; letting go (or clicking a name) saves it as JARVIS_MODEL, then ``done`` redraws.
+function wireScale(el, sc, done) {
+  const r = el.querySelector(".scale-range"), now = el.querySelector(".scale-now");
+  r.addEventListener("input", () => { now.innerHTML = scaleText(sc.stops[Number(r.value)]); });
+  el.querySelectorAll("button[data-stop]").forEach((b) => b.addEventListener("click", () => {
+    r.value = b.dataset.stop; r.dispatchEvent(new Event("change"));
+  }));
+  r.addEventListener("change", async () => {
+    const x = sc.stops[Number(r.value)];
+    try { await api("/api/settings", { values: { JARVIS_MODEL: x.value } }); toast(`Мозък: ${x.name}. Важи веднага.`); done(); loadBrainBtn(); }
+    catch (err) { now.textContent = err.message; }
+  });
+}
+
+// The same slider next to the message box: the button shows the brain in use, a click opens the slider.
+async function loadBrainBtn() {
+  if (!state.me || state.me.role !== "owner") return;
+  let sc;
+  try { sc = await api("/api/brain"); } catch (e) { return; }
+  state.brainScale = sc;
+  $("brainBtn").classList.toggle("hidden", sc.stops.length < 2);
+  $("brainName").textContent = sc.at >= 0 ? sc.stops[sc.at].name : sc.model;
+  if (!$("brainPop").classList.contains("hidden")) drawBrainPop();
+}
+function drawBrainPop() {
+  const sc = state.brainScale;
+  $("brainPop").innerHTML = `<h6>Мозък: <b>по-бърз или по-умен</b></h6>${brainSlider(sc)}`;
+  wireScale($("brainPop").querySelector(".scale"), sc, () => {});
+}
+$("brainBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const pop = $("brainPop"), open = pop.classList.contains("hidden");
+  pop.classList.toggle("hidden", !open);
+  if (open) drawBrainPop();
+});
+document.addEventListener("click", (e) => {
+  const pop = $("brainPop");
+  if (!pop.classList.contains("hidden") && !pop.contains(e.target) && e.target !== $("brainBtn")) pop.classList.add("hidden");
+});
+
+function scaleText(x) { return `<b>${esc(x.name)}</b> <span>(${esc(x.model)}) · ${esc(x.about)}</span>`; }
+
 // The brain fields (Мозък): a list of the brains, each saying whether .env has its key, plus "another one" to type.
 function pickBrain(f) {
   const known = !f.value || f.options.some((o) => o.value === f.value);
@@ -2778,6 +2864,7 @@ async function tabConnections() {
       <div class="section" data-i="${i}">
         <h5>${esc(s.title)} <span class="badge ${s.ready ? "ok" : "no"}">${s.ready ? "свързано" : "не е настроено"}</span></h5>
         <p class="sub">${s.where ? esc(s.where) : "&nbsp;"}</p>
+        ${s.scale && s.scale.stops.length > 1 ? brainSlider(s.scale) : ""}
         ${s.fields.map((f) => `
           <div class="field"><label>${esc(f.label)} <code class="k">${esc(f.key)}</code></label>
             ${f.options ? pickBrain(f) : ""}
@@ -2787,6 +2874,7 @@ async function tabConnections() {
         <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>
       </div>`).join("")}
     ${state.restartable ? `<div class="row-end"><span class="hint" id="updMsg"></span><button class="btn ghost" id="update">Обнови сега</button><button class="btn ghost" id="restart">Рестартирай Jarvis</button></div>` : ""}`;
+  $("tabBody").querySelectorAll(".scale").forEach((el) => wireScale(el, sections[Number(el.closest(".section").dataset.i)].scale, tabConnections));
   $("tabBody").querySelectorAll("select[data-pick]").forEach((sel) => sel.addEventListener("change", () => {
     const inp = sel.parentElement.querySelector("input[data-k]");
     const other = sel.value === "__other";

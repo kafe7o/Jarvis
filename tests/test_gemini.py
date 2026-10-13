@@ -355,3 +355,16 @@ def test_settings_offer_the_brains_and_say_which_keys_are_there(monkeypatch, tmp
     assert labels["groq"].endswith("има ключ") and labels[gemini.DEFAULT_MODEL].endswith("няма ключ")
     assert not any(v.startswith("claude") for v in labels)  # paid Claude is offered only with its key
     assert section["where"] == "Ключове в .env: Groq"
+
+
+def test_the_brain_slider_shows_only_brains_with_a_key_fastest_first(monkeypatch, tmp_path):
+    from jarvis.hub import brain_scale
+
+    for name in ("GEMINI_API_KEY", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "JARVIS_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    stored = {"GROQ_API_KEY": "x", "GEMINI_API_KEY": "x", "JARVIS_MODEL": "gemini"}
+    sc = brain_scale(stored)
+    assert [s["name"] for s in sc["stops"]] == ["Groq", "Gemini", "Gemini Flash"]
+    assert sc["at"] == 1 and sc["stops"][1]["recommended"] and sc["stops"][1]["value"] == gemini.DEFAULT_MODEL
+    assert sc["stops"][0]["model"] == "openai/gpt-oss-120b"
+    assert brain_scale({**stored, "JARVIS_MODEL": "groq:llama-3.1-8b-instant"})["at"] == -1  # typed by hand
