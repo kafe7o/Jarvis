@@ -52,7 +52,7 @@ def test_groq_is_the_brain_with_the_useful_tools_and_costs_nothing(settings, ctx
     assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних, сър."
     first, second = fake.bodies
     assert first["model"] == "openai/gpt-oss-120b" and first["reasoning_effort"] == "medium"
-    assert {t["function"]["name"] for t in first["tools"]} <= local.LOCAL_TOOLS and first["max_tokens"] <= 2048
+    assert {t["function"]["name"] for t in first["tools"]} <= groq.TOOLS and first["max_tokens"] <= 2048
     assert first["messages"][0]["role"] == "system" and first["messages"][-1]["role"] == "user"
     assert second["messages"][-2]["tool_calls"][0]["function"]["name"] == "remember"
     assert second["messages"][-1] == {"role": "tool", "tool_call_id": "call_1", "content": "Remembered (id 1)."}
@@ -163,3 +163,14 @@ def test_a_request_too_big_for_the_minute_is_sent_shorter_and_a_retired_model_is
                           max_tokens=100, effort="low")
     assert answer.content[0].text == "Пак съм тук." and answer.model == "groq:openai/gpt-oss-20b"
     assert "meta-llama/llama-4-scout-17b-16e-instruct" not in brain.models("groq")
+
+
+def test_the_owners_standing_orders_survive_on_groq():
+    """On Groq the long system prompt is cut to fit; the start (who Jarvis is) and the end (what he remembers about
+    the owner, like "work as fast and as smart as possible") stay, the middle goes."""
+    system = "Ти си Jarvis.\n" + "подробност " * 3000 + "\nWhat you remember about the user:\n- работи максимално бързо"
+    chat = groq.fit(system, [{"role": "user", "content": "ехо"}], [], groq.BUDGET)
+    kept = chat[0]["content"]
+    assert kept.startswith("Ти си Jarvis.") and kept.endswith("- работи максимално бързо")
+    assert len(kept) <= groq.BUDGET * 0.6 + 100
+    assert {"read_window", "click_text", "web_browser"} <= groq.TOOLS

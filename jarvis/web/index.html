@@ -62,7 +62,7 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .scale { border: 1px solid var(--line2); border-radius: 14px; padding: 14px 16px 10px; margin-bottom: 16px; }
 .scale-top { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
-.scale-track { position: relative; height: 34px; margin: 8px 0 4px; }
+.scale-track { position: relative; height: 34px; margin: 8px 30px 4px; }
 .scale-track .rail { position: absolute; inset: 4px 0; background: var(--line); border-radius: 13px; }
 .scale-track .dots { position: absolute; inset: 0 13px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
 .scale-track .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
@@ -71,10 +71,9 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .scale-range::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .scale-range::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
 .scale-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--glow); }
-.scale-names { position: relative; height: 46px; margin-top: 2px; }
+.scale-names { position: relative; height: 46px; margin: 2px 30px 0; }
 .scale-names button { position: absolute; transform: translateX(-50%); background: none; border: 0; padding: 0; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 1px; font: inherit; color: var(--muted); white-space: nowrap; }
-.scale-names button.first { transform: none; align-items: flex-start; } .scale-names button.last { transform: translateX(-100%); align-items: flex-end; }
 .scale-names b { font-size: 13px; font-weight: 600; } .scale-names small { font-size: 11px; color: var(--faint); }
 .scale-names button.on { color: var(--text); } .scale-names button.on small { color: var(--muted); }
 .scale-names em { font-style: normal; font-size: 11px; color: var(--accent); }
@@ -2799,8 +2798,8 @@ function brainSlider(sc) {
     <div class="scale-track"><div class="rail"></div>
       <div class="dots">${sc.stops.map((x, i) => `<i class="${i === rec ? "rec" : ""}"></i>`).join("")}</div>
       <input type="range" class="scale-range" min="0" max="${n - 1}" step="1" value="${at}" aria-label="Мозък: по-бърз или по-умен"></div>
-    <div class="scale-names">${sc.stops.map((x, i) => `<button type="button" data-stop="${i}" style="left:${i === 0 ? "0" : i === n - 1 ? "100%" : left(i)}"
-      class="${i === 0 ? "first" : i === n - 1 ? "last" : ""}${i === at && sc.at >= 0 ? " on" : ""}"><b>${esc(x.name)}</b><small>${esc(x.model.split("/").pop())}</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`).join("")}</div>
+    <div class="scale-names">${sc.stops.map((x, i) => `<button type="button" data-stop="${i}" style="left:${left(i)}"
+      class="${i === at && sc.at >= 0 ? "on" : ""}"><b>${esc(x.name)}</b><small>${esc(x.model.split("/").pop())}</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`).join("")}</div>
     <div class="scale-now">${sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b> <span>(написан ръчно; премести кръгчето, за да избереш от списъка)</span>`}</div>
   </div>`;
 }

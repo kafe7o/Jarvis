@@ -30,6 +30,9 @@ URL = "https://api.groq.com/openai/v1/chat/completions"
 FREE_MODELS = ["openai/gpt-oss-120b", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-20b",
                "llama-3.1-8b-instant"]
 DEFAULT_MODEL = "groq"
+# The tools Groq gets (its prompt must stay small): the everyday ones, plus the screen, the browser and search, so
+# it can carry the same work as Gemini when it is the brain the owner picked or the one standing in.
+TOOLS = LOCAL_TOOLS | {"read_window", "click_text", "look_at_screen", "web_browser", "google_search"}
 REASONING = {"low": "low", "medium": "medium", "high": "medium", "xhigh": "medium", "max": "high"}
 BUDGET = 22000  # characters of prompt (system, tools and conversation) that fit the free tier's minute
 
@@ -149,7 +152,7 @@ class GroqBrain:
             raise RuntimeError("GROQ_API_KEY is not set. Get a free key at console.groq.com/keys.")
         if not isinstance(system, str):
             system = "\n\n".join(_get(b, "text", "") for b in system)
-        declared = to_tools(tools)
+        declared = to_tools(tools, TOOLS)
         for current in self.models(model):
             budget, cap, broken = self.fits.get(current, BUDGET), (2048 if declared else 1500), False
             for attempt in range(3):
@@ -194,11 +197,14 @@ class GroqBrain:
 
 
 def fit(system: str, messages: list, declared: list, budget: int) -> list[dict]:
-    """The chat for one request within ``budget`` characters: the system prompt (its start, the persona, when it
-    alone is too long) and as much of the end of the conversation as fits."""
+    """The chat for one request within ``budget`` characters: the system prompt and as much of the end of the
+    conversation as fits. A system prompt too long for this brain loses its middle (the persona's details, the
+    lessons), never its start (who Jarvis is, the owner's standing order) or its end (what Jarvis remembers about
+    the owner, the time): the owner's instructions hold on every brain."""
     keep = int(budget * 0.6)
     if len(system) > keep:
-        system = system[:keep] + "\n…(the rest of the instructions is left out to fit this brain)"
+        head, tail = int(keep * 0.4), int(keep * 0.6)
+        system = system[:head] + "\n…(some instructions are left out to fit this brain)…\n" + system[-tail:]
     room = budget - len(system) - len(json.dumps(declared, ensure_ascii=False))
     return trim(to_messages(system, messages), max(room, 2000))
 
