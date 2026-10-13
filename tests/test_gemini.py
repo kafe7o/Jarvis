@@ -381,3 +381,23 @@ def test_an_overloaded_gemini_model_is_left_at_once_without_waiting(monkeypatch)
         brain.create(model=gemini.DEFAULT_MODEL, system="s", messages=[{"role": "user", "content": "здравей"}],
                      tools=[], max_tokens=100, effort="low")
     assert waits == [] and len(google.requests) == len(gemini.FREE_MODELS)  # one ask a model, no sleeping
+
+
+def test_a_google_search_moves_to_the_next_model_when_one_is_used_up():
+    """On the laptop the web lane's google_search failed twice: Flash-Lite's minute of tokens was used up."""
+    from google.genai import types
+
+    asked = []
+
+    def generate_content(model, contents, config):
+        asked.append(model)
+        if len(asked) == 1:
+            raise errors.ClientError(429, {"error": {"code": 429, "message": "InputTokensPerModelPerMinute"}})
+        return types.GenerateContentResponse(candidates=[types.Candidate(
+            content=types.Content(role="model", parts=[types.Part(text="Левски играе в четвъртък.")]), finish_reason="STOP")])
+
+    from types import SimpleNamespace
+
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    assert gemini.search("следващ мач на Левски", client=client) == "Левски играе в четвъртък."
+    assert asked == gemini.FREE_MODELS[:2]
