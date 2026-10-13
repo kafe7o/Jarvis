@@ -271,12 +271,13 @@ def _talk(s: str, info: Info) -> Step | None:
 def _mail(s: str, info: Info) -> list[Step] | None:
     """„Виж имейлите ми“, „колко непрочетени имейла имам“, „отвори браузъра и виж пощата“: the count and the newest
     senders straight from the inbox in a second or two (the owner wants this in under 5 s), Gmail opened when asked."""
-    if not info.owner or words(s) > 25 or not MAIL.search(" " + s) or not MAIL_LOOK.search(" " + s) \
+    browser = MAIL_BROWSER.search(" " + s)
+    if not info.owner or words(s) > 25 or not MAIL.search(" " + s) or not (MAIL_LOOK.search(" " + s) or browser) \
             or MAIL_NOT.search(" " + s):
         return None
-    steps = [Step(lambda out: out, "mail_count", {"newest": 3}, s)]
-    if MAIL_BROWSER.search(" " + s):  # the answer first, then Gmail in the browser for the owner to look at
-        steps.append(Step(lambda _o: "", "open_target", {"target": "https://mail.google.com"}, s))
+    steps = [Step(lambda out: out, "mail_count", {"newest": 5}, s)]
+    if browser:  # Gmail opens in the browser at once, then he hears the newest ones
+        steps.insert(0, Step(lambda _o: "Отворих пощата.", "open_target", {"target": "https://mail.google.com"}, s))
     return steps
 
 
