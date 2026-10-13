@@ -215,3 +215,17 @@ def test_a_task_dropped_in_the_remote_folder_is_asked_as_the_owner(settings, ctx
     assert remote.waiting(where) == [] and not (where / "test1.working.txt").exists()
     chat = next(c for c in hub.accounts.chats(owner.id) if c["title"] == remote.CHAT)
     assert any("Нямаш задачи." in m["content"] for m in hub.accounts.messages(chat["id"]))
+
+
+def test_the_apps_own_hub_gets_auto_update_and_the_remote_folder(settings, ctx, registry, monkeypatch):
+    # `jarvis app` serves its hub before start_background: the background work must still start for it.
+    from jarvis import app, remote
+
+    hub, _ = make_hub(settings, ctx, registry, [])
+    hub.restartable = True
+    started = []
+    monkeypatch.setattr(hub, "auto_update", lambda: started.append("update"))
+    monkeypatch.setattr(remote, "watch", lambda h, home: started.append(("remote", h is hub)))
+    monkeypatch.setattr(ctx.scheduler, "start", lambda: None)
+    app.start_background(ctx)
+    assert started == [("remote", True), "update"]
