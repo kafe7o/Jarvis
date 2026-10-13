@@ -75,8 +75,27 @@ def installed_version(root: Path) -> str:
         return ""
 
 
+def latest_version() -> str:
+    """The newest commit on the first branch that answers, without downloading anything (one small API call), or
+    "" when GitHub cannot say."""
+    for branch in BRANCHES:
+        try:
+            with urllib.request.urlopen(_request(f"{API}/commits/{branch}", "application/vnd.github.sha"),
+                                        timeout=20) as resp:
+                sha = resp.read().decode(errors="replace").strip()
+        except Exception:
+            continue
+        if len(sha) == 40:
+            return sha
+    return ""
+
+
 def newer(root: Path) -> zipfile.ZipFile | None:
-    """The newest Jarvis from GitHub if it differs from the installed one, else None."""
+    """The newest Jarvis from GitHub if it differs from the installed one, else None. A quick look at the newest
+    commit comes first, so a check when nothing changed costs no download."""
+    latest = latest_version()
+    if latest and latest == installed_version(root):
+        return None
     archive = download()
     version = version_of(archive)
     return archive if version and version != installed_version(root) else None
