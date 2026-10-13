@@ -12,6 +12,7 @@ import sys
 import time
 import webbrowser
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 
 from .. import browsers, winui
@@ -34,6 +35,33 @@ def _open_with_os(target: str) -> None:
         subprocess.Popen(["open", target])
     else:
         subprocess.Popen(["xdg-open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def page_text(html: str) -> tuple[str, str]:
+    """(title, readable text) of a web page: scripts, styles and tags out, whitespace squeezed."""
+    html = re.sub(r"(?is)<(script|style|noscript|svg|template)\b.*?</\1\s*>", " ", html)
+    title = re.search(r"(?is)<title[^>]*>(.*?)</title>", html)
+    html = re.sub(r"(?is)<head\b.*?</head\s*>", " ", html)
+    text = re.sub(r"\s+", " ", unescape(re.sub(r"(?s)<[^>]+>", " ", html))).strip()
+    return (re.sub(r"\s+", " ", unescape(title.group(1))).strip() if title else ""), text
+
+
+def around(text: str, words: str, size: int = 4000) -> str:
+    """The parts of ``text`` around ``words`` (like ctrl+f), else its start; at most ``size`` characters."""
+    found = []
+    for word in [w for w in re.split(r"[,;|]", words or "") if w.strip()][:6]:
+        for m in list(re.finditer(re.escape(word.strip()), text, re.I))[:3]:
+            found.append((max(0, m.start() - 250), m.end() + 350))
+    if not found:
+        return text[:size] + (" …" if len(text) > size else "")
+    parts, end = [], -1
+    for a, b in sorted(found):  # overlapping parts become one
+        if parts and a <= end:
+            parts[-1] = (parts[-1][0], max(b, end))
+        else:
+            parts.append((a, b))
+        end = max(end, b)
+    return " … ".join(text[a:b] for a, b in parts)[:size]
 
 
 def allowed_path(path: str, allowed: list[str]) -> Path:
@@ -103,6 +131,38 @@ def register(registry: ToolRegistry, ctx) -> None:
             return f"Started {target}."
         _open_with_os(target)
         return f"Asked the system to open {target}."
+
+    @registry.tool(
+        "The fast way to use a web page: opens the address in the owner's own browser (they see it) and returns "
+        "the page's text in the same step, so there is no need to read the window or look at the screen after it. "
+        "With find, the text around those words comes back (like ctrl+f), e.g. find='USD' on an exchange-rate page. "
+        "Answer from that text; read_window and click_text are for clicking on the page, look_at_screen only for "
+        "what has no words.",
+        obj({"url": ("string", "The web address, e.g. 'bnb.bg' or a search URL"),
+             "find?": ("string", "Words to find on the page, separated by commas")}),
+    )
+    def open_page(url: str, find: str = ""):
+        from .daily import fetch
+
+        url = (url or "").strip()
+        url = url if "://" in url else "https://" + url
+        name = browsers.open_url(url, facts())
+        word = name.split()[0] if name != "the default browser" else "браузъра"
+        opened = f"Opened {url} in {name} (a tab of that window: read_window(\"{word}\") / click_text work on it)."
+        try:
+            title, text = page_text(fetch(url, timeout=8))
+        except Exception as exc:
+            title, text = "", ""
+            log.info("could not read %s directly: %s", url, exc)
+        if len(text) >= 300:  # a page with its words in it; a script-only page (or a sign-in) is read on the screen
+            return f"{opened} The page \"{title}\" says:\n{around(text, find)}"
+        if not winui.on_windows():
+            return opened + " Its text could not be read directly; read_window shows it."
+        time.sleep(2)  # the new tab loads
+        try:
+            return f"{opened} The browser window shows now:\n{winui.read(word)}"
+        except Exception as exc:
+            return opened + f" (Could not read it yet: {exc}; read_window in a moment.)"
 
     @registry.tool(
         "List a folder's contents (optionally matching a glob pattern, recursive with '**/').",

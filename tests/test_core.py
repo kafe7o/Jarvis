@@ -5,6 +5,7 @@ from datetime import datetime
 
 from conftest import Approver, FakeClient, response, system_text, text_block, tool_block
 
+from jarvis import brain as brain_module
 from jarvis.brain import Jarvis
 from jarvis.confirm import is_yes
 from jarvis.plugins.tasks import from_ics, next_occurrence, to_ics
@@ -523,3 +524,19 @@ def test_update_reads_a_private_repository_with_the_owners_token(monkeypatch):
     assert updater.version_of(archive) == "abc123"
     assert seen[-2][0] == "https://api.github.com/repos/kafe7o/Jarvis/zipball/main"
     assert seen[-2][1] == "Bearer ghp_test" and seen[-1][2] == "application/vnd.github.sha"
+
+
+def test_a_job_on_the_web_gets_the_fast_lane_a_short_brief_and_a_dozen_tools(settings, ctx, registry):
+    """Seventy tools and the full brief made every step of a web job ~20k tokens and up to 45 s on a free brain."""
+    client = FakeClient([response(text_block("Доларът е 1.67 лв."), stop="end_turn")])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    jarvis.ask("Отвори сайта на БНБ в браузъра и ми кажи курса на долара днес")
+    request = client.requests[0]
+    names = {t["name"] for t in request["tools"]} - {t["name"] for t in brain_module.SERVER_TOOLS}
+    assert names <= set(brain_module.WEB_TOOLS) and {"open_page", "click_text", "request_approval"} <= names
+    assert "This is a job on the web" in system_text(request) and "team of specialists" not in system_text(request)
+
+    client.responses.append(response(text_block("Готово."), stop="end_turn"))
+    jarvis.ask("Виж в браузъра пощата ми")  # the mail needs its own tools: the full agent
+    names = {t["name"] for t in client.requests[-1]["tools"]}
+    assert {"run_shell", "gmail_search"} <= names and "team of specialists" in system_text(client.requests[-1])
