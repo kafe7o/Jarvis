@@ -317,3 +317,41 @@ def test_when_gemini_is_overloaded_another_free_brain_answers(settings, ctx, reg
     google.replies = [overloaded] * 12
     monkeypatch.setenv("GROQ_API_KEY", "free-key")
     assert jarvis.ask("здравей") == "Тук съм, през Groq."
+
+
+def test_the_backup_brain_from_settings_answers_right_after_gemini(settings, ctx, registry, monkeypatch):
+    """Settings > Мозък > JARVIS_BACKUP: when Gemini is overloaded, the brain the owner picked answers next, before
+    the automatic order (here NVIDIA, which would be asked first otherwise); one without a key is passed over."""
+    from jarvis import freeapi, groq
+
+    settings.model = "gemini"  # the short name from the list means Gemini's default model
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setenv("GROQ_API_KEY", "free-key")
+    monkeypatch.setenv("NVIDIA_API_KEY", "free-key")
+    monkeypatch.setenv("JARVIS_BACKUP", "openrouter, groq")  # no OpenRouter key: Groq is the one that answers
+    overloaded = errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "overloaded"}})
+    asked = []
+    nvidia = freeapi.FreeBrain("nvidia", post=lambda body, timeout=None: asked.append("nvidia"),
+                               get=lambda: [{"id": "deepseek-ai/deepseek-v3.1"}])
+    answers = [{"choices": [{"message": {"content": "Тук съм, през Groq."}, "finish_reason": "stop"}], "usage": {}}]
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=FakeClient([]),
+                    gemini_brain=gemini.GeminiBrain(FakeGemini([overloaded] * 12), wait=lambda s: None),
+                    groq_brain=groq.GroqBrain(lambda body: asked.append("groq") or answers.pop(0)),
+                    free_brains={"nvidia": nvidia})
+    assert jarvis.ask("здравей") == "Тук съм, през Groq."
+    assert asked == ["groq"]
+
+
+def test_settings_offer_the_brains_and_say_which_keys_are_there(monkeypatch, tmp_path):
+    from jarvis.hub import Hub
+
+    monkeypatch.chdir(tmp_path)  # an empty .env: only the keys in the environment count
+    for name in ("GEMINI_API_KEY", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "free-key")
+    section = next(s for s in Hub.settings_view(None) if s["title"] == "Мозък")
+    assert [f["key"] for f in section["fields"]] == ["JARVIS_MODEL", "JARVIS_BACKUP"]
+    labels = {o["value"]: o["label"] for o in section["fields"][0]["options"]}
+    assert labels["groq"].endswith("има ключ") and labels[gemini.DEFAULT_MODEL].endswith("няма ключ")
+    assert not any(v.startswith("claude") for v in labels)  # paid Claude is offered only with its key
+    assert section["where"] == "Ключове в .env: Groq"

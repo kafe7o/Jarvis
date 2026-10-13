@@ -115,8 +115,8 @@ def friendly_error(exc: Exception) -> str:
         return (f"Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. Връщат се в {back}. "
                 "За да не спирам никога, инсталирай мозъка на лаптопа (Ollama): виж „Пестене“ в Настройки > Връзки.")
     if isinstance(exc, Busy):
-        return ("Gemini е претоварен и не отговори навреме на нито един безплатен модел. Опитай пак след минута; "
-                "с безплатен ключ за NVIDIA, OpenRouter или Groq (Настройки > Връзки) те поемат в такъв момент.")
+        return ("Gemini е претоварен, а другите безплатни мозъци с ключ също не отговориха този път. Опитай пак след "
+                "минута; резервният мозък се избира в Настройки > Връзки > Мозък.")
     if isinstance(exc, GroqUsedUp):
         return ("Безплатните модели на Groq са заети или изчерпани за момента. Опитай пак след минута, "
                 "или сложи и безплатен Gemini ключ, за да поема той.")
@@ -433,11 +433,38 @@ class HTTPError(Exception):
 
 
 SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "SID")
+# The brains offered in Settings > Мозък: what JARVIS_MODEL / JARVIS_BACKUP say, the name, the key it needs.
+BRAINS = [
+    ("groq", "Groq (безплатен, най-бързият)", "GROQ_API_KEY"),
+    ("gemini", "Gemini (безплатен, вижда снимки)", "GEMINI_API_KEY"),
+    ("nvidia", "NVIDIA (безплатни силни модели)", "NVIDIA_API_KEY"),
+    ("openrouter", "OpenRouter (безплатни модели)", "OPENROUTER_API_KEY"),
+    ("local", "На лаптопа през Ollama (без лимит, по-бавен)", ""),
+    ("claude-sonnet-5-5", "Claude Sonnet (платен)", "ANTHROPIC_API_KEY"),
+]
+
+
+def brain_choices(items: list[dict], stored: dict) -> str:
+    """Offer the brains in the Мозък fields (whether .env has each one's key) and say which keys are there."""
+    from .gemini import DEFAULT_MODEL
+
+    has = lambda env: not env or bool(stored.get(env) or os.environ.get(env))
+    shown = [(DEFAULT_MODEL if value == "gemini" else value, label, env) for value, label, env in BRAINS
+             if not value.startswith("claude") or has(env)]
+    options = [{"value": value, "label": f"{label}: {'има ключ' if has(env) else 'няма ключ'}"}
+               for value, label, env in shown]
+    for item in items:
+        item["options"] = options
+    ready = [label.split(" (")[0] for value, label, env in shown if env and has(env)]
+    return ("Ключове в .env: " + ", ".join(ready)) if ready else "Няма ключ за безплатен мозък: сложи поне един в Връзки."
 EXTRA_SETTINGS = [
+    ("Мозък", "", [
+        ("JARVIS_MODEL", "Главен мозък: избери от списъка или напиши модел (празно = най-силният безплатен, за който има ключ)"),
+        ("JARVIS_BACKUP", "Резервен мозък, когато главният е претоварен или свършен: избери или напиши, няколко със запетая по ред (напр. groq, openrouter); празно = сам избира от тези с ключ"),
+    ]),
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_MODEL", "Мозък: празно = безплатен (Gemini, после Groq), groq (безплатно, най-бързият), nvidia или openrouter (безплатни силни модели), local (на лаптопа, без лимит); платени: claude-opus-5-5, claude-fable-5-1, claude-sonnet-5-5, claude-haiku-5-5"),
         ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
         ("GITHUB_TOKEN", "GitHub ключ за обновяване, нужен само ако хранилището kafe7o/Jarvis е частно (github.com/settings/personal-access-tokens, само четене на Contents)"),
@@ -707,6 +734,8 @@ class Hub:
                 items.append({"key": key, "label": label, "secret": secret, "set": bool(value),
                               "value": "" if secret else value, "hint": (value[:4] + "…") if secret and value else ""})
             ready = all(i["set"] for i in items)
+            if title == "Мозък":
+                where, ready = brain_choices(items, stored), True
             sections.append({"title": title, "where": where, "fields": items, "ready": ready})
         return sections
 

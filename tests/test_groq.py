@@ -71,7 +71,7 @@ def test_a_busy_or_used_up_model_hands_over_to_the_next_free_one(key):
     answer = brain.create(model="groq", system="Ти си Jarvis.", messages=[{"role": "user", "content": "ехо"}],
                           tools=[], max_tokens=4000, effort="low")
     assert answer.content[0].text == "Тук съм." and answer.model == "groq:openai/gpt-oss-20b"
-    assert [b["model"] for b in fake.bodies] == ["openai/gpt-oss-120b", "llama-3.3-70b-versatile",
+    assert [b["model"] for b in fake.bodies] == ["openai/gpt-oss-120b", "meta-llama/llama-4-scout-17b-16e-instruct",
                                                   "openai/gpt-oss-20b", "openai/gpt-oss-20b"]
     assert rested == [5.0] and "tools" not in fake.bodies[0] and fake.bodies[0]["max_tokens"] == 1500
     assert brain.models("groq") == ["openai/gpt-oss-20b", "llama-3.1-8b-instant"]  # the others rest for a while
@@ -136,3 +136,30 @@ def test_claude_without_credit_hands_over_to_groq(settings, ctx, registry, key, 
     fake = FakeGroq([said("Тук съм, през Groq.")])
     jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=NoCredit(), groq_brain=groq.GroqBrain(fake))
     assert jarvis.ask("здрасти") == "Тук съм, през Groq." and settings.model == "groq"
+
+
+def test_a_request_too_big_for_the_minute_is_sent_shorter_and_a_retired_model_is_skipped(key):
+    """The laptop, 13 Oct: Gemini overloaded, then Groq said 413 "Limit 8000, Requested 11234" on gpt-oss-120b and
+    404 on the retired llama-3.3-70b, and Jarvis gave up. Now the request is cut to fit, a gone model rests."""
+    too_big = (413, '{"error": {"message": "Request too large for model `openai/gpt-oss-120b` on tokens per minute '
+                    '(TPM): Limit 8000, Requested 11234, please reduce your message size and try again."}}')
+    fake = FakeGroq([too_big, said("Тук съм.")])
+    brain = groq.GroqBrain(fake)
+    long_system = "Ти си Jarvis. " + "правило " * 4000
+    answer = brain.create(model="groq", system=long_system, messages=[{"role": "user", "content": "ехо"}],
+                          tools=[], max_tokens=4000, effort="low")
+    assert answer.content[0].text == "Тук съм."
+    first, second = fake.bodies
+    assert first["model"] == second["model"] == "openai/gpt-oss-120b"
+    size = lambda body: len(json.dumps(body["messages"], ensure_ascii=False))
+    assert size(second) < size(first) * 0.8 and second["max_tokens"] <= 1024
+    assert second["messages"][0]["content"].startswith("Ти си Jarvis.")
+    assert brain.fits["openai/gpt-oss-120b"] < groq.BUDGET  # the next request starts at the size that fits
+
+    gone = (404, '{"error": {"message": "The model `meta-llama/llama-4-scout-17b-16e-instruct` does not exist"}}')
+    fake = FakeGroq([(503, "down"), gone, said("Пак съм тук.")])
+    brain = groq.GroqBrain(fake)
+    answer = brain.create(model="groq", system="", messages=[{"role": "user", "content": "ехо"}], tools=[],
+                          max_tokens=100, effort="low")
+    assert answer.content[0].text == "Пак съм тук." and answer.model == "groq:openai/gpt-oss-20b"
+    assert "meta-llama/llama-4-scout-17b-16e-instruct" not in brain.models("groq")
