@@ -305,8 +305,10 @@ def test_checking_the_mail_needs_no_ai(settings, ctx, registry, monkeypatch):
     """The owner timed "open my browser and check my e-mail" at 99 s on the free brains and wants it in 5 s: the
     count and the newest senders come straight from the inbox headers, Gmail opens when he asks for the browser."""
     assert steps("Отвори браузъра ми и виж имейлите ми: кажи ми колко непрочетени имам и от кого са последните три.") \
-        == [("mail_count", {"newest": 3}), ("open_target", {"target": "https://mail.google.com"})]
-    assert steps("vij imeilite mi") == steps("провери пощата") == [("mail_count", {"newest": 3})]
+        == [("open_target", {"target": "https://mail.google.com"}), ("mail_count", {"newest": 5})]
+    assert steps("отвори пощата ми и ми кажи какви са ми новите имейли") == steps("отвори пощата ми") \
+        == [("open_target", {"target": "https://mail.google.com"}), ("mail_count", {"newest": 5})]
+    assert steps("vij imeilite mi") == steps("провери пощата") == [("mail_count", {"newest": 5})]
     for needs_ai in ("изпрати имейл на Иван", "какво пише в последния имейл от банката", "обобщи пощата ми"):
         assert steps(needs_ai) is None
     assert steps("виж имейлите ми", owner=False) is None
@@ -341,4 +343,6 @@ def test_checking_the_mail_needs_no_ai(settings, ctx, registry, monkeypatch):
     monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeImap)
     settings.imap_host, settings.email_user, settings.email_password = "imap.x", "me", "pw"
     out, err = registry.run("mail_count", {}, Approver())
-    assert not err and out == "Имаш 3 непрочетени имейла. Последните: Bolt Food („Your order“); Иван („Hi“); news@x.bg."
+    assert not err and out == "Новите 3 имейла са от Bolt Food („Your order“); Иван („Hi“); news@x.bg."
+    out, err = registry.run("mail_count", {"newest": 2}, Approver())
+    assert out == "Най-новите 2 непрочетени (от общо 3): Bolt Food („Your order“); Иван („Hi“)."
