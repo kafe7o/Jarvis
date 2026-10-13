@@ -96,6 +96,38 @@ def find_video(query: str) -> tuple[str, str] | None:
     return found[1], json.loads(f'"{title[1]}"') if title else query
 
 
+def translate(text: str, to: str, timeout: float = 8) -> str:
+    """``text`` in the language ``to`` (e.g. 'en') through Google Translate's free endpoint, without a key."""
+    url = "https://translate.googleapis.com/translate_a/single?" + urllib.parse.urlencode(
+        {"client": "gtx", "sl": "auto", "tl": to, "dt": "t", "q": text})
+    data = json.loads(fetch(url, timeout))
+    return "".join(part[0] for part in data[0] if part and part[0]).strip()
+
+
+ACCESSORY = re.compile(r"калъф|кейс|case|cover|протектор|стъкло|фолио|кабел|зарядн|адаптер|стойк|държач|скин|"
+                       r"каишк|ремък|холдер|писалк|слушалк|смарт часовник|lens|camera protector", re.I)
+
+
+def emag_offers(query: str, limit: int = 3, timeout: float = 10) -> list[tuple[str, float]]:
+    """(title, price in лв.) of the cheapest eMAG products whose title has every word of ``query``; accessories
+    (cases, glass, cables…) are skipped so „iPhone 17“ means the phone."""
+    page = fetch("https://www.emag.bg/search/" + urllib.parse.quote(query) + "/sort-priceasc", timeout)
+    words = [w.lower() for w in re.findall(r"\w+", query)]
+    offers = []
+    for card in re.split(r'class="card-item', page)[1:]:
+        title = re.search(r'data-name="([^"]+)"', card) or re.search(r'class="card-v2-title[^"]*"[^>]*>([^<]+)<', card)
+        price = re.search(r'class="product-new-price[^"]*"[^>]*>\s*([\d.\s]+)(?:<sup>(\d+)</sup>)?', card)
+        if not (title and price):
+            continue
+        name = re.sub(r"\s+", " ", title[1]).replace("&quot;", '"').replace("&amp;", "&").strip()
+        if ACCESSORY.search(name) or not all(w in name.lower() for w in words):
+            continue
+        whole = re.sub(r"[.\s]", "", price[1])
+        if whole.isdigit():
+            offers.append((name, int(whole) + int(price[2] or 0) / 100))
+    return sorted(offers, key=lambda o: o[1])[:limit]
+
+
 def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "The weather now and for the next days (free, no key). Without a place: the owner's city "
@@ -104,6 +136,28 @@ def register(registry: ToolRegistry, ctx) -> None:
     )
     def weather(place: str | None = None, days: int = 3):
         return weather_report(place, days)
+
+    @registry.tool(
+        "Translate a text into another language with Google Translate (fast, free). Answers with the translation.",
+        obj({"text": ("string", "The text"), "to": ("string", "Language code, e.g. 'en', 'de', 'es', 'bg'")}),
+    )
+    def translate_text(text: str, to: str = "en"):
+        return translate(text, to)
+
+    @registry.tool(
+        "The cheapest offers for a product on eMAG.bg (the phone itself, not its cases or cables), with prices. "
+        "Fast: reads eMAG's search page directly.",
+        obj({"query": ("string", "The product, e.g. 'iPhone 17'")}),
+    )
+    def emag_cheapest(query: str):
+        offers = emag_offers(query)
+        if not offers:
+            return f"Не намерих цени в eMAG за „{query}“ (страницата е отворена, виж я)."
+        best, *more = offers
+        said = f"Най-евтиното в eMAG: {best[0]} за {best[1]:,.2f} лв.".replace(",", " ")
+        if more:
+            said += " След него: " + "; ".join(f"{n} за {p:,.2f} лв.".replace(",", " ") for n, p in more) + "."
+        return said
 
     @registry.tool(
         "Play a song, music or video from YouTube right away: finds the best match and starts it in the browser "
