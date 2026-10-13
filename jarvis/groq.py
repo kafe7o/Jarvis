@@ -25,8 +25,10 @@ from .tools import normalize_schema
 log = logging.getLogger("jarvis.groq")
 
 URL = "https://api.groq.com/openai/v1/chat/completions"
-# Free models, best first; each has its own allowance a minute and a day.
-FREE_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"]
+# Free models, best first; each has its own allowance a minute and a day. One that Groq has retired answers 404
+# and rests for a day while the next one answers. Llama 4 Scout allows more tokens a minute than the others.
+FREE_MODELS = ["openai/gpt-oss-120b", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-20b",
+               "llama-3.1-8b-instant"]
 DEFAULT_MODEL = "groq"
 REASONING = {"low": "low", "medium": "medium", "high": "medium", "xhigh": "medium", "max": "high"}
 BUDGET = 22000  # characters of prompt (system, tools and conversation) that fit the free tier's minute
@@ -135,6 +137,7 @@ class GroqBrain:
         self._post = post or _post
         self._wait = wait
         self.resting: dict[str, float] = {}  # model -> when it may be asked again
+        self.fits: dict[str, int] = {}  # model -> characters of prompt that fit its tokens a minute
 
     def models(self, model: str) -> list[str]:
         chosen = model.partition(":")[2] or os.environ.get("JARVIS_GROQ_MODEL") or FREE_MODELS[0]
@@ -147,15 +150,15 @@ class GroqBrain:
         if not isinstance(system, str):
             system = "\n\n".join(_get(b, "text", "") for b in system)
         declared = to_tools(tools)
-        room = BUDGET - len(system) - len(json.dumps(declared, ensure_ascii=False))
-        chat = trim(to_messages(system, messages), max(room, 4000))
         for current in self.models(model):
-            body = {"model": current, "messages": chat, "max_tokens": min(max_tokens, 2048 if declared else 1500)}
-            if declared:
-                body.update(tools=declared, tool_choice="auto")
-            if current.startswith("openai/gpt-oss"):
-                body["reasoning_effort"] = REASONING.get(effort, "medium")
-            for attempt in range(2):
+            budget, cap, broken = self.fits.get(current, BUDGET), (2048 if declared else 1500), False
+            for attempt in range(3):
+                body = {"model": current, "messages": fit(system, messages, declared, budget),
+                        "max_tokens": min(max_tokens, cap)}
+                if declared:
+                    body.update(tools=declared, tool_choice="auto")
+                if current.startswith("openai/gpt-oss"):
+                    body["reasoning_effort"] = REASONING.get(effort, "medium")
                 try:
                     return from_reply(self._post(body), current)
                 except urllib.error.HTTPError as exc:
@@ -165,16 +168,47 @@ class GroqBrain:
                     if exc.code == 429 and "minute" in detail and attempt == 0:
                         self._wait(min(_retry_after(exc), 20))  # a few requests a minute: wait a moment
                         continue
+                    smaller = shrink(detail) if exc.code == 413 else None
+                    if smaller and attempt < 2:
+                        # Too big for this model's tokens a minute (the answer's room counts too): a shorter
+                        # prompt and answer, remembered for this model, instead of giving up on Groq.
+                        budget, cap = int(budget * smaller), min(cap, 1024)
+                        self.fits[current] = budget
+                        log.warning("Groq: the request is too big for %s; trying it shorter", current)
+                        continue
+                    if exc.code in (404, 410) or (exc.code == 400 and "decommission" in detail):
+                        log.warning("Groq has no model %s now; trying the next one", current)
+                        self.resting[current] = time.time() + 86400
+                        break
                     if exc.code in (413, 429, 500, 502, 503) or (exc.code == 400 and "tool_use_failed" in detail
-                                                                   and attempt == 1):
+                                                                   and broken):
                         rest = 3600 if exc.code == 429 and ("day" in detail or "TPD" in detail or "RPD" in detail) else 60
                         log.warning("Groq %s on %s, trying the next model: %s", exc.code, current, detail[:200])
                         self.resting[current] = time.time() + rest
                         break
                     if exc.code == 400 and "tool_use_failed" in detail:
+                        broken = True
                         continue  # the model wrote a broken tool call: once more
                     raise RuntimeError(f"Groq did not answer ({exc.code}): {detail[:300]}") from exc
         raise UsedUp("Every free Groq model is busy or used up for now.")
+
+
+def fit(system: str, messages: list, declared: list, budget: int) -> list[dict]:
+    """The chat for one request within ``budget`` characters: the system prompt (its start, the persona, when it
+    alone is too long) and as much of the end of the conversation as fits."""
+    keep = int(budget * 0.6)
+    if len(system) > keep:
+        system = system[:keep] + "\n…(the rest of the instructions is left out to fit this brain)"
+    room = budget - len(system) - len(json.dumps(declared, ensure_ascii=False))
+    return trim(to_messages(system, messages), max(room, 2000))
+
+
+def shrink(detail: str) -> float | None:
+    """How much smaller a request must be, from Groq's 413 "Limit 8000, Requested 11234" (None if it does not say)."""
+    found = re.search(r"Limit\D{0,3}(\d+)\D+Requested\D{0,3}(\d+)", detail)
+    if not found or int(found.group(2)) <= int(found.group(1)):
+        return None
+    return max(0.3, int(found.group(1)) / int(found.group(2)) * 0.85)
 
 
 def _detail(exc) -> str:

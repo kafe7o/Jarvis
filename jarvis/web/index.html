@@ -2760,6 +2760,16 @@ async function tabUsage() {
     </div>`;
 }
 
+// The brain fields (Мозък): a list of the brains, each saying whether .env has its key, plus "another one" to type.
+function pickBrain(f) {
+  const known = !f.value || f.options.some((o) => o.value === f.value);
+  return `<select class="input" data-pick="${esc(f.key)}">
+    <option value=""${!f.value ? " selected" : ""}>Автоматично (най-добрият безплатен с ключ)</option>
+    ${f.options.map((o) => `<option value="${esc(o.value)}"${o.value === f.value ? " selected" : ""}>${esc(o.label)}</option>`).join("")}
+    <option value="__other"${known ? "" : " selected"}>Друг модел или няколко (напиши)…</option>
+  </select>`;
+}
+
 async function tabConnections() {
   const sections = (await api("/api/settings")).sections;
   $("tabBody").innerHTML = `
@@ -2770,11 +2780,19 @@ async function tabConnections() {
         <p class="sub">${s.where ? esc(s.where) : "&nbsp;"}</p>
         ${s.fields.map((f) => `
           <div class="field"><label>${esc(f.label)} <code class="k">${esc(f.key)}</code></label>
+            ${f.options ? pickBrain(f) : ""}
             <input class="input" data-k="${esc(f.key)}" type="${f.secret ? "password" : "text"}" autocomplete="off"
-              value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + ") — пиши, за да смениш" : "Не е въведено") : ""}"></div>`).join("")}
+              ${f.options && (!f.value || f.options.some((o) => o.value === f.value)) ? `style="display:none"` : ""}
+              value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + ") — пиши, за да смениш" : "Не е въведено") : f.options ? "Напиши модел, напр. groq:llama-3.1-8b-instant или groq, openrouter" : ""}"></div>`).join("")}
         <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>
       </div>`).join("")}
     ${state.restartable ? `<div class="row-end"><span class="hint" id="updMsg"></span><button class="btn ghost" id="update">Обнови сега</button><button class="btn ghost" id="restart">Рестартирай Jarvis</button></div>` : ""}`;
+  $("tabBody").querySelectorAll("select[data-pick]").forEach((sel) => sel.addEventListener("change", () => {
+    const inp = sel.parentElement.querySelector("input[data-k]");
+    const other = sel.value === "__other";
+    inp.style.display = other ? "" : "none";
+    if (other) inp.focus(); else inp.value = sel.value;
+  }));
   $("tabBody").querySelectorAll("button[data-save]").forEach((b) => b.addEventListener("click", async () => {
     const sec = b.closest(".section"), s = sections[Number(b.dataset.save)];
     const values = {};

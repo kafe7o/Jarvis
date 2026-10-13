@@ -40,9 +40,10 @@ PROVIDERS = {
                        ("moonshotai/kimi-k2-instruct", "deepseek-ai/deepseek-v3.1", "openai/gpt-oss-120b",
                         "meta/llama-3.3-70b-instruct")),
     "openrouter": Provider("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY",
-                           "openrouter.ai/keys", ("deepseek/deepseek-chat-v3.1:free", "openai/gpt-oss-120b:free",
-                                                  "meta-llama/llama-3.3-70b-instruct:free")),
+                           "openrouter.ai/keys", ("openrouter/free",)),
 }
+# OpenRouter's own "openrouter/free" picks whichever free model is up: the strong ":free" models come and go (the
+# ones named here before became paid in October 2026), so it is what is asked when none of PREFER is free.
 # Families that answer well in Bulgarian and use tools reliably, best first. Small models (gpt-oss-20b, gemma,
 # 7-12b mistrals) are left out on purpose: with a hundred tools they refuse or lecture instead of acting.
 PREFER = ("kimi-k2", "deepseek", "glm", "qwen3", "minimax-m", "gpt-oss-120b", "mistral-large", "nemotron-ultra",

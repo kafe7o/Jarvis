@@ -422,6 +422,17 @@ def free_brain() -> str | None:
     return None
 
 
+ALIASES = {"gemini": gemini.DEFAULT_MODEL, "ollama": "local"}
+
+
+def backups() -> list[str]:
+    """JARVIS_BACKUP (Settings > Мозък): the brains asked, in this order, as soon as the main one is overloaded,
+    used up or broken, before the automatic order ("groq", "openrouter", "nvidia:<model>", "gemini", "local").
+    One without its key in .env is passed over."""
+    names = re.split(r"[,;\s]+", os.environ.get("JARVIS_BACKUP", ""))
+    return [ALIASES.get(n.lower(), n) for n in names if n.strip()]
+
+
 def strip_thinking(messages: list) -> bool:
     """Remove thinking blocks from assistant turns in place. Returns True if any were removed."""
     removed = False
@@ -519,6 +530,7 @@ class Jarvis:
         this person may use; the quick lane passes the cheapest model, low effort and no tools."""
         s = self.settings
         model = model or s.model
+        model = ALIASES.get(model.lower(), model)
         effort = effort or (TURN.get() or {}).get("effort") or s.effort
         max_tokens = max_tokens or s.max_tokens
         if allowed is None and user is not None:
@@ -551,6 +563,7 @@ class Jarvis:
         else:
             order = None
         if order is not None:
+            order = [order[0], *backups(), *order[1:]]
             if sees:
                 order = [gemini.DEFAULT_MODEL, *order]
             return self._ask_free(order, system, messages, tools, max_tokens, effort, images=sees)
