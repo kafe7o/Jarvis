@@ -3,13 +3,15 @@
 Claude (or anything else the owner lets write to that folder, such as a synced folder) can give Jarvis a task
 while the owner is away and see how fast he started on it. Each ``*.txt`` is asked in the owner's chat
 „Задачи отдалеч“ (with the same confirmations as the app) and gets an answer file next to it:
-``<name>.answer.txt`` with when the task was picked up, when the first step started, and what Jarvis said.
+``<name>.answer.txt`` with when the task was picked up, when the first step started, which brains answered and
+what Jarvis said. A first line „модел: groq“ (any JARVIS_MODEL value) runs that task on that brain.
 JARVIS_REMOTE_FOLDER=0 switches it off.
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -42,6 +44,10 @@ def run_one(hub, task: Path) -> Path:
     working = task.with_name(task.stem + ".working.txt")
     task.replace(working)  # taken: the next look does not ask it again
     text = working.read_text(encoding="utf-8", errors="replace").strip()[:4000]
+    model = None
+    first_line, _, rest = text.partition("\n")
+    if re.fullmatch(r"(модел|model)\s*:\s*\S+", first_line.strip(), re.I):  # "модел: groq" tries one brain
+        model, text = first_line.split(":", 1)[1].strip(), rest.strip()
     owner = hub.accounts.owner()
     picked = time.time()
     first, answer, error = None, "", False
@@ -53,11 +59,16 @@ def run_one(hub, task: Path) -> Path:
         chat = next((c for c in hub.accounts.chats(owner.id) if c["title"] == CHAT), None)
         chat = chat or hub.accounts.create_chat(owner.id, CHAT)
         hub.events.add("chats", to=owner.id)
+        from .brain import CHOSEN
+
+        chosen = CHOSEN.set(model)
         try:
             answer = hub.ask(text, owner, chat["id"])
         except Exception as exc:
             log.exception("remote task failed")
             answer, error = str(exc) or "Грешка.", True
+        finally:
+            CHOSEN.reset(chosen)
         hub.accounts.touch_chat(chat["id"])
         hub.events.add("chats", to=owner.id)
         steps = [e for e in hub.events.events
@@ -65,7 +76,10 @@ def run_one(hub, task: Path) -> Path:
                  and not str(e.get("tool", "")).startswith("level:")]  # a real tool, not "thinking at level N"
         first = steps[0]["time"] if steps else None
     done = time.time()
-    lines = [f"Задача: {text}", f"Поета: {clock(picked)}",
+    used = [r["model"] for r in hub.ctx.store.query("SELECT model FROM usage WHERE created >= ? ORDER BY id",
+                                                    (datetime.fromtimestamp(picked).isoformat(timespec="seconds"),))]
+    lines = [f"Задача: {text}", f"Модел: {model or 'от настройките'}; отговориха: {', '.join(dict.fromkeys(used)) or '-'}",
+             f"Поета: {clock(picked)}",
              f"Първа стъпка: {clock(first)}" + (f" (след {first - picked:.1f} s)" if first else " (без стъпки)"),
              f"Готово: {clock(done)} (след {done - picked:.1f} s)", f"Грешка: {'да' if error else 'не'}", "", answer]
     out = task.with_name(task.stem + ".answer.txt")

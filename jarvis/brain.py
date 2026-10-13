@@ -27,6 +27,8 @@ log = logging.getLogger("jarvis.brain")
 # The request being answered (user, confirmer, progress callbacks), so a tool such as delegate can
 # start specialist agents that ask the same person and report to the same window.
 TURN: contextvars.ContextVar[dict | None] = contextvars.ContextVar("jarvis_turn", default=None)
+# A brain picked for one piece of work (remote.py tests each model); None: the one in the settings.
+CHOSEN: contextvars.ContextVar[str | None] = contextvars.ContextVar("jarvis_model", default=None)
 
 PERSONA = """You are J.A.R.V.I.S., the personal AI assistant of {user}. You run on their own computer \
 and act for them in the real world through your tools: phone calls and SMS, e-mail, payments, tasks, \
@@ -532,7 +534,7 @@ class Jarvis:
         """One request to the brain. ``model``, ``effort`` and ``tools`` default to the settings and every tool
         this person may use; the quick lane passes the cheapest model, low effort and no tools."""
         s = self.settings
-        model = model or s.model
+        model = model or CHOSEN.get() or s.model
         model = ALIASES.get(model.lower(), model)
         effort = effort or (TURN.get() or {}).get("effort") or s.effort
         max_tokens = max_tokens or s.max_tokens

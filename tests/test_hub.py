@@ -229,3 +229,18 @@ def test_the_apps_own_hub_gets_auto_update_and_the_remote_folder(settings, ctx, 
     monkeypatch.setattr(ctx.scheduler, "start", lambda: None)
     app.start_background(ctx)
     assert started == [("remote", True), "update"]
+
+
+def test_a_remote_task_can_pick_the_brain_for_itself(settings, ctx, registry, tmp_path, monkeypatch):
+    from jarvis import brain, remote
+
+    hub, _ = make_hub(settings, ctx, registry, [])
+    hub.accounts.create("owner@example.com", "Анастас", "123456", role="owner")
+    seen = []
+    monkeypatch.setattr(hub, "ask", lambda text, user, chat: seen.append((text, brain.CHOSEN.get())) or "Готово.")
+    where = remote.folder(tmp_path)
+    where.mkdir()
+    (where / "groq.txt").write_text("модел: groq\nвиж имейлите", encoding="utf-8")
+    remote.run_one(hub, where / "groq.txt")
+    assert seen == [("виж имейлите", "groq")] and brain.CHOSEN.get() is None
+    assert "Модел: groq" in (where / "groq.answer.txt").read_text(encoding="utf-8")
