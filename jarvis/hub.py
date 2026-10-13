@@ -656,8 +656,12 @@ class Hub:
             archive = updater.newer(updater.project_root())
             if archive is None:
                 return False
-            while wait_idle and self.busy:
+            waited = 0
+            while wait_idle and self.busy:  # never cut an answer short; try again at the next check instead
+                if waited >= 1800:
+                    raise RuntimeError("Jarvis was busy for half an hour; the update waits for the next check.")
                 time.sleep(30)
+                waited += 30
             self.events.add("notify", text="Инсталирам новата версия на Jarvis и се рестартирам…")
             updater.install(updater.project_root(), archive, say=log.info)
         except BaseException as exc:  # SystemExit from the updater, network errors
@@ -668,19 +672,27 @@ class Hub:
         self.restart()
         return True
 
-    def auto_update(self, first_wait: float = 120, every: float = 6 * 3600) -> None:
-        """Check GitHub now and then; install a new version by itself while nobody is waiting on Jarvis."""
+    def auto_update(self, first_wait: float = 120, every: float = 30 * 60, step: float = 60,
+                    rounds: int | None = None) -> threading.Thread:
+        """Check GitHub every half hour (one small request when nothing changed) and install a new version by
+        itself while nobody is waiting on Jarvis, so a fix reaches the laptop soon after it is published, also
+        when the owner is away. The time is the wall clock: a laptop that slept does not push the check back.
+        ``rounds`` ends the loop after that many checks (tests)."""
         def loop():
-            time.sleep(first_wait)
-            while True:
+            due, done = time.time() + first_wait, 0
+            while rounds is None or done < rounds:
+                while time.time() < due:
+                    time.sleep(min(step, max(0.01, due - time.time())))
+                due, done = time.time() + every, done + 1
                 if os.environ.get("JARVIS_AUTO_UPDATE", "1").strip() not in ("0", "false", "no", "не"):
                     try:
                         self.update_now(wait_idle=True)
                     except Exception as exc:
-                        log.info("auto update skipped: %s", exc)
-                time.sleep(every)
+                        log.warning("auto update skipped: %s", exc)
 
-        threading.Thread(target=loop, name="jarvis-auto-update", daemon=True).start()
+        thread = threading.Thread(target=loop, name="jarvis-auto-update", daemon=True)
+        thread.start()
+        return thread
 
     def settings_view(self) -> list[dict]:
         from .setup_wizard import STEPS, env_path, read_env

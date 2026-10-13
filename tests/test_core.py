@@ -269,12 +269,44 @@ def test_update_installs_once_and_remembers_the_version(tmp_path, monkeypatch):
     archive = _archive("abc123", {"pyproject.toml": "[project]\nname='jarvis'\n", "jarvis/__main__.py": "print(1)",
                                   ".env": "ANTHROPIC_API_KEY=lost\n"})
     monkeypatch.setattr(updater, "download", lambda: archive)
+    monkeypatch.setattr(updater, "latest_version", lambda: "")  # GitHub's quick answer unavailable: download
     assert updater.newer(root) is archive
     updater.install(root, archive, say=lambda _m: None)
     assert (root / "jarvis" / "__main__.py").exists() and not (root / "jarvis" / "old.py").exists()
     assert (root / ".env").read_text() == "ANTHROPIC_API_KEY=keep\n"
     assert updater.installed_version(root) == "abc123"
     assert updater.newer(root) is None  # nothing new until GitHub has another commit
+
+
+def test_a_check_with_nothing_new_downloads_nothing(tmp_path, monkeypatch):
+    import io
+
+    from jarvis import updater
+
+    (tmp_path / updater.VERSION_FILE).write_text("a" * 40)
+    asked = []
+
+    def urlopen(req, timeout=0):
+        asked.append(req.full_url)
+        return io.BytesIO(b"a" * 40)
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(updater, "download", lambda: (_ for _ in ()).throw(AssertionError("downloaded")))
+    assert updater.newer(tmp_path) is None
+    assert asked == [f"{updater.API}/commits/main"]
+
+
+def test_auto_update_checks_again_and_again_by_itself(settings, ctx, registry, monkeypatch):
+    """The laptop missed an evening's fixes: it checked every 6 hours, and a laptop that slept pushed the check
+    back. Now it checks every half hour by the wall clock (sped up here), always waiting for Jarvis to be idle."""
+    from jarvis.hub import Hub
+
+    ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(True), client=FakeClient([]))
+    hub = Hub(ctx, "secret", port=0)
+    checks = []
+    monkeypatch.setattr(hub, "update_now", lambda wait_idle=False: checks.append(wait_idle) or False)
+    hub.auto_update(first_wait=0.01, every=0.02, step=0.01, rounds=3).join(timeout=5)
+    assert checks == [True, True, True]
 
 
 def test_update_waits_until_the_restarted_app_answers(monkeypatch, capsys):
