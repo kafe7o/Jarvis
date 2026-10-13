@@ -368,3 +368,16 @@ def test_the_brain_slider_shows_only_brains_with_a_key_fastest_first(monkeypatch
     assert sc["at"] == 1 and sc["stops"][1]["recommended"] and sc["stops"][1]["value"] == gemini.DEFAULT_MODEL
     assert sc["stops"][0]["model"] == "openai/gpt-oss-120b"
     assert brain_scale({**stored, "JARVIS_MODEL": "groq:llama-3.1-8b-instant"})["at"] == -1  # typed by hand
+
+
+def test_an_overloaded_gemini_model_is_left_at_once_without_waiting(monkeypatch):
+    # The owner timed it: 503, wait 5 s, ask again, wait 10 s, ask again cost ~30 s a model before anything happened.
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    overloaded = errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "overloaded"}})
+    google = FakeGemini([overloaded] * 12)
+    waits = []
+    brain = gemini.GeminiBrain(google, wait=waits.append)
+    with pytest.raises(gemini.Busy):
+        brain.create(model=gemini.DEFAULT_MODEL, system="s", messages=[{"role": "user", "content": "здравей"}],
+                     tools=[], max_tokens=100, effort="low")
+    assert waits == [] and len(google.requests) == len(gemini.FREE_MODELS)  # one ask a model, no sleeping
