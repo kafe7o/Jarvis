@@ -383,15 +383,24 @@ def next_reset() -> float:
 
 def search(query: str, model: str | None = None, client=None) -> str:
     """One Google search through Gemini, answered with sources."""
-    from google.genai import types
+    from google.genai import errors, types
 
     client = client or make_client()
-    response = client.models.generate_content(
-        model=model if model and model.startswith("gemini") else DEFAULT_MODEL,
-        contents=f"Search Google and answer with the facts you find (keep numbers, dates, prices and names): {query}",
-        config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())],
-                                           thinking_config=types.ThinkingConfig(thinking_level="low")),
-    )
+    first = model if model and model.startswith("gemini") else DEFAULT_MODEL
+    models = [first, *[m for m in FREE_MODELS if m != first]]
+    for i, name in enumerate(models):
+        try:
+            response = client.models.generate_content(
+                model=name,
+                contents=f"Search Google and answer with the facts you find (keep numbers, dates, prices and names): {query}",
+                config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())],
+                                                   thinking_config=types.ThinkingConfig(thinking_level="low")),
+            )
+            break
+        except errors.APIError as exc:  # this model's minute or day is used up, or it is overloaded: the next one
+            if exc.code not in (429, 500, 502, 503, 504) or i == len(models) - 1:
+                raise
+            log.info("search on %s failed (%s); trying %s", name, exc.code, models[i + 1])
     text = response.text or "Нищо не намерих."
     meta = response.candidates[0].grounding_metadata if response.candidates else None
     sources = [f"- {c.web.title}: {c.web.uri}" for c in (getattr(meta, "grounding_chunks", None) or []) if c.web]

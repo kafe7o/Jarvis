@@ -255,6 +255,10 @@ def test_gemini_flash_does_the_real_work_while_its_day_lasts_then_the_strong_fre
     brain.spent.clear()
     job = "(Scheduled job, the user is not watching; report the outcome briefly.) провери пощата"
     assert jarvis.ask(job, route=False) == "Свърших го през NVIDIA." and set(asked) == {gemini.AGENT_MODEL}
+    # A job on web pages (the fast lane, a dozen tools) stays on quick Gemini: NVIDIA took ~20 s a step there.
+    before = len(fake.bodies)
+    assert jarvis.ask("виж в браузъра кога играе Левски и срещу кого") == "Свърших го през Gemini."
+    assert len(fake.bodies) == before  # NVIDIA was not asked
 
 
 def test_a_slow_queue_hands_over_at_once_and_cheap_refusals_cost_no_tries(nvidia_key, tmp_path):

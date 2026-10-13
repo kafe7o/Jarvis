@@ -137,7 +137,7 @@ def test_a_reminder_by_voice_is_set_without_ai(routed, ctx, registry):
     jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=FakeClient([]))
     answer = jarvis.ask("напомни ми след 10 минути да изключа фурната")
     rem = ctx.store.query("SELECT text, at FROM reminders")[0]
-    assert answer.startswith("Добре, ще ти напомня в ") and rem["text"] == "да изключа фурната"
+    assert answer.startswith("Добре, ще ти напомня ") and rem["text"] == "да изключа фурната"  # "утре в 00:02" near midnight
     assert abs(datetime.fromisoformat(rem["at"]) - (datetime.now() + timedelta(minutes=10))) < timedelta(minutes=2)
 
 

@@ -330,7 +330,7 @@ GROUP_WORDS = {
     "android": r"телефон|phone|sms|смс|обад|звънн|позвън|телевиз|\btv\b|android|контакт|приложени",
     "comms": r"обад|звънн|позвън|sms|смс|имейл|мейл|поща|e-?mail|писмо|gmail|разговор по телефона",
     "messaging": r"whatsapp|viber|telegram|съобщени|отговаряй|известие|push",
-    "google": r"календар|calendar|gmail|срещ|събити|покан|поща|имейл|мейл",
+    "google": r"календар|calendar|gmail|срещ(?:а|и|ата|ите)\b|събити|покан|поща|имейл|мейл",
     "payments": r"плат|фактур|stripe|пари|баланс|възстанов|invoice|payment",
     "sendmoney": r"превод|paypal|wise|iban|изпрати пари|прати пари",
     "home": r"лампа|лампи|светлин|климат|камер|врата|ключалк|аларм|умен дом|home assistant|прахосмукач|щори",
@@ -585,11 +585,12 @@ class Jarvis:
             order = [model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"]
         elif model.startswith("gemini"):
             order = [model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
-            if tools and model == gemini.DEFAULT_MODEL and not sees:
+            if tools and len(tools) > len(WEB_TOOLS) and model == gemini.DEFAULT_MODEL and not sees:
                 # Real work on the default brain: Gemini Flash first while its free requests last (it sees the
                 # screen and carries a task), then the strong free models of NVIDIA or OpenRouter, then Flash-Lite,
                 # which is weak with dozens of tools, and Groq. A scheduled job nobody is watching does not spend
-                # Flash. A Gemini model the owner chose by name stays first.
+                # Flash. A Gemini model the owner chose by name stays first. The web lane's dozen tools stay on
+                # Gemini (2-7 s a step on the laptop, where NVIDIA took 20 s even for the short prompt).
                 order = [*strong, *order]
                 if self.flash_ready() and not is_background(messages):
                     order = [gemini.AGENT_MODEL, *order]
