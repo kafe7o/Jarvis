@@ -717,7 +717,7 @@ class Hub:
         if not self.updating.acquire(blocking=False):
             return True  # an update is already running
         try:
-            archive = updater.newer(updater.project_root())
+            archive = updater.newer(updater.project_root(), known_only=wait_idle)  # the background check
             if archive is None:
                 return False
             waited = 0
@@ -736,11 +736,12 @@ class Hub:
         self.restart()
         return True
 
-    def auto_update(self, first_wait: float = 120, every: float = 30 * 60, step: float = 60,
+    def auto_update(self, first_wait: float = 120, every: float = 5 * 60, step: float = 30,
                     rounds: int | None = None) -> threading.Thread:
-        """Check GitHub every half hour (one small request when nothing changed) and install a new version by
-        itself while nobody is waiting on Jarvis, so a fix reaches the laptop soon after it is published, also
-        when the owner is away. The time is the wall clock: a laptop that slept does not push the check back.
+        """Look on GitHub every five minutes whether a new version exists (one tiny request, nothing downloaded
+        while nothing changed: 12 an hour, well inside GitHub's 60 without a token) and download and install only
+        when it finds one, while nobody is waiting on Jarvis, so a fix reaches the laptop minutes after it is
+        published, also when the owner is away. The time is the wall clock: a laptop that slept does not push the check back.
         ``rounds`` ends the loop after that many checks (tests)."""
         def loop():
             due, done = time.time() + first_wait, 0

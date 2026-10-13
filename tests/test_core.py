@@ -294,6 +294,9 @@ def test_a_check_with_nothing_new_downloads_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(updater, "download", lambda: (_ for _ in ()).throw(AssertionError("downloaded")))
     assert updater.newer(tmp_path) is None
     assert asked == [f"{updater.API}/commits/main"]
+    # GitHub does not answer (no connection, its hourly limit): the background check downloads nothing either
+    monkeypatch.setattr(updater, "latest_version", lambda: "")
+    assert updater.newer(tmp_path, known_only=True) is None
 
 
 def test_auto_update_checks_again_and_again_by_itself(settings, ctx, registry, monkeypatch):
