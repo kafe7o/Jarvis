@@ -91,6 +91,25 @@ PLACE_NOT = rx(r"(?:^|\s)(?:клиент|имейл|мейл|поща|файл|�
 MAPS_LEAD = rx(r"^(?:отвори|пусни|включи|open)(?: ми)? (?:google maps|гугъл мапс|гугъл карти|maps|мапс|картите)"
                r"(?:,| и| и после| и там)*\s*")
 MAPS_TAIL = rx(r"\s+(?:в|на|през) (?:google maps|гугъл мапс|гугъл карти|maps|мапс|картите|картата)$")
+SITE_LEAD = rx(r"^(?:(?:отвори|пусни|влез в|влез във|иди в|иди на|open)(?: ми)? ([\w. -]+?)(?: в браузъра| в браузера)?"
+               r"(?:,| и| и там| и после)*\s+)?(?:потърси|търси|намери|покажи|search)(?: ми)?(?: (?:в|във|на) ([\w.-]+))?\s+(.+)$")
+SITE_TAIL = rx(r"\s*(?:,| и| и ми| после)\s*(?:пусни|кажи|покажи|дай|намери|отвори)\b.*$")
+TRANSLATE = rx(r"^(?:(?:отвори|пусни)(?: ми)? (?:google translate|гугъл транслейт|преводача)(?: в браузъра)?(?:,| и)*\s+)?"
+               r"преведи(?: ми)? (.+?) на (английски|испански|немски|френски|италиански|руски|турски|гръцки|български|"
+               r"румънски|сръбски|английския|немския)\.?$")
+LANGS = {"английски": "en", "английския": "en", "испански": "es", "немски": "de", "немския": "de", "френски": "fr",
+         "италиански": "it", "руски": "ru", "турски": "tr", "гръцки": "el", "български": "bg", "румънски": "ro",
+         "сръбски": "sr"}
+# A site's own search page, so "отвори eMAG и потърси iPhone" is one step instead of the AI clicking through it.
+SEARCHES = [
+    (r"youtube|ютуб|ютюб|you tube", "YouTube", "https://www.youtube.com/results?search_query={q}"),
+    (r"emag|емаг|е-маг", "eMAG", "https://www.emag.bg/search/{q}"),
+    (r"google|гугъл|гугъл търсачката", "Google", "https://www.google.com/search?q={q}"),
+    (r"wikipedia|уикипедия|википедия", "Уикипедия", "https://bg.wikipedia.org/w/index.php?search={q}"),
+    (r"olx|олх", "OLX", "https://www.olx.bg/ads/q-{q}/"),
+    (r"amazon|амазон", "Amazon", "https://www.amazon.de/s?k={q}"),
+    (r"google maps|гугъл мапс|maps|мапс|картите", "Google Maps", "https://www.google.com/maps/search/{q}"),
+]
 LOCK = rx(r"^(?:заключи|lock) (?:компютъра|лаптопа|компа|екрана|пц-то|pc-то)$")
 SLEEP = rx(r"^(?:приспи|сложи да спи) (?:компютъра|лаптопа|компа)$")
 SHUTDOWN = rx(r"^(?:изключи|угаси|спри) (?:компютъра|лаптопа|компа)$")
@@ -230,6 +249,9 @@ def match(text: str, info: Info | None = None) -> list[Step] | None:
     mail = _mail(said.rstrip("?").strip(), info)
     if mail:
         return mail
+    found = _translate(said.rstrip("?").strip(), info) or _site_search(said.rstrip("?").strip(), info)
+    if found:
+        return [found]
     place = _places(said.rstrip("?").strip(), info)
     if place:
         return [place]
@@ -292,6 +314,44 @@ def _mail(s: str, info: Info) -> list[Step] | None:
     if browser:  # Gmail opens in the browser at once, then he hears the newest ones
         steps.insert(0, Step(lambda _o: "Отворих пощата.", "open_target", {"target": "https://mail.google.com"}, s))
     return steps
+
+
+def _site_search(s: str, info: Info) -> Step | None:
+    """„Отвори eMAG и потърси iPhone 17“, „отвори YouTube, потърси Iron Man Jarvis и пусни първото видео“: the
+    site's search page (or the video) opens at once, no AI clicking through the page."""
+    found = SITE_LEAD.match(s)
+    if not found or words(s) > 30:
+        return None
+    site = (found[1] or found[2] or "").strip(" .").lower()
+    tail = SITE_TAIL.search(found[3])
+    query = (found[3][:tail.start()] if tail else found[3]).strip(" ,.„“\"'")
+    rest = tail[0] if tail else ""
+    known = next(((name, url) for pattern, name, url in SEARCHES if re.fullmatch(bg(pattern), site, re.I)), None)
+    if not known or not query or words(query) > 10:
+        return None
+    name, url = known
+    if name == "YouTube" and re.search(bg(r"пусни|play"), rest, re.I):
+        return Step(lambda out: (f"Пускам „{m[1]}“." if (m := re.search(r"“(.+?)”", out)) else
+                                 f"Отворих YouTube с резултатите за „{query}“."), "play_youtube", {"query": query}, s)
+    cheapest = name == "eMAG" and re.search(bg(r"евтин|цена|цената"), rest + " " + s, re.I)
+    target = url.format(q=urllib.parse.quote(query)) + ("/sort-priceasc" if cheapest else "")
+    said = f"Отворих {name} с търсене „{query}“" + (", подредено от най-евтиното: най-ниската цена е най-горе." if cheapest
+                                                   else ". Най-добре оценените са най-горе." if name == "Google Maps" else ".")
+    return Step(lambda _o: said, "open_target", {"target": target}, s)
+
+
+def _translate(s: str, info: Info) -> Step | None:
+    """„Преведи „Добро утро“ на английски“: Google Translate opens with the text and the language, no AI."""
+    found = TRANSLATE.match(s)
+    if not found:
+        return None
+    text = found[1].strip(" „“\"'")
+    lang = LANGS.get(found[2].lower())
+    if not text or not lang:
+        return None
+    url = "https://translate.google.com/?" + urllib.parse.urlencode({"sl": "auto", "tl": lang, "text": text,
+                                                                       "op": "translate"})
+    return Step(lambda _o: f"Отворих преводача: „{text}“ на {found[2].lower()}.", "open_target", {"target": url}, s)
 
 
 def _places(s: str, info: Info) -> Step | None:

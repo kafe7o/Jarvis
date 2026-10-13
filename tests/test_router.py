@@ -364,3 +364,21 @@ def test_searching_google_maps_needs_no_ai():
     assert url("отвори google maps") == "https://www.google.com/maps"
     for not_a_place in ("намери ми клиенти в Пловдив", "намери файла с договора", "намери ми песен за бягане"):
         assert steps(not_a_place) is None or steps(not_a_place)[0][0] != "open_target"
+
+
+def test_harder_browser_tasks_open_the_right_page_at_once():
+    """Timed on the laptop through the AI: eMAG 50 s and no price, YouTube over 3 minutes of clicking. Now one step."""
+    import urllib.parse
+
+    found = router.match("Отвори eMAG в браузъра, потърси iPhone 17 и ми кажи най-евтината цена.", info())
+    assert [(s.tool, s.args) for s in found] == [("open_target", {"target": "https://www.emag.bg/search/iPhone%2017/sort-priceasc"})]
+    assert "най-евтиното" in found[0].say("")
+    assert steps("Отвори YouTube в браузъра, потърси „Iron Man Jarvis“ и пусни първото видео.") \
+        == [("play_youtube", {"query": "Iron Man Jarvis"})]
+    assert steps("отвори youtube и потърси lofi музика") \
+        == [("open_target", {"target": "https://www.youtube.com/results?search_query=lofi%20%D0%BC%D1%83%D0%B7%D0%B8%D0%BA%D0%B0"})]
+    target = steps("Отвори Google Translate в браузъра и преведи „Добро утро, как си?“ на английски.")[0][1]["target"]
+    assert urllib.parse.parse_qs(urllib.parse.urlparse(target).query) \
+        == {"sl": ["auto"], "tl": ["en"], "text": ["Добро утро, как си?"], "op": ["translate"]}
+    assert steps("потърси в google времето в Пловдив")[0][1]["target"].startswith("https://www.google.com/search?q=")
+    assert steps("потърси файла с договора") is None
