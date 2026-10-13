@@ -48,6 +48,9 @@ def start_background(ctx: Context, restartable: bool = False) -> None:
         hub = Hub(ctx, os.environ["JARVIS_WEB_TOKEN"], int(os.environ.get("JARVIS_WEB_PORT", "8770")),
                   restartable=restartable)
         hub.serve()
+        from . import remote
+
+        remote.watch(hub, ctx.settings.home)  # tasks dropped in ~/.jarvis/remote (Claude testing while the owner is away)
         if restartable:
             hub.auto_update()
     from . import upgrades
