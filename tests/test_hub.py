@@ -196,3 +196,22 @@ def test_the_tasks_tab_runs_a_scheduled_job_right_now(settings, ctx, registry):
             break
         time.sleep(0.05)
     assert notices.unseen(ctx.store)[0]["text"] == "Задачата „Провери цената на тока“ мина: Токът е 0.20 лв."
+
+
+def test_a_task_dropped_in_the_remote_folder_is_asked_as_the_owner(settings, ctx, registry, tmp_path):
+    from jarvis import remote
+
+    hub, _ = make_hub(settings, ctx, registry, [
+        response(tool_block("list_tasks", {}), stop="tool_use"),
+        response(text_block("Нямаш задачи."), stop="end_turn"),
+    ])
+    owner = hub.accounts.create("owner@example.com", "Анастас", "123456", role="owner")
+    where = remote.folder(tmp_path)
+    where.mkdir()
+    (where / "test1.txt").write_text("какви задачи имам?", encoding="utf-8")
+    remote.watch(hub, tmp_path, every=0.01, rounds=1).join(30)
+    answer = (where / "test1.answer.txt").read_text(encoding="utf-8")
+    assert "Нямаш задачи." in answer and "Първа стъпка:" in answer and "(след" in answer
+    assert remote.waiting(where) == [] and not (where / "test1.working.txt").exists()
+    chat = next(c for c in hub.accounts.chats(owner.id) if c["title"] == remote.CHAT)
+    assert any("Нямаш задачи." in m["content"] for m in hub.accounts.messages(chat["id"]))
