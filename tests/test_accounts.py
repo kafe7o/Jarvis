@@ -168,7 +168,8 @@ def test_connections_settings_mask_secrets(settings, ctx, registry, tmp_path, mo
     hub, owner, _ = make(settings, ctx, registry, [])
     owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     sections = owner("/api/settings")[1]["sections"]
-    brain = sections[0]["fields"][0]
+    assert sections[0]["title"] == "Мозък"  # the brain slider comes first, then the keys
+    brain = next(s for s in sections if s["fields"][0]["key"] == "ANTHROPIC_API_KEY")["fields"][0]
     assert brain["set"] and brain["value"] == "" and "sk-ant-123456" not in json.dumps(sections)
     owner("/api/settings", {"values": {"STRIPE_API_KEY": "sk_test_1", "BOGUS": "x"}})
     text = (tmp_path / ".env").read_text(encoding="utf-8")

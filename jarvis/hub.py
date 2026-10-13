@@ -483,8 +483,8 @@ def brain_scale(stored: dict) -> dict:
 
     env = lambda key, default: (stored.get(key) or os.environ.get(key, "")).strip() or default
     models = {"groq": env("JARVIS_GROQ_MODEL", FREE_MODELS[0]), "gemini": "Flash + Lite",
-              "openrouter": env("JARVIS_OPENROUTER_MODEL", "сам избира безплатен"),
-              "nvidia": env("JARVIS_NVIDIA_MODEL", "сам избира силен")}
+              "openrouter": env("JARVIS_OPENROUTER_MODEL", "сам избира"),
+              "nvidia": env("JARVIS_NVIDIA_MODEL", "сам избира")}
     stops = [{"value": DEFAULT_MODEL if value == "gemini" else value, "name": name, "about": about,
               "model": models.get(value, value), "recommended": value == "gemini"}
              for value, name, about, key in SCALE if has(key)]
@@ -776,7 +776,7 @@ class Hub:
                 where, ready = brain_choices(items, stored), True
                 extra = {"scale": brain_scale(stored)}
             sections.append({"title": title, "where": where, "fields": items, "ready": ready, **extra})
-        return sections
+        return sorted(sections, key=lambda section: section["title"] != "Мозък")  # the brain first, then the keys
 
     def save_settings(self, values: dict) -> None:
         import dataclasses
