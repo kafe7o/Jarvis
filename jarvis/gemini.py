@@ -309,9 +309,10 @@ class GeminiBrain:
                     if exc.code not in (408, 429, 499, 500, 502, 503, 504):  # 499 CANCELLED: Google dropped it
                         raise
                     pause = retry_after(exc, 5 * 2 ** attempt)
-                    # Too slow (DEADLINE_EXCEEDED), still busy, or this minute's share is used up (e.g. 250,000
-                    # tokens of input a minute) with a long wait: the next free model answers now instead.
-                    if exc.code == 504 or attempt == 2 or (exc.code == 429 and pause > 10):
+                    # Overloaded (503 and the like), too slow (DEADLINE_EXCEEDED), or this minute's share is used up
+                    # (e.g. 250,000 tokens of input a minute) with a long wait: the next free model answers now
+                    # instead. Waiting and asking the same busy model again cost the owner half a minute a model.
+                    if exc.code != 429 or attempt == 2 or pause > 10:
                         log.warning("Gemini %s on %s, trying the next model: %s", exc.code, current, brief(exc))
                         self.resting[current], busy = time.time() + (pause if exc.code == 429 else 120), exc
                         break

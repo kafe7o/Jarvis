@@ -61,7 +61,8 @@ def run_one(hub, task: Path) -> Path:
         hub.accounts.touch_chat(chat["id"])
         hub.events.add("chats", to=owner.id)
         steps = [e for e in hub.events.events
-                 if e["kind"] == "progress" and e.get("chat") == chat["id"] and e["time"] >= picked]
+                 if e["kind"] == "progress" and e.get("chat") == chat["id"] and e["time"] >= picked
+                 and not str(e.get("tool", "")).startswith("level:")]  # a real tool, not "thinking at level N"
         first = steps[0]["time"] if steps else None
     done = time.time()
     lines = [f"Задача: {text}", f"Поета: {clock(picked)}",
