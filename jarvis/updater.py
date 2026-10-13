@@ -90,11 +90,13 @@ def latest_version() -> str:
     return ""
 
 
-def newer(root: Path) -> zipfile.ZipFile | None:
+def newer(root: Path, known_only: bool = False) -> zipfile.ZipFile | None:
     """The newest Jarvis from GitHub if it differs from the installed one, else None. A quick look at the newest
-    commit comes first, so a check when nothing changed costs no download."""
+    commit comes first, so a check when nothing changed costs no download. ``known_only`` (the check every few
+    minutes): when GitHub does not say which commit is newest (no connection, its hourly limit), nothing is
+    downloaded to find out; the next check asks again."""
     latest = latest_version()
-    if latest and latest == installed_version(root):
+    if (latest and latest == installed_version(root)) or (known_only and not latest):
         return None
     archive = download()
     version = version_of(archive)
