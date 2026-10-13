@@ -371,14 +371,30 @@ def test_harder_browser_tasks_open_the_right_page_at_once():
     import urllib.parse
 
     found = router.match("Отвори eMAG в браузъра, потърси iPhone 17 и ми кажи най-евтината цена.", info())
-    assert [(s.tool, s.args) for s in found] == [("open_target", {"target": "https://www.emag.bg/search/iPhone%2017/sort-priceasc"})]
-    assert "най-евтиното" in found[0].say("")
+    assert [(s.tool, s.args) for s in found] == [("open_target", {"target": "https://www.emag.bg/search/iPhone%2017/sort-priceasc"}),
+                                                 ("emag_cheapest", {"query": "iPhone 17"})]
     assert steps("Отвори YouTube в браузъра, потърси „Iron Man Jarvis“ и пусни първото видео.") \
         == [("play_youtube", {"query": "Iron Man Jarvis"})]
     assert steps("отвори youtube и потърси lofi музика") \
         == [("open_target", {"target": "https://www.youtube.com/results?search_query=lofi%20%D0%BC%D1%83%D0%B7%D0%B8%D0%BA%D0%B0"})]
-    target = steps("Отвори Google Translate в браузъра и преведи „Добро утро, как си?“ на английски.")[0][1]["target"]
+    found = steps("Отвори Google Translate в браузъра и преведи „Добро утро, как си?“ на английски.")
+    assert found[1] == ("translate_text", {"text": "Добро утро, как си?", "to": "en"})
+    target = found[0][1]["target"]
     assert urllib.parse.parse_qs(urllib.parse.urlparse(target).query) \
         == {"sl": ["auto"], "tl": ["en"], "text": ["Добро утро, как си?"], "op": ["translate"]}
     assert steps("потърси в google времето в Пловдив")[0][1]["target"].startswith("https://www.google.com/search?q=")
     assert steps("потърси файла с договора") is None
+
+
+def test_emag_prices_skip_accessories_and_translations_come_back(monkeypatch):
+    from jarvis.plugins import daily
+
+    page = ('<div class="card-item"><a data-name="Калъф за iPhone 17"></a><p class="product-new-price">19<sup>99</sup></p></div>'
+            '<div class="card-item"><a data-name="Apple iPhone 17, 256GB, Black"></a>'
+            '<p class="product-new-price">1.899<sup>00</sup> <span>лв.</span></p></div>'
+            '<div class="card-item"><a data-name="Apple iPhone 17 Pro, 256GB"></a><p class="product-new-price">2.399<sup>99</sup></p></div>')
+    monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None: page)
+    assert daily.emag_offers("iPhone 17") == [("Apple iPhone 17, 256GB, Black", 1899.0), ("Apple iPhone 17 Pro, 256GB", 2399.99)]
+    monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None:
+                        '[[["Good morning, how are you?","Добро утро, как си?",null]],null,"bg"]')
+    assert daily.translate("Добро утро, как си?", "en") == "Good morning, how are you?"

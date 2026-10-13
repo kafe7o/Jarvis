@@ -251,7 +251,7 @@ def match(text: str, info: Info | None = None) -> list[Step] | None:
         return mail
     found = _translate(said.rstrip("?").strip(), info) or _site_search(said.rstrip("?").strip(), info)
     if found:
-        return [found]
+        return found if isinstance(found, list) else [found]
     place = _places(said.rstrip("?").strip(), info)
     if place:
         return [place]
@@ -316,7 +316,7 @@ def _mail(s: str, info: Info) -> list[Step] | None:
     return steps
 
 
-def _site_search(s: str, info: Info) -> Step | None:
+def _site_search(s: str, info: Info) -> Step | list[Step] | None:
     """„Отвори eMAG и потърси iPhone 17“, „отвори YouTube, потърси Iron Man Jarvis и пусни първото видео“: the
     site's search page (or the video) opens at once, no AI clicking through the page."""
     found = SITE_LEAD.match(s)
@@ -335,12 +335,14 @@ def _site_search(s: str, info: Info) -> Step | None:
                                  f"Отворих YouTube с резултатите за „{query}“."), "play_youtube", {"query": query}, s)
     cheapest = name == "eMAG" and re.search(bg(r"евтин|цена|цената"), rest + " " + s, re.I)
     target = url.format(q=urllib.parse.quote(query)) + ("/sort-priceasc" if cheapest else "")
-    said = f"Отворих {name} с търсене „{query}“" + (", подредено от най-евтиното: най-ниската цена е най-горе." if cheapest
-                                                   else ". Най-добре оценените са най-горе." if name == "Google Maps" else ".")
-    return Step(lambda _o: said, "open_target", {"target": target}, s)
+    said = f"Отворих {name} с търсене „{query}“" + (". Най-добре оценените са най-горе." if name == "Google Maps" else ".")
+    opened = Step(lambda _o: said, "open_target", {"target": target}, s)
+    if cheapest:  # the page for his eyes, and the price said at once (read from eMAG's own search page)
+        return [opened, Step(lambda out: out, "emag_cheapest", {"query": query}, s)]
+    return opened
 
 
-def _translate(s: str, info: Info) -> Step | None:
+def _translate(s: str, info: Info) -> list[Step] | None:
     """„Преведи „Добро утро“ на английски“: Google Translate opens with the text and the language, no AI."""
     found = TRANSLATE.match(s)
     if not found:
@@ -351,7 +353,8 @@ def _translate(s: str, info: Info) -> Step | None:
         return None
     url = "https://translate.google.com/?" + urllib.parse.urlencode({"sl": "auto", "tl": lang, "text": text,
                                                                        "op": "translate"})
-    return Step(lambda _o: f"Отворих преводача: „{text}“ на {found[2].lower()}.", "open_target", {"target": url}, s)
+    return [Step(lambda _o: "", "open_target", {"target": url}, s),
+            Step(lambda out: f"На {found[2].lower()}: „{out}“.", "translate_text", {"text": text, "to": lang}, s)]
 
 
 def _places(s: str, info: Info) -> Step | None:
