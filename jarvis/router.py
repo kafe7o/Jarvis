@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import random
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
@@ -81,6 +82,15 @@ MAIL_LOOK = rx(r"(?:^|\s)(?:виж|провери|прочети|покажи|к
 MAIL_NOT = rx(r"(?:^|\s)(?:изпрати|прати|пиши|напиши|отговори|препрати|изтрий|архивирай|маркирай|намери|търси|"
               r"резюмирай|обобщи|анализирай|от кого е|за какво|съдържание|прикачен|снимк|файл|пише|последния|последното)")
 MAIL_BROWSER = rx(r"(?:^|\s)(?:браузър|браузъра|браузера|отвори|gmail|джимейл)")
+MAPS = rx(r"(?:^|\s)(?:google maps|гугъл мапс|гугъл карти|maps|мапс|картите|картата)(?=\s|$|[,.!?])")
+PLACE_KIND = rx(r"(?:^|\s)(?:ресторант|пицари|пица|кафе|бар(?:ове)?\b|заведени|хотел|магазин|аптек|бензиностанц|фитнес|"
+                r"зъболекар|болниц|банкомат|банк[аи]\b|сервиз|автомивк|фризьор|бръснар|кино|паркинг|суши|бургер|дюнер|"
+                r"хапване|ядене|закуск|сладкарниц|пекарн|супермаркет)")
+PLACE_FIND = rx(r"^(?:намери|намерете|покажи|търси|потърси|дай|препоръчай|кои са|къде (?:има|е|са)|къде да)(?: ми)?\s")
+PLACE_NOT = rx(r"(?:^|\s)(?:клиент|имейл|мейл|поща|файл|папк|снимк|песен|видео|резервирай|поръчай|обади|звънни|прати)")
+MAPS_LEAD = rx(r"^(?:отвори|пусни|включи|open)(?: ми)? (?:google maps|гугъл мапс|гугъл карти|maps|мапс|картите)"
+               r"(?:,| и| и после| и там)*\s*")
+MAPS_TAIL = rx(r"\s+(?:в|на|през) (?:google maps|гугъл мапс|гугъл карти|maps|мапс|картите|картата)$")
 LOCK = rx(r"^(?:заключи|lock) (?:компютъра|лаптопа|компа|екрана|пц-то|pc-то)$")
 SLEEP = rx(r"^(?:приспи|сложи да спи) (?:компютъра|лаптопа|компа)$")
 SHUTDOWN = rx(r"^(?:изключи|угаси|спри) (?:компютъра|лаптопа|компа)$")
@@ -220,6 +230,9 @@ def match(text: str, info: Info | None = None) -> list[Step] | None:
     mail = _mail(said.rstrip("?").strip(), info)
     if mail:
         return mail
+    place = _places(said.rstrip("?").strip(), info)
+    if place:
+        return [place]
     one = _one(said, info)
     if one:
         return [one]
@@ -279,6 +292,25 @@ def _mail(s: str, info: Info) -> list[Step] | None:
     if browser:  # Gmail opens in the browser at once, then he hears the newest ones
         steps.insert(0, Step(lambda _o: "Отворих пощата.", "open_target", {"target": "https://mail.google.com"}, s))
     return steps
+
+
+def _places(s: str, info: Info) -> Step | None:
+    """„Отвори Google Maps и намери най-добрите ресторанти за пица в София“: Google Maps opens in the browser with that
+    search at once (its list puts the best rated first), no AI. The owner wants such things done in under 5 s."""
+    if words(s) > 25 or PLACE_NOT.search(" " + s):
+        return None
+    on_maps = bool(MAPS.search(" " + s))
+    rest = MAPS_TAIL.sub("", MAPS_LEAD.sub("", s)).strip(" ,.")
+    found = PLACE_FIND.match(rest + " ")
+    if found:
+        rest = rest[found.end():].strip(" ,.")
+    elif not (on_maps and rest != s):  # "отвори google maps" alone is a plain open (see _open)
+        return None
+    if not rest or not (on_maps or PLACE_KIND.search(" " + rest)):
+        return None
+    url = "https://www.google.com/maps/search/" + urllib.parse.quote(rest)
+    return Step(lambda _o: f"Отворих Google Maps: „{rest}“. Най-добре оценените са най-горе в списъка.",
+                "open_target", {"target": url}, s)
 
 
 def _clock(s: str, info: Info) -> Step | None:

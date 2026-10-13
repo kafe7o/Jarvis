@@ -346,3 +346,21 @@ def test_checking_the_mail_needs_no_ai(settings, ctx, registry, monkeypatch):
     assert not err and out == "Новите 3 имейла са от Bolt Food („Your order“); Иван („Hi“); news@x.bg."
     out, err = registry.run("mail_count", {"newest": 2}, Approver())
     assert out == "Най-новите 2 непрочетени (от общо 3): Bolt Food („Your order“); Иван („Hi“)."
+
+
+def test_searching_google_maps_needs_no_ai():
+    """„Отвори Google Maps и намери най-добрите ресторанти за пица в София“ in under 5 s: Maps opens with that search."""
+    import urllib.parse
+
+    def url(text):
+        found = steps(text)
+        assert found and found[0][0] == "open_target", text
+        return urllib.parse.unquote(found[0][1]["target"])
+
+    assert url("Отвори Google Maps и намери най-добрите ресторанти за пица в София") \
+        == "https://www.google.com/maps/search/най-добрите ресторанти за пица в София"
+    assert url("намери ми най-добрите пицарии в София") == "https://www.google.com/maps/search/най-добрите пицарии в София"
+    assert url("покажи ми кафенета в Пловдив на картата") == "https://www.google.com/maps/search/кафенета в Пловдив"
+    assert url("отвори google maps") == "https://www.google.com/maps"
+    for not_a_place in ("намери ми клиенти в Пловдив", "намери файла с договора", "намери ми песен за бягане"):
+        assert steps(not_a_place) is None or steps(not_a_place)[0][0] != "open_target"
