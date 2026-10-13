@@ -457,6 +457,43 @@ def brain_choices(items: list[dict], stored: dict) -> str:
         item["options"] = options
     ready = [label.split(" (")[0] for value, label, env in shown if env and has(env)]
     return ("Ключове в .env: " + ", ".join(ready)) if ready else "Няма ключ за безплатен мозък: сложи поне един в Връзки."
+
+
+# The slider in Settings > Мозък, from the fastest brain to the smartest: (what JARVIS_MODEL becomes, name, what it
+# is like, the key it needs). Only the ones whose key is in .env are shown; "gemini" (Gemini's default model) is the
+# recommended one: real work goes to Gemini Flash while it has requests for the day, then to the others with a key.
+SCALE = [
+    ("groq", "Groq", "най-бързият, отговаря за секунда; слаб с дълги задачи", "GROQ_API_KEY"),
+    ("gemini", "Gemini", "Flash за работа, докато има заявки за деня, после другите с ключ", "GEMINI_API_KEY"),
+    ("openrouter", "OpenRouter", "безплатни модели, които се сменят; средно бърз", "OPENROUTER_API_KEY"),
+    ("nvidia", "NVIDIA", "силни модели, но на безплатния ключ често бавни", "NVIDIA_API_KEY"),
+    ("gemini-3.5-flash", "Gemini Flash", "най-умният безплатен и вижда екрана; около 25 заявки на ден", "GEMINI_API_KEY"),
+    ("claude-sonnet-5-5", "Claude Sonnet", "платен, най-умният; харчи пари", "ANTHROPIC_API_KEY"),
+]
+
+
+def brain_scale(stored: dict) -> dict:
+    """The slider's stops, fastest first, only the brains whose key is in .env, and where the brain in use is on it
+    (-1 when it is one typed by hand). Settings > Мозък."""
+    from .config import default_brain
+    from .gemini import DEFAULT_MODEL
+
+    has = lambda env: bool(stored.get(env) or os.environ.get(env))
+    from .groq import FREE_MODELS
+
+    env = lambda key, default: (stored.get(key) or os.environ.get(key, "")).strip() or default
+    models = {"groq": env("JARVIS_GROQ_MODEL", FREE_MODELS[0]), "gemini": "Flash + Lite",
+              "openrouter": env("JARVIS_OPENROUTER_MODEL", "сам избира безплатен"),
+              "nvidia": env("JARVIS_NVIDIA_MODEL", "сам избира силен")}
+    stops = [{"value": DEFAULT_MODEL if value == "gemini" else value, "name": name, "about": about,
+              "model": models.get(value, value), "recommended": value == "gemini"}
+             for value, name, about, key in SCALE if has(key)]
+    current = (stored.get("JARVIS_MODEL") or os.environ.get("JARVIS_MODEL", "")).strip() or default_brain()
+    current = DEFAULT_MODEL if current == "gemini" else current
+    at = next((i for i, stop in enumerate(stops) if stop["value"] == current), -1)
+    return {"stops": stops, "at": at, "model": current}
+
+
 EXTRA_SETTINGS = [
     ("Мозък", "", [
         ("JARVIS_MODEL", "Главен мозък: избери от списъка или напиши модел (празно = най-силният безплатен, за който има ключ)"),
@@ -734,9 +771,11 @@ class Hub:
                 items.append({"key": key, "label": label, "secret": secret, "set": bool(value),
                               "value": "" if secret else value, "hint": (value[:4] + "…") if secret and value else ""})
             ready = all(i["set"] for i in items)
+            extra = {}
             if title == "Мозък":
                 where, ready = brain_choices(items, stored), True
-            sections.append({"title": title, "where": where, "fields": items, "ready": ready})
+                extra = {"scale": brain_scale(stored)}
+            sections.append({"title": title, "where": where, "fields": items, "ready": ready, **extra})
         return sections
 
     def save_settings(self, values: dict) -> None:
@@ -1004,6 +1043,10 @@ class Hub:
             updated = self.accounts.update(uid, name=b.get("name"), password=b.get("password") or None,
                                            role=b.get("role"), perms=b.get("perms"), email=b.get("email"))
             return 200, {"user": updated.public()}
+        if p == "/api/brain" and m == "GET":  # the brain slider next to the message box (Мозък)
+            from .setup_wizard import env_path, read_env
+
+            return 200, brain_scale(read_env(env_path()))
         if p == "/api/settings":
             if m == "POST":
                 self.save_settings(b.get("values") or {})
