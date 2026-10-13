@@ -637,6 +637,17 @@ def is_mission(text: str) -> bool:
     return bool(MISSION.search(clean(text)))
 
 
+# A job on the web: the brain gets the fast lane (brain.WEB_TOOLS), a dozen tools instead of seventy.
+WEB = rx(r"браузър|браузер|\bсайт|страниц|интернет|онлайн|в нета|google|гугъл|\bуеб|\bweb\b|www\.|"
+         r"\w\.(?:bg|com|org|net|eu|io)\b|линк")
+
+
+def web_task(text: str) -> bool:
+    """"Виж в браузъра…", "отвори сайта на БНБ и…": a task done on web pages (a mission keeps every tool)."""
+    said = clean(text)
+    return bool(WEB.search(said)) and not is_mission(said)
+
+
 def think_harder(text: str) -> bool:
     """The owner asks for careful thinking: the full agent then thinks harder for this one request."""
     return bool(THINK_HARDER.search(text or ""))

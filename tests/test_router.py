@@ -398,3 +398,11 @@ def test_emag_prices_skip_accessories_and_translations_come_back(monkeypatch):
     monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None:
                         '[[["Good morning, how are you?","Добро утро, как си?",null]],null,"bg"]')
     assert daily.translate("Добро утро, как си?", "en") == "Good morning, how are you?"
+
+
+def test_a_job_on_web_pages_is_told_apart_from_the_rest():
+    for text in ["Отвори сайта на БНБ в браузъра и ми кажи курса на долара днес", "намери в интернет кога играе Левски",
+                 "виж на abv.bg какво пише", "vij v brauzara kolko struva"]:
+        assert router.web_task(text), text
+    for text in ["колко е часът", "пусни музика", "провери всичко в браузъра докато не стане"]:
+        assert not router.web_task(text), text
