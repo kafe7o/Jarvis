@@ -67,7 +67,7 @@ TOOL_LABELS = {
     "send_sms": "Праща SMS", "send_email": "Праща имейл", "read_email": "Чете пощата", "gmail_search": "Търси в Gmail",
     "whatsapp_send": "Праща WhatsApp", "viber_send": "Праща Viber", "android": "Работи с телефона",
     "home_control": "Управлява дома", "home_devices": "Преглежда дома", "home_camera": "Гледа камерата",
-    "switch_brain": "Сменя мозъка", "delegate": "Разпределя работата на екипа", "gmail_draft": "Пише чернова в Gmail",
+    "switch_brain": "Сменя мозъка", "switch_voice": "Сменя гласа", "delegate": "Разпределя работата на екипа", "gmail_draft": "Пише чернова в Gmail",
     "level:1": "Ниво 1: команда без AI", "level:2": "Ниво 2: бърз модел", "level:3": "Ниво 3: пълен агент",
     "vault_search": "Търси в паметта", "vault_note": "Записва в паметта", "vault_write": "Подрежда паметта",
     "vault_read": "Чете от паметта", "play_youtube": "Пуска от YouTube", "weather": "Гледа времето",

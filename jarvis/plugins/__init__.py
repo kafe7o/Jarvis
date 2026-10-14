@@ -35,7 +35,7 @@ class Context:
 # Tools that belong to a different permission group than the plugin that defines them.
 # "core" tools are always available: they only plan and ask the user for approval.
 GROUP_OVERRIDES = {"request_approval": "core", "ask_owner": "core", "make_plan": "core", "update_plan_step": "core",
-                   "show_plan": "core", "search_history": "memory", "switch_brain": "core",
+                   "show_plan": "core", "search_history": "memory", "switch_brain": "core", "switch_voice": "core",
                    "google_search": "web", "weather": "web", "play_youtube": "system", "watch_video": "system",
                    "auto_reply": "messaging", "phone_reply": "messaging", "find_leads": "web", "build_website": "system",
                    **{name: "agent" for name in ("read_own_code", "upgrade_self", "undo_upgrade", "list_upgrades", "update_jarvis",

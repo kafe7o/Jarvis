@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-from .. import freeapi, gemini, groq, local
+from .. import freeapi, gemini, groq, local, tts
 from ..tools import ToolRegistry, obj
 
 # key: (model id, name, what it is for)
@@ -78,3 +78,30 @@ def register(registry: ToolRegistry, ctx) -> None:
         os.environ["JARVIS_MODEL"] = model
         ctx.settings.model = model
         return f"Switched to {name} ({model}). Your next answer comes from it; say so in one short line, in character."
+
+    @registry.tool(
+        "Change the voice Jarvis speaks with in the app, when the owner asks: 'смени гласа', 'сложи женски глас', "
+        "'гласа на Калина'. Pass the voice's name, or 'друг' for the next one, or 'мъжки'/'женски'. Voices: "
+        + "; ".join(f"{n} ({a})" for _v, n, a in tts.VOICES)
+        + ". Repeat the answer as it is: it names the voice really saved.",
+        obj({"voice": ("string", "A voice name from the list, 'друг', 'мъжки' or 'женски'")}),
+    )
+    def switch_voice(voice: str = ""):
+        from ..brain import TURN
+        from . import save_settings
+
+        user = (TURN.get() or {}).get("user")
+        if user is not None and not user.is_owner:
+            raise PermissionError("Only the owner can change Jarvis's voice.")
+        found = tts.find_voice(voice, ctx.settings.tts_voice)
+        if found is None:
+            raise ValueError(f"Няма глас „{voice}“. Има: " + ", ".join(n for _v, n, _a in tts.VOICES)
+                             + ". Може да ги чуеш в Настройки > Глас.")
+        vid, name, about = found
+        save_settings(ctx, {"JARVIS_TTS_VOICE": vid})
+        ctx.settings.tts_voice = vid
+        hub = getattr(ctx, "hub", None)
+        if hub is not None:
+            hub.events.add("voice", voice=vid, name=name)
+        note = " Докато има ElevenLabs ключ, говори ElevenLabs." if os.environ.get("ELEVENLABS_API_KEY") else ""
+        return f"Вече говоря с гласа {name} ({about}).{note} Всички гласове можеш да чуеш в Настройки > Глас."

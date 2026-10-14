@@ -29,6 +29,9 @@ VOICES = [
     ("fr-FR-VivienneMultilingualNeural", "Vivienne", "многоезичен, женски"),
     ("de-DE-SeraphinaMultilingualNeural", "Seraphina", "многоезичен, женски"),
 ]
+# How the owner may say the foreign names in Bulgarian ("сложи гласа на Андрю").
+SPOKEN = {"Andrew": "андрю", "Brian": "брайън", "William": "уилям", "Florian": "флориан", "Rémy": "реми",
+          "Giuseppe": "джузепе", "Ava": "ава", "Emma": "ема", "Vivienne": "вивиен", "Seraphina": "серафина"}
 SAMPLE = "Здравей, аз съм Джарвис. Така ще звуча, когато ти отговарям. Hello, sir."
 
 
@@ -101,3 +104,23 @@ def synthesize(text: str, configured_voice: str = "bg-BG-BorislavNeural", sample
             if attempt == 2:
                 raise
     raise RuntimeError("unreachable")
+
+
+def find_voice(asked: str, current: str) -> tuple[str, str, str] | None:
+    """The voice in VOICES that ``asked`` names ("Калина", "kalina", "Andrew", "андрю", a voice id), or for
+    "друг", "мъжки", "женски" or nothing the next one after ``current`` (of that kind). None if nothing fits."""
+    from .router import bg
+
+    said = re.sub(r"[\s.,!?]+", " ", (asked or "").strip().lower()).strip()
+    for voice in VOICES:
+        vid, name, _about = voice
+        spellings = {vid.lower(), name.lower(), SPOKEN.get(name, "")} - {""}
+        if said in spellings or any(re.fullmatch(bg(w), said, re.I) for w in spellings if not w.isascii()):
+            return voice
+    kind = ("женски" if re.search(bg(r"женск|жена"), said, re.I) else
+            "мъжки" if re.search(bg(r"мъжк|мъж"), said, re.I) else "")
+    if said and not kind and not re.fullmatch(bg(r"(?:друг|друго|следващ|нов|по-добър|по-хубав|хубав)\S*(?: глас)?"), said, re.I):
+        return None
+    at = next((i for i, v in enumerate(VOICES) if v[0] == current), -1)
+    after = VOICES[at + 1:] + VOICES[:at + 1]
+    return next((v for v in after if v[0] != current and kind in v[2]), None)

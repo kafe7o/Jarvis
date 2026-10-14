@@ -1419,6 +1419,7 @@ function handleEvent(ev) {
     state.confirms = state.confirms.filter((c) => c !== card || c.isConnected);
     if (hud.open) hudShowConfirm();
   }
+  if (ev.kind === "voice") { shortVoices.clear(); toast(`Вече говоря с гласа ${ev.name}.`, "Нов глас"); }
   if (ev.kind === "brain") { setBrain(ev.brain); toast(`Вече мисля с ${ev.name}.`, "Нов мозък"); hudLog("Мозък: " + ev.name); }
   if (ev.kind === "work") workEvent(ev);
   if (ev.kind === "memory") memEvent(ev);
