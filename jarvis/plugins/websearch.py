@@ -17,6 +17,29 @@ def _plain(html: str) -> str:
     return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", html))).strip()
 
 
+BLOCKED = re.compile(r"unusual traffic|captcha|не сте робот|необичаен трафик", re.I)
+
+
+def in_browser(browser, query: str) -> str:
+    """Google's results page read in Jarvis's own browser (Playwright), the way a person would search."""
+    def act(page):
+        page.goto("https://www.google.com/search?" + urllib.parse.urlencode({"q": query, "hl": "bg"}),
+                  wait_until="domcontentloaded")
+        if "consent." in page.url:  # Google's cookie page in the EU: the privacy-preserving choice, then the results
+            for label in ("Отхвърляне на всички", "Reject all"):
+                button = page.get_by_role("button", name=label)
+                if button.count():
+                    button.first.click(timeout=5000)
+                    page.wait_for_load_state("domcontentloaded")
+                    break
+        return page.inner_text("body")
+
+    text = re.sub(r"\n\s*\n+", "\n", browser().do(act, timeout=30)).strip()
+    if len(text) < 200 or BLOCKED.search(text[:3000]):  # a check for robots is never answered: another way
+        raise RuntimeError("Google showed no results page in the browser.")
+    return "Google results (read in the browser; open_page the best one if this is not enough):\n" + text[:5000]
+
+
 def duckduckgo(query: str, fetch=None, limit: int = 8) -> str:
     """The first results of a DuckDuckGo search (no key, no AI): title, address and the snippet of each."""
     if fetch is None:
@@ -47,8 +70,15 @@ def register(registry: ToolRegistry, ctx) -> None:
         try:
             answer = gemini.search(query, model)
         except Exception as exc:  # no Gemini key, or its searches are used up: the results page, without AI
-            log.warning("Google search through Gemini failed (%s: %s); DuckDuckGo instead", type(exc).__name__,
+            log.warning("Google search through Gemini failed (%s: %s); the browser instead", type(exc).__name__,
                         str(exc)[:200])
+            browser = getattr(ctx, "browser", None)
+            if browser is not None:
+                try:
+                    return in_browser(browser, query)
+                except Exception as exc:
+                    log.warning("Google in the browser failed (%s: %s); DuckDuckGo instead", type(exc).__name__,
+                                str(exc)[:200])
             return duckduckgo(query)
         ctx.store.insert("usage", model=model)  # one free request, for the "Разход" tab
         return answer

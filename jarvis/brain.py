@@ -1005,7 +1005,8 @@ class Jarvis:
                 report({"type": "step", "id": step, "state": "running"})
 
         output, is_error = self.registry.run(name, args, confirm, trust_local, allowed, ask_groups)
-        log.info("tool %s -> %s", name, output[:200] if isinstance(output, str) else "[image]")
+        (log.warning if is_error else log.info)("tool %s -> %s", name,  # a failure is in the log at any level
+                                                output[:300] if isinstance(output, str) else "[image]")
         self.log_activity(user, agent, name, args, is_error)
         declined = is_error and isinstance(output, str) and output.startswith("The user declined")
         report({"type": "step", "id": step, "state": "declined" if declined else "error" if is_error else "ok",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("google.genai")
@@ -396,25 +398,62 @@ def test_a_google_search_moves_to_the_next_model_when_one_is_used_up():
         return types.GenerateContentResponse(candidates=[types.Candidate(
             content=types.Content(role="model", parts=[types.Part(text="Левски играе в четвъртък.")]), finish_reason="STOP")])
 
-    from types import SimpleNamespace
-
     client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
     assert gemini.search("следващ мач на Левски", client=client) == "Левски играе в четвъртък."
     assert asked == gemini.FREE_MODELS[:2]
 
 
-def test_when_gemini_cannot_search_the_results_come_from_duckduckgo(registry, monkeypatch):
-    """On the laptop google_search failed on every try, and the brain spent ten steps on other sites instead."""
+def test_when_gemini_cannot_search_google_is_read_in_the_browser_then_duckduckgo(registry, ctx, monkeypatch):
+    """On the laptop Gemini's searches are used up ("exceeded your current quota"), and the brain then spent ten
+    steps on other sites. Now the search itself goes on: Google's results page in Jarvis's browser (its cookie
+    page refused), and when Google asks for a robot check, DuckDuckGo's results page."""
     from jarvis.plugins import daily
     from conftest import Approver
 
     def broken(query, model=None, client=None):
         raise errors.ClientError(429, {"error": {"code": 429, "message": "quota"}})
 
-    page = ('<div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flevski.bg'
-            '%2Fmatches&amp;rut=x">Програма на <b>Левски</b></a><a class="result__snippet" href="x">Левски - НЕК, '
-            'четвъртък 22:00</a></div>')
+    class Page:
+        def __init__(self, body):
+            self.url, self.body, self.clicked = "", body, []
+
+        def goto(self, url, wait_until=None):
+            self.url = "https://consent.google.com/ml?continue=" + url
+
+        def get_by_role(self, role, name):
+            page = self
+
+            class Found:
+                def count(self):
+                    return int(name == "Отхвърляне на всички")
+
+                @property
+                def first(self):
+                    return self
+
+                def click(self, timeout=None):
+                    page.clicked.append(name)
+                    page.url = "https://www.google.com/search"
+            return Found()
+
+        def wait_for_load_state(self, state=None):
+            pass
+
+        def inner_text(self, selector):
+            return self.body
+
+    results = "Левски - НЕК\n\nчетвъртък, 15 октомври, 22:00\nЛига на конференциите" + " резултат" * 40
+    page = Page(results)
+    ctx.browser = lambda: SimpleNamespace(do=lambda fn, timeout=None: fn(page))
     monkeypatch.setattr(gemini, "search", broken)
-    monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None: page)
+    out, err = registry.run("google_search", {"query": "следващ мач на Левски"}, Approver())
+    assert not err and page.clicked == ["Отхвърляне на всички"]
+    assert out.startswith("Google results (read in the browser") and "Левски - НЕК\nчетвъртък, 15 октомври, 22:00" in out
+
+    page.body = "Our systems have detected unusual traffic from your computer network." + " " * 300
+    ddg = ('<div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flevski.bg'
+           '%2Fmatches&amp;rut=x">Програма на <b>Левски</b></a><a class="result__snippet" href="x">Левски - НЕК, '
+           'четвъртък 22:00</a></div>')
+    monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None: ddg)
     out, err = registry.run("google_search", {"query": "следващ мач на Левски"}, Approver())
     assert not err and "- Програма на Левски (https://levski.bg/matches): Левски - НЕК, четвъртък 22:00" in out
