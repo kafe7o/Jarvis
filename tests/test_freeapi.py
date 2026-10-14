@@ -342,8 +342,13 @@ def test_auto_picks_the_brain_for_every_step_and_switches_in_the_middle_of_a_tas
     jarvis._request(picture, tools=tools)
     jarvis._request(easy, tools=[])
     jarvis._request([{"role": "user", "content": "работи докато не стане: намери клиенти"}], tools=tools)
+    step = [{"role": "assistant", "content": "…"},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "1", "content": "ok"}]}]
+    jarvis._request(easy + step * 3, tools=tools)  # still quick
+    jarvis._request(easy + step * 4, tools=tools)  # a long task: the smartest takes over
     assert [order[0] for order in asked] == [gemini.DEFAULT_MODEL, gemini.AGENT_MODEL, gemini.DEFAULT_MODEL,
-                                             groq.DEFAULT_MODEL, gemini.AGENT_MODEL]
+                                             groq.DEFAULT_MODEL, gemini.AGENT_MODEL, gemini.DEFAULT_MODEL,
+                                             gemini.AGENT_MODEL]
     assert "nvidia" in asked[1] and asked[1].index("nvidia") < asked[1].index(gemini.DEFAULT_MODEL)
     monkeypatch.delenv("NVIDIA_API_KEY")
     jarvis._request(failed, tools=tools)
