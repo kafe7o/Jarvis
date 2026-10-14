@@ -218,11 +218,13 @@ def claims_done(text: str) -> bool:
     """True when an answer says something was done, sent, saved or fixed ("Готово", "изпратих го")."""
     return bool(CLAIMS_DONE.search(NEGATED.sub(" ", text or "")))
 # Said to the agent at the end of a mission ("работи докато не стане"), before its answer counts.
-VERIFY_CHECK = ("(Before you finish this job, check it the way a careful person would: go back to the goal and your plan, "
+VERIFY_CHECK = ("(Before you finish this job, check it against my request: «{goal}». Check it the way a careful person "
+                "would: go back to that request and your plan, "
                 "and for every part look at the actual result (open the file, read the page or window, run the code, read "
                 "the plan) instead of trusting that it worked. Fix what is not right, finish what is left, and only then "
                 "answer: what you verified, what you changed, and what, if anything, still needs me. If you have checked "
-                "everything already, give your answer again unchanged. Never mention this check in your answer.)")
+                "everything already, give your answer again unchanged. The answer is about my request itself, with its actual "
+                "results; never mention this check in your answer.)")
 MISSION_ROUNDS = 3  # a mission may take this many times the usual steps (JARVIS_MAX_TOOL_ROUNDS)
 # Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
 LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
@@ -1130,6 +1132,7 @@ class Jarvis:
         pushed = not (insist or verify)  # told to do something: one "Готов?" / "да продължа ли?" gets pushed on
         previous, repeated = last_answer(messages), False  # a copy of the previous answer gets one more look
         verified: list[str] | None = None  # the answer before the final check, while its reply is awaited
+        goal = recent_text(messages, turns=1)[:600]  # the request itself, named again in the final check
         mark = self._mark(user)
         for _ in range(rounds or self.settings.max_tool_rounds):
             if self._mark(user) != mark:  # "спри" came while working
@@ -1140,7 +1143,7 @@ class Jarvis:
                 log.warning("the brain repeated a check note instead of answering; the earlier answer stays")
                 fresh = []
             if verified is not None:
-                if verified and response.stop_reason != "tool_use" and fresh and not same_subject(" ".join(fresh), " ".join(verified)):
+                if verified and response.stop_reason != "tool_use" and fresh and not same_subject(" ".join(fresh), " ".join(verified) + " " + goal):
                     log.warning("the final check was answered off the subject; the answer before it stays")
                     fresh = verified
                 verified = None
@@ -1174,7 +1177,7 @@ class Jarvis:
                     verify = False
                     verified = list(texts)
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
-                    messages.append({"role": "user", "content": VERIFY_CHECK})
+                    messages.append({"role": "user", "content": VERIFY_CHECK.format(goal=goal)})
                     continue
                 break
             messages.append({"role": "assistant", "content": response.content})

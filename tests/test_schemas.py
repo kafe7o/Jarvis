@@ -141,7 +141,8 @@ def test_a_mission_gets_more_steps_and_a_check_of_the_result(settings, ctx, regi
     ])
     jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
     assert jarvis.ask("прегледай задачите и провери всичко до край").startswith("Проверих")
-    assert client.requests[2]["messages"][-1]["content"] == VERIFY_CHECK
+    check = client.requests[2]["messages"][-1]["content"]
+    assert check.startswith(VERIFY_CHECK[:30]) and "«прегледай задачите и провери всичко до край»" in check
     assert len(client.requests) == 4 and VERIFY_CHECK[:30] not in str(ctx.store.history("main", 10))
     # the check answered off the subject ("no active task") keeps the real answer; one on the subject replaces it
     for reply, answer in [("Разбирам правилото, но в момента нямам активна задача за проверка.", "Намерих: Keep, Notion"),

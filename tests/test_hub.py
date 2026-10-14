@@ -213,7 +213,7 @@ def test_a_task_dropped_in_the_remote_folder_is_asked_as_the_owner(settings, ctx
     answer = (where / "test1.answer.txt").read_text(encoding="utf-8")
     assert "Нямаш задачи." in answer and "Първа стъпка:" in answer and "(след" in answer
     assert remote.waiting(where) == [] and not (where / "test1.working.txt").exists()
-    chat = next(c for c in hub.accounts.chats(owner.id) if c["title"] == remote.CHAT)
+    chat = next(c for c in hub.accounts.chats(owner.id) if c["title"] == remote.CHAT + ": test1")
     assert any("Нямаш задачи." in m["content"] for m in hub.accounts.messages(chat["id"]))
 
 
