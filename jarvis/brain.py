@@ -377,6 +377,22 @@ def last_round_failed(messages: list) -> bool:
         and not str(b.get("content", "")).startswith("The user declined") for b in content)
 
 
+def task_rounds(messages: list) -> int:
+    """How many tool rounds the current task has had (rounds of results since the owner last wrote)."""
+    rounds = 0
+    for m in reversed(messages):
+        content = m.get("content")
+        if m.get("role") != "user":
+            continue
+        if not (isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)):
+            break
+        rounds += 1
+    return rounds
+
+
+LONG_TASK = 4  # Авто: after this many rounds a quick brain has not finished, the smartest one takes over
+
+
 def web_lane(text: str) -> bool:
     """A job on web pages that needs nothing else (no mail, phone, files or settings): the fast lane."""
     return router.web_task(text) and not any(rx.search(text) for rx in GROUP_RX.values())
@@ -644,8 +660,8 @@ class Jarvis:
     def auto_order(self, messages: list, tools: list) -> list[str]:
         """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
         in the middle of a task too.
-        A picture goes to Gemini (it sees); a short answer to Groq (the fastest); a hard step (a mission, or right
-        after a failed one) to the smartest free brain (Gemini Flash while its day lasts, then NVIDIA/OpenRouter);
+        A picture goes to Gemini (it sees); a short answer to Groq (the fastest); a hard step (a mission, right
+        after a failed one, or a task still going after LONG_TASK rounds) to the smartest free brain (Gemini Flash while its day lasts, then NVIDIA/OpenRouter);
         everyday work to Gemini Flash-Lite (quick and good with a dozen tools). The others follow when one is
         overloaded or used up. Only the brains with a key in .env are asked."""
         strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]
@@ -655,7 +671,8 @@ class Jarvis:
             order = [lite, *flash, fast, *strong]
         elif not tools:
             order = [fast, lite, *strong]
-        elif router.is_mission(recent_text(messages)) or last_round_failed(messages):
+        elif (router.is_mission(recent_text(messages)) or last_round_failed(messages)
+              or task_rounds(messages) >= LONG_TASK):
             order = [*flash, *strong, lite, fast]
         else:
             order = [lite, fast, *strong]
