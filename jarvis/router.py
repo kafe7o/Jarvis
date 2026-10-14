@@ -110,6 +110,20 @@ SEARCHES = [
     (r"amazon|амазон", "Amazon", "https://www.amazon.de/s?k={q}"),
     (r"google maps|гугъл мапс|maps|мапс|картите", "Google Maps", "https://www.google.com/maps/search/{q}"),
 ]
+# „Отвори Facebook Marketplace и потърси лаптоп от 200 до 400 евро“: Marketplace's own search page with the
+# price filter, in the owner's browser (the one signed in to Facebook). On the laptop the AI opened its own
+# browser (no Facebook login there) and gave up three times with the same apology.
+MARKET = rx(r"(?:^|\s)(?:(?:facebook|фейсбук|фб|fb)[ -]?)?(?:marketplace|маркетплейс|маркет плейс)(?=\s|$|[,.!?])")
+MARKET_FIND = rx(r"(?:^|\s)(?:потърси|потърсиш|търси|търсиш|намери|намериш|покажи|покажеш|провери|провериш|виж|"
+                 r"search|find)(?: ми)?(?: (?:за|дали има|има ли))? (.+)$")
+MARKET_OPEN = rx(r"^(?:отвори|пусни|влез в|влез във|иди в|иди на|open)(?: ми)? (?:(?:facebook|фейсбук|фб|fb)[ -]?)?"
+                 r"(?:marketplace|маркетплейс|маркет плейс)(?: в браузъра| в браузера)?$")
+MARKET_IN = rx(r"\s*(?:в|във|на|из|in|on)\s+(?:(?:facebook|фейсбук|фб|fb)[ -]?)?(?:marketplace|маркетплейс|маркет плейс)")
+MONEY = r"(евро|евра|eur|€|лв\.?|лева|bgn)?"
+RANGE = rx(r"(?:^|\s)(?:от|между|from) ?(\d[\d ]*?) ?(?:до|и|-|–|to|and) ?(\d[\d ]*?) ?" + MONEY + r"(?=\s|$|[,.!?])")
+UP_TO = rx(r"(?:^|\s)(?:до|под|максимум|най-много|up to|under) ?(\d[\d ]*?) ?" + MONEY + r"(?=\s|$|[,.!?])")
+AT_LEAST = rx(r"(?:^|\s)(?:над|поне|минимум|over|at least) ?(\d[\d ]*?) ?" + MONEY + r"(?=\s|$|[,.!?])")
+LEV = 1.95583  # the lev's fixed rate: Marketplace in Bulgaria filters in euro since 2026
 # A search that asks something ("колко струва", "кога излиза"): the AI looks it up and says the answer.
 ASKS = rx(r"(?:^|\s)(?:колко|кога|какво|каква|какъв|какви|кой|коя|кое|кои|къде|защо|как|дали)(?=\s|$)")
 LOCK = rx(r"^(?:заключи|lock) (?:компютъра|лаптопа|компа|екрана|пц-то|pc-то)$")
@@ -254,7 +268,8 @@ def match(text: str, info: Info | None = None) -> list[Step] | None:
     mail = _mail(said.rstrip("?").strip(), info)
     if mail:
         return mail
-    found = _translate(said.rstrip("?").strip(), info) or _site_search(said.rstrip("?").strip(), info)
+    found = (_translate(said.rstrip("?").strip(), info) or _marketplace(said.rstrip("?").strip(), info)
+             or _site_search(said.rstrip("?").strip(), info))
     if found:
         return found if isinstance(found, list) else [found]
     place = _places(said.rstrip("?").strip(), info)
@@ -350,6 +365,51 @@ def _site_search(s: str, info: Info) -> Step | list[Step] | None:
     if cheapest:  # the page for his eyes, and the price said at once (read from eMAG's own search page)
         return [opened, Step(lambda out: out, "emag_cheapest", {"query": query}, s)]
     return opened
+
+
+def _price_range(text: str) -> tuple[str, int | None, int | None]:
+    """„лаптоп от 200 до 400 евро“ → ("лаптоп", 200, 400); „под 150 лв“ → (…, None, 77): the words without the
+    price part, and the lowest and highest price in euro (leva are converted at the fixed rate)."""
+    def euro(amount: str, unit: str | None) -> int:
+        value = int(amount.replace(" ", ""))
+        return round(value / LEV) if unit and re.match(bg(r"лв|лева|bgn"), unit, re.I) else value
+
+    found = RANGE.search(text)
+    if found:
+        return RANGE.sub(" ", text), euro(found[1], found[3]), euro(found[2], found[3])
+    low = high = None
+    found = UP_TO.search(text)
+    if found:
+        high, text = euro(found[1], found[2]), UP_TO.sub(" ", text)
+    found = AT_LEAST.search(text)
+    if found:
+        low, text = euro(found[1], found[2]), AT_LEAST.sub(" ", text)
+    return text, low, high
+
+
+def _marketplace(s: str, info: Info) -> Step | None:
+    """„Отвори facebook marketplace и потърси лаптоп от 200 до 400 евро“ (also „iskam da otvorish facebook marketplace
+    i da potursish za laptop ot 200 do 400 evro“): Marketplace's search with the price filter opens in the owner's
+    browser at once. Facebook works only where the owner is signed in, so the AI's own browser is never the way."""
+    if words(s) > 30 or not MARKET.search(s):
+        return None
+    if MARKET_OPEN.match(s):
+        return Step(lambda _o: "Отворих Facebook Marketplace в твоя браузър.", "open_target",
+                    {"target": "https://www.facebook.com/marketplace/"}, s)
+    found = MARKET_FIND.search(s)
+    if not found:
+        return None
+    query, low, high = _price_range(MARKET_IN.sub(" ", found[1]))
+    query = re.sub(r"\s+", " ", MARKET.sub(" ", query)).strip(" ,.„“\"'")
+    query = re.sub(bg(r"^(?:за|дали има|има ли) "), "", query, flags=re.I)
+    if not query or words(query) > 8 or ASKS.search(" " + query):
+        return None
+    prices = {k: v for k, v in (("minPrice", low), ("maxPrice", high)) if v is not None}
+    url = "https://www.facebook.com/marketplace/search/?" + urllib.parse.urlencode({"query": query, **prices})
+    span = (f" от {low} до {high} евро" if low is not None and high is not None else
+            f" до {high} евро" if high is not None else f" над {low} евро" if low is not None else "")
+    return Step(lambda _o: f"Отворих Facebook Marketplace в твоя браузър: „{query}“{span}.", "open_target",
+                {"target": url}, s)
 
 
 def _translate(s: str, info: Info) -> list[Step] | None:
@@ -649,7 +709,7 @@ def is_mission(text: str) -> bool:
 
 # A job on the web: the brain gets the fast lane (brain.WEB_TOOLS), a dozen tools instead of seventy.
 WEB = rx(r"браузър|браузер|\bсайт|страниц|интернет|онлайн|в нета|google|гугъл|\bуеб|\bweb\b|www\.|"
-         r"\w\.(?:bg|com|org|net|eu|io)\b|линк")
+         r"\w\.(?:bg|com|org|net|eu|io)\b|линк|marketplace|маркетплейс|олх\b|\bolx\b|emag|емаг")
 
 
 def web_task(text: str) -> bool:

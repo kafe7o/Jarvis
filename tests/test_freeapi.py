@@ -374,6 +374,8 @@ MISTRAL_LIST = [
     {"id": "mistral-ocr-latest", "capabilities": {"completion_chat": False, "function_calling": False}},
     {"id": "magistral-medium-latest", "capabilities": {"completion_chat": True, "function_calling": True}},
     {"id": "pixtral-large-latest", "capabilities": {"completion_chat": True, "function_calling": False, "vision": True}},
+    {"id": "mistral-code-latest", "capabilities": {"completion_chat": True, "function_calling": True}},
+    {"id": "mistral-vibe-cli-latest", "capabilities": {"completion_chat": True, "function_calling": True}},
 ]
 
 
@@ -415,6 +417,41 @@ def test_mistral_is_the_best_free_brain_and_speaks_its_dialect(settings, ctx, re
     assert blind[-1]["content"] == groq.NO_EYES  # no picture for a model that cannot see
     merged = freeapi.mistral_chat("s", [{"role": "user", "content": "а"}, {"role": "user", "content": "б"}], sees=False)
     assert [m["content"] for m in merged] == ["s", "а\n\nб"]  # never two user messages in a row
+
+
+def test_mistral_rate_limited_twice_hands_the_step_over_at_once(monkeypatch):
+    """The first live run on the laptop: every Mistral model answered "Rate limit exceeded" (code 1300) twice, so a
+    step lost 18 s on three models before NVIDIA took it. The limit is per account: after one short wait and a
+    second 429 the whole of Mistral rests and the next free brain takes the step; a coding model is never asked."""
+    monkeypatch.setenv("MISTRAL_API_KEY", "free-key")
+    rested, limited = [], (429, '{"message":"Rate limit exceeded","type":"rate_limited","code":"1300"}')
+    fake = FakeAPI([limited, limited, said("never asked")])
+    brain = freeapi.FreeBrain("mistral", post=fake, get=lambda: MISTRAL_LIST, wait=rested.append)
+    with pytest.raises(freeapi.UsedUp, match="rate limited"):
+        brain.create(model="mistral", system="Ти си Jarvis.", messages=[{"role": "user", "content": "ехо"}],
+                     tools=[], max_tokens=800, effort="low")
+    assert [b["model"] for b in fake.bodies] == ["mistral-medium-latest"] * 2 and rested == [3.0]
+    assert brain.models("mistral") == [] and brain.resting["*"] - time.time() <= freeapi.MISTRAL_REST
+    # never two requests within a second: the free plan allows one, and a background job may send one too
+    naps, sent = [], []
+
+    class Reply:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"choices": []}'
+
+    monkeypatch.setattr(freeapi.time, "sleep", naps.append)
+    monkeypatch.setattr(freeapi.urllib.request, "urlopen", lambda req, timeout: sent.append(req) or Reply())
+    live = freeapi.FreeBrain("mistral")
+    live._send({"model": "mistral-medium-latest"})
+    live._send({"model": "mistral-medium-latest"})
+    assert len(sent) == 2 and len(naps) == 1 and 0 < naps[0] <= freeapi.MISTRAL_PAUSE
+    assert not any(k.lower() == "authorization" and "free-key" not in v for k, v in sent[0].headers.items())
 
 
 def test_auto_runs_everyday_steps_on_mistral_and_pictures_on_gemini_first(settings, ctx, registry, monkeypatch):

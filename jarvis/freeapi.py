@@ -51,10 +51,17 @@ PROVIDERS = {
                            "openrouter.ai/keys", ("openrouter/free",)),
 }
 QUICK = {"mistral"}  # providers that answer a tool step in a few seconds (the others take 20-45 s on a free key)
-# Mistral's chat brains, best first: Medium (fast, strong with tools), Large (smarter, slower), Small. The code,
-# tiny, picture-only, speech and moderation models are left out.
+# Mistral's chat brains, best first: Medium (fast, strong with tools), Large (smarter, slower), Small. Only these
+# families are asked: the first live run picked up "mistral-code-latest" and "mistral-vibe-cli-latest" (coding and
+# terminal models, which answered every turn with the same apology), so a model outside them is never a brain.
 MISTRAL_PREFER = ("mistral-medium", "mistral-large", "mistral-small")
-MISTRAL_SKIP = re.compile(r"codestral|devstral|ministral|magistral|pixtral|voxtral|mixtral|open-mi|moderation|saba|nemo")
+MISTRAL_SKIP = re.compile(r"codestral|devstral|ministral|magistral|pixtral|voxtral|mixtral|open-mi|moderation|saba|nemo|"
+                          r"-code|vibe|-cli")
+MISTRAL_PAUSE = 1.1  # seconds between two Mistral requests: the free plan allows one a second
+# "Rate limit exceeded" (code 1300) twice in a row: the limit is per account, not per model, so the next models
+# would only fail the same way (the first live run lost 18 s a step that way). The whole of Mistral rests a
+# minute and a half and the other free brains take the step now.
+MISTRAL_REST = 90
 MISTRAL_SEES = ("mistral-medium", "mistral-small")  # the ones that see pictures, when the listing cannot be read
 MISTRAL_ID = re.compile(r"^[A-Za-z0-9]{9}$")
 # OpenRouter's own "openrouter/free" picks whichever free model is up: the strong ":free" models come and go (the
@@ -121,6 +128,7 @@ def choose(provider: Provider, listing: list[dict]) -> list[str]:
     NVIDIA lists everything it hosts. On both only the known good families (PREFER) are kept."""
     if provider.key == "mistral":  # the stable "-latest" names of the chat models that use tools
         ids = [m["id"] for m in listing if m.get("id") and can(m, "function_calling")
+               and m["id"].lower().startswith(MISTRAL_PREFER)
                and not MISTRAL_SKIP.search(m["id"].lower()) and not SKIP.search(m["id"].lower())]
         return rank([i for i in ids if i.endswith("-latest")] or ids, MISTRAL_PREFER)
     if provider.key == "openrouter":
@@ -201,6 +209,7 @@ class FreeBrain:
         self.resting: dict[str, float] = self._load()  # model ("*" = all of them) -> when it may be asked again
         self._listed: tuple[float, list[str]] = (0.0, [])
         self.sees: set[str] = set()  # Mistral's models that see pictures (from the listing)
+        self.last_sent = 0.0  # when the last request went out (Mistral allows one a second)
         self.timeouts: list[float] = []  # when answers ran out of time lately (a slow queue, not one slow model)
 
     def _load(self) -> dict[str, float]:
@@ -304,6 +313,13 @@ class FreeBrain:
                 if code == 429 and DAILY.search(detail):
                     self.rest("*", 86400 - time.time() % 86400)  # free again at midnight UTC
                     raise UsedUp(f"{p.name}'s free requests for today are used up.")
+                if code == 429 and p.key == "mistral":
+                    if attempt == 0:
+                        self._wait(min(retry or 2.0, 3.0))  # one request a second: a moment is enough
+                        continue
+                    log.warning("%s: %s; the whole of it rests %d s", p.name, last, MISTRAL_REST)
+                    self.rest("*", MISTRAL_REST)
+                    raise UsedUp(f"{p.name} is rate limited just now ({last}).")
                 if code == 429 and attempt == 0:
                     self._wait(min(retry or 5.0, 10))  # a few requests a minute: wait a moment
                     continue
@@ -348,6 +364,11 @@ class FreeBrain:
             return json.loads(resp.read()).get("data") or []
 
     def _send(self, body: dict, timeout: float | None = None) -> dict:
+        if self.provider.key == "mistral":  # never two requests within a second (a background job and a step)
+            gap = MISTRAL_PAUSE - (time.time() - self.last_sent)
+            if gap > 0:
+                time.sleep(gap)
+            self.last_sent = time.time()
         req = urllib.request.Request(self.provider.url + "/chat/completions", data=json.dumps(body).encode(),
                                      headers=self._headers())
         with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
