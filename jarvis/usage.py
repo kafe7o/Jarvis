@@ -62,11 +62,13 @@ def record(store, response, model: str) -> None:
         log.exception("could not count usage")
 
 
-def spent_today(store) -> float:
-    """US dollars spent on the paid brains (Claude, Mistral) today, for the daily cap (JARVIS_DAILY_BUDGET)."""
+def spent_today(store, brain: str | None = None) -> float:
+    """US dollars spent on the paid brains today, for the daily caps: all of them, or ``brain`` ("claude" for
+    JARVIS_DAILY_BUDGET, "mistral" for JARVIS_MISTRAL_BUDGET)."""
     rows = store.query("SELECT model, input, output, cache_read, cache_write FROM usage WHERE created >= ?",
                        (datetime.now().date().isoformat(),))
-    return sum(cost(r["model"], r["input"], r["output"], r["cache_read"], r["cache_write"]) for r in rows)
+    return sum(cost(r["model"], r["input"], r["output"], r["cache_read"], r["cache_write"]) for r in rows
+               if brain is None or r["model"].startswith(brain))
 
 
 def levels_today(store) -> dict[str, int]:

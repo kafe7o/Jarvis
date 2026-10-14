@@ -467,7 +467,7 @@ def brain_choices(items: list[dict], stored: dict) -> str:
 SCALE = [
     ("groq", "Groq", "най-бързият, отговаря за секунда; слаб с дълги задачи", "GROQ_API_KEY"),
     ("gemini", "Gemini", "Flash за работа, докато има заявки за деня, после другите с ключ", "GEMINI_API_KEY"),
-    ("mistral", "Mistral", "платен на дума, в дневния таван; Авто дава лесните стъпки на евтиния Small, трудните на Medium", "MISTRAL_API_KEY"),
+    ("mistral", "Mistral", "платен на дума, със свой дневен таван; Авто дава лесните стъпки на евтиния Small, трудните на Medium", "MISTRAL_API_KEY"),
     ("openrouter", "OpenRouter", "безплатни модели, които се сменят; средно бърз", "OPENROUTER_API_KEY"),
     ("nvidia", "NVIDIA", "силни модели, но на безплатния ключ често бавни", "NVIDIA_API_KEY"),
     ("gemini-3.5-flash", "Gemini Flash", "най-умният безплатен и вижда екрана; около 25 заявки на ден", "GEMINI_API_KEY"),
@@ -512,7 +512,8 @@ EXTRA_SETTINGS = [
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
     ]),
     ("Пестене", "https://ollama.com/download", [
-        ("JARVIS_DAILY_BUDGET", "Таван на ден за платените мозъци (Claude, Mistral), в долари (празно = 1; 0 = само безплатни мозъци; без = без таван)"),
+        ("JARVIS_DAILY_BUDGET", "Таван за Claude на ден, в долари (празно = 1; 0 = никога Claude; без = без таван)"),
+        ("JARVIS_MISTRAL_BUDGET", "Таван за Mistral на ден, в долари (празно = 2; 0 = никога Mistral; без = без таван)"),
         ("JARVIS_ROUTER", "Простите команди без AI и кратките въпроси с бърз модел (1 = да, 0 = не)"),
         ("JARVIS_FAST_MODEL", "Модел за кратките въпроси (празно = безплатният Groq, ако има ключ, иначе Gemini)"),
         ("JARVIS_GROQ_MODEL", "Модел в Groq (празно = openai/gpt-oss-120b; другите безплатни се ползват, когато той е зает)"),
