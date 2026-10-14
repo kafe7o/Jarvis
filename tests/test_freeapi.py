@@ -10,7 +10,7 @@ import pytest
 from google.genai import errors
 
 from conftest import Approver, FakeClient
-from jarvis import local, freeapi, gemini, usage
+from jarvis import local, freeapi, gemini, groq, usage
 from jarvis import brain as brain_module
 from jarvis.brain import Jarvis
 from jarvis.config import default_brain
@@ -317,3 +317,35 @@ def test_long_thinkers_go_last():
                                    "deepseek-ai/deepseek-v3.2"]]
     assert freeapi.choose(freeapi.PROVIDERS["nvidia"], listing) == [
         "moonshotai/kimi-k2-instruct", "deepseek-ai/deepseek-v3.2", "deepseek-ai/deepseek-v4.1-flash", "z-ai/glm-5.3-flash"]
+
+
+def test_auto_picks_the_brain_for_every_step_and_switches_in_the_middle_of_a_task(settings, ctx, registry, monkeypatch):
+    """Settings > Мозък > Авто: a quick brain for easy steps, the smartest after a failed step or for a mission,
+    Gemini for a picture, Groq for a short answer; chosen again at every step."""
+    from jarvis.hub import brain_scale
+
+    for key in ("GEMINI_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
+        monkeypatch.setenv(key, "x")
+    settings.model = "auto"
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]))
+    monkeypatch.setattr(jarvis, "flash_ready", lambda: True)
+    asked = []
+    monkeypatch.setattr(jarvis, "_ask_free", lambda order, *a, **kw: asked.append(order) or SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="Готово.")], stop_reason="end_turn"))
+    tools = [{"name": "open_page"}]
+    easy = [{"role": "user", "content": "виж в браузъра курса на долара"}]
+    failed = easy + [{"role": "assistant", "content": "…"},
+                     {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "1", "content": "Timeout", "is_error": True}]}]
+    picture = [{"role": "user", "content": [{"type": "image", "source": {}}, {"type": "text", "text": "какво е това"}]}]
+    jarvis._request(easy, tools=tools)
+    jarvis._request(failed, tools=tools)  # the same task, next step: the smartest takes over
+    jarvis._request(picture, tools=tools)
+    jarvis._request(easy, tools=[])
+    jarvis._request([{"role": "user", "content": "работи докато не стане: намери клиенти"}], tools=tools)
+    assert [order[0] for order in asked] == [gemini.DEFAULT_MODEL, gemini.AGENT_MODEL, gemini.DEFAULT_MODEL,
+                                             groq.DEFAULT_MODEL, gemini.AGENT_MODEL]
+    assert "nvidia" in asked[1] and asked[1].index("nvidia") < asked[1].index(gemini.DEFAULT_MODEL)
+    monkeypatch.delenv("NVIDIA_API_KEY")
+    jarvis._request(failed, tools=tools)
+    assert "nvidia" not in asked[-1]  # only the brains with a key
+    assert brain_scale({"JARVIS_MODEL": "auto"})["auto"] and not brain_scale({"JARVIS_MODEL": "groq"})["auto"]

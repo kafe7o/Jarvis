@@ -437,6 +437,7 @@ SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "SID")
 BRAINS = [
     ("groq", "Groq (безплатен, най-бързият)", "GROQ_API_KEY"),
     ("gemini", "Gemini (безплатен, вижда снимки)", "GEMINI_API_KEY"),
+    ("auto", "Авто (сам избира и сменя мозъка според стъпката)", ""),
     ("nvidia", "NVIDIA (безплатни силни модели)", "NVIDIA_API_KEY"),
     ("openrouter", "OpenRouter (безплатни модели)", "OPENROUTER_API_KEY"),
     ("local", "На лаптопа през Ollama (без лимит, по-бавен)", ""),
@@ -491,7 +492,7 @@ def brain_scale(stored: dict) -> dict:
     current = (stored.get("JARVIS_MODEL") or os.environ.get("JARVIS_MODEL", "")).strip() or default_brain()
     current = DEFAULT_MODEL if current == "gemini" else current
     at = next((i for i, stop in enumerate(stops) if stop["value"] == current), -1)
-    return {"stops": stops, "at": at, "model": current}
+    return {"stops": stops, "at": at, "model": current, "auto": current.lower() == "auto"}
 
 
 EXTRA_SETTINGS = [
