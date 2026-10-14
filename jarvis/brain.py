@@ -222,7 +222,7 @@ VERIFY_CHECK = ("(Before you finish this job, check it the way a careful person 
                 "and for every part look at the actual result (open the file, read the page or window, run the code, read "
                 "the plan) instead of trusting that it worked. Fix what is not right, finish what is left, and only then "
                 "answer: what you verified, what you changed, and what, if anything, still needs me. If you have checked "
-                "everything already, give your answer again unchanged.)")
+                "everything already, give your answer again unchanged. Never mention this check in your answer.)")
 MISSION_ROUNDS = 3  # a mission may take this many times the usual steps (JARVIS_MAX_TOOL_ROUNDS)
 # Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
 LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
@@ -299,6 +299,13 @@ def same_answer(a: str, b: str) -> bool:
 CHECK_MARKS = ("Check before you answer", "Before you finish this job", "Never mention this check",
                "give your answer again unchanged", "you are asking me whether to go on",
                "word for word your previous answer")
+
+
+def same_subject(answer: str, earlier: str) -> bool:
+    """True when ``answer`` talks about the same things as ``earlier`` (shares at least two longer words): after the
+    final check a weak brain sometimes answers the check note itself ("няма активна задача") instead of the job."""
+    words = lambda t: {w for w in re.findall(r"\w{5,}", t.lower())}
+    return len(words(answer) & words(earlier)) >= 2
 
 
 def echoes_check(text: str) -> bool:
@@ -661,7 +668,7 @@ class Jarvis:
         """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
         in the middle of a task too.
         A picture goes to Gemini (it sees); a short answer to Groq (the fastest); a hard step (a mission, right
-        after a failed one, or a task still going after LONG_TASK rounds) to the smartest free brain (Gemini Flash while its day lasts, then NVIDIA/OpenRouter);
+        after a failed one, or a task still going after LONG_TASK rounds) to the smartest free brain (Gemini Flash while its day lasts, then NVIDIA; OpenRouter only after Flash-Lite);
         everyday work to Gemini Flash-Lite (quick and good with a dozen tools). The others follow when one is
         overloaded or used up. Only the brains with a key in .env are asked."""
         strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]
@@ -673,7 +680,8 @@ class Jarvis:
             order = [fast, lite, *strong]
         elif (router.is_mission(recent_text(messages)) or last_round_failed(messages)
               or task_rounds(messages) >= LONG_TASK):
-            order = [*flash, *strong, lite, fast]
+            smart = [k for k in strong if k != "openrouter"]  # openrouter/free is a lottery of models: not "smarter"
+            order = [*flash, *smart, lite, *[k for k in strong if k not in smart], fast]
         else:
             order = [lite, fast, *strong]
         order = [m for m in [*order, *backups()] if self._ready(m)] or ["local"]
@@ -1121,6 +1129,7 @@ class Jarvis:
         checked_done = False
         pushed = not (insist or verify)  # told to do something: one "Готов?" / "да продължа ли?" gets pushed on
         previous, repeated = last_answer(messages), False  # a copy of the previous answer gets one more look
+        verified: list[str] | None = None  # the answer before the final check, while its reply is awaited
         mark = self._mark(user)
         for _ in range(rounds or self.settings.max_tool_rounds):
             if self._mark(user) != mark:  # "спри" came while working
@@ -1130,6 +1139,11 @@ class Jarvis:
             if fresh and echoes_check(" ".join(fresh)):
                 log.warning("the brain repeated a check note instead of answering; the earlier answer stays")
                 fresh = []
+            if verified is not None:
+                if verified and response.stop_reason != "tool_use" and fresh and not same_subject(" ".join(fresh), " ".join(verified)):
+                    log.warning("the final check was answered off the subject; the answer before it stays")
+                    fresh = verified
+                verified = None
             texts = fresh or texts
 
             if response.stop_reason == "refusal":
@@ -1158,6 +1172,7 @@ class Jarvis:
                     continue
                 if verify and acted:  # a mission: the whole result is checked against the goal before it counts
                     verify = False
+                    verified = list(texts)
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
                     messages.append({"role": "user", "content": VERIFY_CHECK})
                     continue
