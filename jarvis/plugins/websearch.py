@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import urllib.parse
+import urllib.request
 from html import unescape
 
 from .. import gemini
@@ -17,14 +18,28 @@ def _plain(html: str) -> str:
     return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", html))).strip()
 
 
+AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 BLOCKED = re.compile(r"unusual traffic|captcha|не сте робот|необичаен трафик", re.I)
 
 
+ENGINES = [("Google", "https://www.google.com/search?{}", "hl"), ("Bing", "https://www.bing.com/search?{}", "setlang")]
+
+
 def in_browser(browser, query: str) -> str:
-    """Google's results page read in Jarvis's own browser (Playwright), the way a person would search."""
+    """A results page (Google, else Bing) read in Jarvis's own browser (Playwright), the way a person would search."""
+    failed = []
+    for name, url, lang in ENGINES:
+        try:
+            return f"{name} results (read in the browser; open_page the best one if this is not enough):\n" + \
+                _results(browser, url.format(urllib.parse.urlencode({"q": query, lang: "bg"})))
+        except Exception as exc:
+            failed.append(f"{name}: {exc}")
+    raise RuntimeError("; ".join(failed))
+
+
+def _results(browser, address: str) -> str:
     def act(page):
-        page.goto("https://www.google.com/search?" + urllib.parse.urlencode({"q": query, "hl": "bg"}),
-                  wait_until="domcontentloaded")
+        page.goto(address, wait_until="domcontentloaded")
         if "consent." in page.url:  # Google's cookie page in the EU: the privacy-preserving choice, then the results
             for label in ("Отхвърляне на всички", "Reject all"):
                 button = page.get_by_role("button", name=label)
@@ -32,19 +47,24 @@ def in_browser(browser, query: str) -> str:
                     button.first.click(timeout=5000)
                     page.wait_for_load_state("domcontentloaded")
                     break
-        return page.inner_text("body")
+        return page.url, page.inner_text("body")
 
-    text = re.sub(r"\n\s*\n+", "\n", browser().do(act, timeout=30)).strip()
+    where, text = browser().do(act, timeout=30)
+    text = re.sub(r"\n\s*\n+", "\n", text).strip()
     if len(text) < 200 or BLOCKED.search(text[:3000]):  # a check for robots is never answered: another way
-        raise RuntimeError("Google showed no results page in the browser.")
-    return "Google results (read in the browser; open_page the best one if this is not enough):\n" + text[:5000]
+        raise RuntimeError(f"no results page ({where}: {text[:120]!r})")
+    return text[:5000]
 
 
 def duckduckgo(query: str, fetch=None, limit: int = 8) -> str:
     """The first results of a DuckDuckGo search (no key, no AI): title, address and the snippet of each."""
+    address = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
     if fetch is None:
-        from .daily import fetch
-    page = fetch("https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query}), timeout=10)
+        request = urllib.request.Request(address, headers={"User-Agent": AGENT, "Accept-Language": "bg,en;q=0.8"})
+        with urllib.request.urlopen(request, timeout=10) as resp:
+            page = resp.read().decode("utf-8", errors="replace")
+    else:
+        page = fetch(address, timeout=10)
     found = []
     for block in re.split(r'class="result__a"', page)[1:limit + 1]:
         link = re.search(r'href="([^"]+)"[^>]*>(.*?)</a>', block, re.S)
@@ -55,7 +75,7 @@ def duckduckgo(query: str, fetch=None, limit: int = 8) -> str:
         snippet = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', block, re.S)
         found.append(f"- {_plain(link.group(2))} ({url}): {_plain(snippet.group(1)) if snippet else ''}")
     if not found:
-        raise RuntimeError("DuckDuckGo returned no results.")
+        raise RuntimeError(f"DuckDuckGo returned no results ({_plain(page)[:120]!r}).")
     return "Results (DuckDuckGo; open_page the best one if the snippets are not enough):\n" + "\n".join(found)
 
 

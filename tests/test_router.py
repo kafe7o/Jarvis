@@ -406,3 +406,9 @@ def test_a_job_on_web_pages_is_told_apart_from_the_rest():
         assert router.web_task(text), text
     for text in ["колко е часът", "пусни музика", "провери всичко в браузъра докато не стане"]:
         assert not router.web_task(text), text
+
+
+def test_a_search_that_asks_something_goes_to_the_ai_for_the_answer():
+    """„Потърси в Google колко струва бензинът“ only opened Google: the owner wants the price said."""
+    assert steps("Потърси в Google колко струва литър бензин А95 в България днес") is None
+    assert steps("отвори google и потърси рецепта за мусака")[0][0] == "open_target"
