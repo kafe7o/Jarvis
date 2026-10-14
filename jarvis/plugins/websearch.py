@@ -13,6 +13,9 @@ from .. import gemini
 from ..tools import ToolRegistry, obj
 
 log = logging.getLogger("jarvis.websearch")
+# Google search through Gemini with no free quota on this key (429 on every model): not asked again until Google's
+# daily reset; trying it first cost every search four refused requests.
+SEARCH_OFF = {"until": 0.0}
 
 
 def _plain(html: str) -> str:
@@ -111,8 +114,12 @@ def register(registry: ToolRegistry, ctx) -> None:
     def google_search(query: str):
         model = ctx.settings.model if ctx.settings.model.startswith("gemini") else gemini.DEFAULT_MODEL
         try:
+            if time.time() < SEARCH_OFF["until"]:
+                raise RuntimeError("its free searches are used up until Google's daily reset")
             answer = gemini.search(query, model)
         except Exception as exc:  # no Gemini key, or its searches are used up: the results page, without AI
+            if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
+                SEARCH_OFF["until"] = gemini.next_reset()
             log.warning("Google search through Gemini failed (%s: %s); the browser instead", type(exc).__name__,
                         str(exc)[:200])
             try:  # the owner's own browser first: it searches as they do

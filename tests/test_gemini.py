@@ -457,6 +457,8 @@ def test_when_gemini_cannot_search_google_is_read_in_the_browser_then_duckduckgo
     from contextlib import contextmanager
     from jarvis.plugins import websearch
 
+    monkeypatch.setitem(websearch.SEARCH_OFF, "until", 0.0)  # set back after the test
+
     asked = []
 
     @contextmanager
@@ -475,6 +477,7 @@ def test_a_search_goes_to_the_owners_browser_first_and_a_robot_check_is_left_to_
     from jarvis import browsers, winui
     from jarvis.plugins import websearch
 
+    monkeypatch.setitem(websearch.SEARCH_OFF, "until", 0.0)  # set back after the test
     monkeypatch.setattr(gemini, "search", lambda query, model=None, client=None: (_ for _ in ()).throw(
         errors.ClientError(429, {"error": {"code": 429, "message": "quota"}})))
     opened = []
@@ -485,6 +488,13 @@ def test_a_search_goes_to_the_owners_browser_first_and_a_robot_check_is_left_to_
     out, err = registry.run("google_search", {"query": "мач на Левски"}, Approver())
     assert not err and out.startswith("Google results (in the owner's browser") and "15 октомври" in out
     assert opened[0].startswith("https://www.google.com/search?q=")
+    # no free searches on this key: Gemini is not asked again until Google's daily reset
+    monkeypatch.setattr(gemini, "search", lambda query, model=None, client=None: pytest.fail("asked again"))
+    out, err = registry.run("google_search", {"query": "мач на Левски"}, Approver())
+    assert not err and "15 октомври" in out
+    websearch.SEARCH_OFF["until"] = 0.0
+    monkeypatch.setattr(gemini, "search", lambda query, model=None, client=None: (_ for _ in ()).throw(
+        errors.ClientError(429, {"error": {"code": 429, "message": "quota"}})))
 
     # Google asks "not a robot": nothing is clicked, the brain is told to leave it to the owner and search on
     monkeypatch.setattr(winui, "read", lambda title=None: "Our systems have detected unusual traffic. I'm not a robot")
