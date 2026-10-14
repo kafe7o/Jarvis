@@ -1,8 +1,8 @@
 """Tasks from a folder: a text file dropped in ~/.jarvis/remote is a request from the owner.
 
 Claude (or anything else the owner lets write to that folder, such as a synced folder) can give Jarvis a task
-while the owner is away and see how fast he started on it. Each ``*.txt`` is asked in the owner's chat
-„Задачи отдалеч“ (with the same confirmations as the app) and gets an answer file next to it:
+while the owner is away and see how fast he started on it. Each ``*.txt`` is asked in a chat of its own
+(„Задачи отдалеч: <name>“) (with the same confirmations as the app) and gets an answer file next to it:
 ``<name>.answer.txt`` with when the task was picked up, when the first step started, which brains answered and
 what Jarvis said. A first line „модел: groq“ (any JARVIS_MODEL value) runs that task on that brain.
 A task cut off by a restart (an update) is asked again once. JARVIS_REMOTE_FOLDER=0 switches it off.
@@ -71,8 +71,11 @@ def run_one(hub, task: Path) -> Path:
     elif owner is None:
         answer, error = "Няма собственик в Jarvis.", True
     else:
-        chat = next((c for c in hub.accounts.chats(owner.id) if c["title"] == CHAT), None)
-        chat = chat or hub.accounts.create_chat(owner.id, CHAT)
+        # one chat per task: the answers of earlier tasks must not steer this one (a free brain once carried an
+        # old task's phone call into a search for apps)
+        title = f"{CHAT}: {task.stem.removesuffix('.again')}"
+        chat = next((c for c in hub.accounts.chats(owner.id) if c["title"] == title), None)
+        chat = chat or hub.accounts.create_chat(owner.id, title)
         hub.events.add("chats", to=owner.id)
         from .brain import CHOSEN
 
