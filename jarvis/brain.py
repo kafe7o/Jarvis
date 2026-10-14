@@ -229,7 +229,7 @@ MISSION_ROUNDS = 3  # a mission may take this many times the usual steps (JARVIS
 # Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
 LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
 IMAGE_MARK = "\n\n(с приложена снимка)"  # kept in the saved conversation, so later turns know a picture was shown
-BLIND = {"groq", "nvidia", "openrouter"}  # free brains that cannot see pictures (Gemini, Claude and Ollama can)
+BLIND = {"groq", "nvidia", "openrouter"}  # free brains that cannot see pictures (Gemini, Mistral, Claude and Ollama can)
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
              "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
              "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
@@ -469,7 +469,7 @@ def is_background(messages: list) -> bool:
 
 
 def brain_kind(model: str) -> str:
-    """Which free brain a model belongs to: gemini, groq, local, nvidia or openrouter."""
+    """Which free brain a model belongs to: gemini, groq, local, mistral, nvidia or openrouter."""
     if groq.is_groq(model) or local.is_local(model) or freeapi.is_free_api(model):
         return model.partition(":")[0]
     return "gemini"
@@ -490,7 +490,7 @@ def keep_brain(model: str) -> None:
 
 
 def free_brain() -> str | None:
-    """The strongest free brain that is set up: NVIDIA, OpenRouter, Gemini, Groq (None when there is none)."""
+    """The strongest free brain that is set up: Mistral, NVIDIA, OpenRouter, Gemini, Groq (None when there is none)."""
     strong = next((key for key in freeapi.PROVIDERS if freeapi.available(key)), None)
     if strong:
         return strong
@@ -632,7 +632,7 @@ class Jarvis:
                                   effort if hard_step(messages) else "low", images=has_images(messages))
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
-        strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # NVIDIA, OpenRouter: the strongest free ones
+        strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # Mistral, NVIDIA, OpenRouter: the strongest free ones
         sees = has_images(messages)  # a picture in the message: Gemini sees it, NVIDIA/OpenRouter/Groq do not
         if groq.is_groq(model):
             order = [model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"]
@@ -681,22 +681,24 @@ class Jarvis:
     def auto_order(self, messages: list, tools: list) -> list[str]:
         """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
         in the middle of a task too.
-        A picture goes to Gemini (it sees); a short answer to Groq (the fastest); a hard step (hard_step) to the
-        smartest quick brain (Gemini Flash while its day lasts, else Flash-Lite thinking fully);
-        everyday work to Gemini Flash-Lite (quick and good with a dozen tools). The others follow when one is
-        overloaded or used up. Only the brains with a key in .env are asked."""
+        A picture goes to Gemini (it sees), then Mistral (sees too); a short answer to Groq (the fastest); a hard
+        step (hard_step) to the smartest quick brain (Gemini Flash while its day lasts, then Mistral, else
+        Flash-Lite thinking fully); everyday work to Mistral (a few seconds a step, strong with tools, no daily
+        cap) and without its key to Gemini Flash-Lite. The others follow when one is overloaded or used up.
+        Only the brains with a key in .env are asked."""
         strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]
+        quick = [k for k in strong if k in freeapi.QUICK]  # Mistral
+        slow = [k for k in strong if k not in freeapi.QUICK]  # NVIDIA and OpenRouter come last: 20-45 s a step
         flash = [gemini.AGENT_MODEL] if self.flash_ready() and not is_background(messages) else []
         lite, fast = gemini.QUICK_MODEL, groq.DEFAULT_MODEL
-        # NVIDIA and OpenRouter come last: 20-45 s a step, too slow for an answer in 15-20 s
         if has_images(messages):
-            order = [lite, *flash, fast, *strong]
+            order = [lite, *flash, *quick, fast, *slow]
         elif not tools:
-            order = [fast, lite, *strong]
+            order = [fast, *quick, lite, *slow]
         elif hard_step(messages):
-            order = [*(flash or [gemini.DEFAULT_MODEL]), fast, *strong]
+            order = [*flash, *quick, gemini.DEFAULT_MODEL, fast, *slow]
         else:
-            order = [lite, fast, *strong]
+            order = [*quick, lite, fast, *slow]
         order = [m for m in [*order, *backups()] if self._ready(m)] or ["local"]
         log.info("auto brain: %s", order[0])
         return list(dict.fromkeys(order))

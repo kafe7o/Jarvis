@@ -22,6 +22,7 @@ irm https://raw.githubusercontent.com/kafe7o/Jarvis/main/How%20to%20start%20Jarv
 
 | Мозък | Откъде (безплатно, без карта) | За какво |
 |---|---|---|
+| Mistral | console.mistral.ai → API Keys (с телефон) | най-добрият: бърз, силен, вижда снимки, без дневен лимит |
 | Gemini | aistudio.google.com/app/apikey | вижда снимки и екрана, кратки отговори |
 | NVIDIA | build.nvidia.com → Get API Key | най-силните безплатни модели за истинска работа |
 | OpenRouter | openrouter.ai/keys | резерва за работа |

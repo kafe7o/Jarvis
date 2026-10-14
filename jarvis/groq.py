@@ -49,6 +49,9 @@ class UsedUp(RuntimeError):
     """Every free Groq model is busy or used up for now."""
 
 
+NO_EYES = "(An image was shared here; this brain cannot see images.)"
+
+
 def to_messages(system: str, messages: list) -> list[dict]:
     """Claude-format messages -> OpenAI-style chat messages (what Groq speaks)."""
     out = [{"role": "system", "content": system}]
@@ -75,7 +78,7 @@ def to_messages(system: str, messages: list) -> list[dict]:
             if kind == "text":
                 text.append(b if isinstance(b, str) else _get(b, "text", ""))
             elif kind == "image":
-                text.append("(An image was shared here; this brain cannot see images.)")
+                text.append(NO_EYES)
             elif kind == "tool_result":
                 result = _text_of(_get(b, "content")) or "(done)"
                 out.append({"role": "tool", "tool_call_id": _get(b, "tool_use_id"),

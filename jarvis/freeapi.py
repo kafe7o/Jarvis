@@ -1,4 +1,9 @@
-"""More free brains, from a video on free AI API keys: NVIDIA and OpenRouter.
+"""More free brains: Mistral, NVIDIA and OpenRouter.
+
+Mistral (console.mistral.ai, a free key with a phone number, no card) is the best free brain in October 2026:
+Medium 3.5 is strong with tools (Tau3-bench telecom 91%), fast, sees pictures, and the free plan has no daily cap
+(about one request a second, 500k tokens a minute, around a billion a month). Mistral wants every tool call id
+to be exactly nine letters or digits, so ids from the other brains are rewritten on the way.
 
 NVIDIA (build.nvidia.com, a free key without a card) hosts strong open models (Kimi, DeepSeek, Qwen, GLM,
 gpt-oss) at about 40 requests a minute; OpenRouter (openrouter.ai/keys) has ":free" models at about 20 a minute
@@ -10,6 +15,7 @@ list is read from the provider itself and the strongest ones that can use tools 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -20,7 +26,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from . import groq
-from .gemini import Answer, _get
+from .gemini import Answer, _get, _text_of
 
 log = logging.getLogger("jarvis.freeapi")
 
@@ -36,12 +42,21 @@ class Provider:
 
 
 PROVIDERS = {
+    "mistral": Provider("mistral", "Mistral", "https://api.mistral.ai/v1", "MISTRAL_API_KEY", "console.mistral.ai/api-keys",
+                        ("mistral-medium-latest", "mistral-large-latest", "mistral-small-latest")),
     "nvidia": Provider("nvidia", "NVIDIA", "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY", "build.nvidia.com",
                        ("moonshotai/kimi-k2-instruct", "deepseek-ai/deepseek-v3.1", "openai/gpt-oss-120b",
                         "meta/llama-3.3-70b-instruct")),
     "openrouter": Provider("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY",
                            "openrouter.ai/keys", ("openrouter/free",)),
 }
+QUICK = {"mistral"}  # providers that answer a tool step in a few seconds (the others take 20-45 s on a free key)
+# Mistral's chat brains, best first: Medium (fast, strong with tools), Large (smarter, slower), Small. The code,
+# tiny, picture-only, speech and moderation models are left out.
+MISTRAL_PREFER = ("mistral-medium", "mistral-large", "mistral-small")
+MISTRAL_SKIP = re.compile(r"codestral|devstral|ministral|magistral|pixtral|voxtral|mixtral|open-mi|moderation|saba|nemo")
+MISTRAL_SEES = ("mistral-medium", "mistral-small")  # the ones that see pictures, when the listing cannot be read
+MISTRAL_ID = re.compile(r"^[A-Za-z0-9]{9}$")
 # OpenRouter's own "openrouter/free" picks whichever free model is up: the strong ":free" models come and go (the
 # ones named here before became paid in October 2026), so it is what is asked when none of PREFER is free.
 # Families that answer well in Bulgarian and use tools reliably, best first. Small models (gpt-oss-20b, gemma,
@@ -83,19 +98,31 @@ def _natural(text: str) -> list:
     return [(0, int(part), "") if part.isdigit() else (1, 0, part) for part in re.split(r"(\d+)", text.lower())]
 
 
-def rank(ids: list[str]) -> list[str]:
-    """Preferred families first (in PREFER's order), newest version first within each; slow thinkers last."""
+def rank(ids: list[str], prefer: tuple[str, ...] = PREFER) -> list[str]:
+    """Preferred families first (in ``prefer``'s order), newest version first within each; slow thinkers last."""
     def place(model: str) -> tuple:
         low = model.lower()
-        family = next((i for i, name in enumerate(PREFER) if name in low), len(PREFER))
+        family = next((i for i, name in enumerate(prefer) if name in low), len(prefer))
         return bool(SLOW.search(low)), family
 
     return sorted(sorted(ids, key=_natural, reverse=True), key=place)
 
 
+def can(model: dict, what: str) -> bool:
+    """Whether a Mistral model card says it can do ``what`` ("function_calling", "vision"); yes when it says nothing."""
+    caps = model.get("capabilities")
+    if caps is None:
+        return True
+    return bool(caps.get(what)) if isinstance(caps, dict) else what in caps
+
+
 def choose(provider: Provider, listing: list[dict]) -> list[str]:
     """The provider's models that suit Jarvis, best first. OpenRouter says which ones are free and can use tools;
     NVIDIA lists everything it hosts. On both only the known good families (PREFER) are kept."""
+    if provider.key == "mistral":  # the stable "-latest" names of the chat models that use tools
+        ids = [m["id"] for m in listing if m.get("id") and can(m, "function_calling")
+               and not MISTRAL_SKIP.search(m["id"].lower()) and not SKIP.search(m["id"].lower())]
+        return rank([i for i in ids if i.endswith("-latest")] or ids, MISTRAL_PREFER)
     if provider.key == "openrouter":
         def free(m: dict) -> bool:
             price = m.get("pricing") or {}
@@ -111,6 +138,55 @@ def choose(provider: Provider, listing: list[dict]) -> list[str]:
     return rank([i for i in ids if any(name in i.lower() for name in PREFER)])
 
 
+def mistral_id(call_id: str) -> str:
+    """A tool call id Mistral accepts: nine letters or digits. Ids from the other brains (Gemini, Groq, NVIDIA)
+    are longer, so each becomes a fixed nine-character hash, the same on the call and on its result."""
+    call_id = str(call_id or "")
+    return call_id if MISTRAL_ID.match(call_id) else hashlib.sha1(call_id.encode()).hexdigest()[:9]
+
+
+def pictures_in(message: dict) -> list[tuple[str, str]]:
+    """(media type, base64 data) of the pictures in a Claude-format user message: sent in the app, or inside a
+    tool result (a screenshot a tool just took)."""
+    out = []
+    content = message.get("content")
+    for b in (content if isinstance(content, list) else []):
+        blocks = [b] if _get(b, "type") == "image" else (_get(b, "content") or []) if _get(b, "type") == "tool_result" else []
+        for img in (blocks if isinstance(blocks, list) else []):
+            source = _get(img, "source") or {}
+            if _get(img, "type") == "image" and _get(source, "type") == "base64":
+                out.append((_get(source, "media_type") or "image/jpeg", _get(source, "data")))
+    return out
+
+
+def mistral_chat(system: str, messages: list, sees: bool) -> list[dict]:
+    """OpenAI-style chat for Mistral: nine-character tool call ids, the newest pictures as image parts when the
+    model sees (otherwise the note that it cannot), and no two user messages in a row."""
+    chat = groq.to_messages(system, messages)
+    for m in chat:
+        for c in m.get("tool_calls") or []:
+            c["id"] = mistral_id(c["id"])
+        if m.get("role") == "tool":
+            m["tool_call_id"] = mistral_id(m["tool_call_id"])
+    if sees and messages and messages[-1].get("role") == "user":
+        pictures = pictures_in(messages[-1])[-2:]  # the newest two: a screen frame is big
+        if pictures:
+            if chat[-1]["role"] == "user" and isinstance(chat[-1]["content"], str):
+                chat[-1]["content"] = chat[-1]["content"].replace(groq.NO_EYES, "(The picture is attached.)")
+            chat.append({"role": "user", "content": [
+                {"type": "text", "text": "(The pictures from the last step.)"},
+                *({"type": "image_url", "image_url": {"url": f"data:{kind};base64,{data}"}} for kind, data in pictures)]})
+    merged: list[dict] = []
+    for m in chat:
+        last = merged[-1] if merged else None
+        if (last and m["role"] == "user" == last["role"] and isinstance(m["content"], str)
+                and isinstance(last["content"], str)):
+            last["content"] = f"{last['content']}\n\n{m['content']}"
+        else:
+            merged.append(m)
+    return merged
+
+
 class FreeBrain:
     """Answers Claude-format requests (see brain.Jarvis._request) with one provider's free models."""
 
@@ -124,6 +200,7 @@ class FreeBrain:
         self.slow: dict[str, int] = {}  # model -> how many times it ran out of time (until it answers again)
         self.resting: dict[str, float] = self._load()  # model ("*" = all of them) -> when it may be asked again
         self._listed: tuple[float, list[str]] = (0.0, [])
+        self.sees: set[str] = set()  # Mistral's models that see pictures (from the listing)
         self.timeouts: list[float] = []  # when answers ran out of time lately (a slow queue, not one slow model)
 
     def _load(self) -> dict[str, float]:
@@ -165,12 +242,18 @@ class FreeBrain:
         if time.time() < at:
             return models
         try:
-            models = choose(self.provider, self._get())
+            raw = self._get()
+            models = choose(self.provider, raw)
+            vision = {m["id"] for m in raw if m.get("id") and can(m, "vision")}
+            self.sees = {m for m in models if m in vision} if self.provider.key == "mistral" else set()
             until = time.time() + 6 * 3600
         except Exception as exc:
             log.warning("could not read %s's models: %s", self.provider.name, exc)
             models, until = [], time.time() + 600
-        models = models or list(self.provider.fallback)
+        if not models:
+            models = list(self.provider.fallback)
+            if self.provider.key == "mistral":
+                self.sees = {m for m in models if m.startswith(MISTRAL_SEES)}
         self._listed = (until, models)
         return models
 
@@ -188,13 +271,15 @@ class FreeBrain:
         if not isinstance(system, str):
             system = "\n\n".join(_get(b, "text", "") for b in system)
         declared = groq.to_tools(tools, only=None)
-        room = BUDGET - len(system) - len(json.dumps(declared, ensure_ascii=False))
-        chat = groq.trim(groq.to_messages(system, messages), max(room, 8000))
+        room = max(BUDGET - len(system) - len(json.dumps(declared, ensure_ascii=False)), 8000)
+        chat = groq.trim(groq.to_messages(system, messages), room)
         self.timeout = TIMEOUT if declared else QUICK_TIMEOUT
         last, tried = "no model to ask", 0
         for current in self.models(model):
             if tried >= TRIES:
                 break
+            if p.key == "mistral":
+                chat = groq.trim(mistral_chat(system, messages, current in self.sees), room)
             body = {"model": current, "messages": chat, "max_tokens": min(max_tokens, 4096)}
             if declared:
                 body.update(tools=declared, tool_choice="auto")
