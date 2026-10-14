@@ -108,6 +108,30 @@ def test_a_latin_message_reaches_the_brain_with_a_cyrillic_hint(settings, ctx, r
     assert "Написано на латиница" not in str(ctx.store.history("main", 10))  # the hint is not kept
 
 
+def test_done_right_after_a_click_gets_a_look_first(settings, ctx, registry, monkeypatch):
+    """The laptop, 01:16: after clicking "File name:" in a still-open dialog Jarvis said "Готово! Качих всички 5
+    презентации". A claim right after a blind step on the screen now gets one more step: look, then answer."""
+    from jarvis.brain import SEEN_CHECK
+
+    client = FakeClient([
+        response(tool_block("click_text", {"window": "Avast", "text": "Open"}), stop="tool_use"),
+        response(text_block("Готово, Готин! Качих всички файлове.")),  # claims done without a look
+        response(tool_block("read_window", {"window": "Avast"}, id="tu_2"), stop="tool_use"),
+        response(text_block("Не е качено: диалогът за файлове е още отворен. Да избера ли файловете по пътя им?")),
+    ])
+    monkeypatch.setattr(Jarvis, "run_tool", lambda self, name, *a, **k: (f"{name}: the dialog shows File name:", False))
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert jarvis.ask("качи файловете в NotebookLM").startswith("Не е качено")
+    assert client.requests[2]["messages"][-1]["content"] == SEEN_CHECK and len(client.requests) == 4
+    assert SEEN_CHECK[:20] not in str(ctx.store.history("main", 10))
+    # after a look (read_window) the claim stands, and the check is asked once only
+    client.responses = [response(tool_block("click_text", {"window": "Avast", "text": "Open"}), stop="tool_use"),
+                        response(tool_block("read_window", {"window": "Avast"}, id="tu_2"), stop="tool_use"),
+                        response(text_block("Готово: бележникът показва 5 източника."))]
+    client.requests.clear()
+    assert jarvis.ask("качи файловете в NotebookLM").startswith("Готово") and len(client.requests) == 3
+
+
 def test_done_after_a_failed_step_gets_a_second_look(settings, ctx, registry):
     client = FakeClient([
         response(tool_block("read_file", {"path": "/nowhere/none.txt"}), stop="tool_use"),  # fails

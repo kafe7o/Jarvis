@@ -207,6 +207,15 @@ DONE_CHECK = ("(Check before you answer: your last step(s) failed: {failed}. Not
               "say that it is done, sent, started or saved. Either make it work now, another way if needed, or tell me "
               "plainly what failed and what you suggest. If your answer already says that, give it again unchanged. "
               "Never mention this check in your answer.)")
+# Said to the agent when it claims something is done right after a blind step on the screen (a click, a key),
+# without having looked at the result. The laptop, 01:16: "Готово! Качих всички 5 презентации" after clicking
+# "File name:" in a dialog that was still open; nothing had been uploaded.
+SEEN_CHECK = ("(Check before you answer: you say it is done, but your last step was a click or a keystroke, and a "
+              "claim needs a look. Look now at the window you worked in (read_window, or look_at_screen when it has "
+              "no words) and compare what you see with my request. Answer only from what you see: done, with what "
+              "proves it, or plainly what is not done and what you suggest. Never say it is done on trust; never "
+              "mention this check in your answer.)")
+SCREEN_ACTIONS = {"click_text", "control_input"}  # blind steps: their effect shows only on the screen afterwards
 # An answer that claims success, in Bulgarian (Cyrillic or Latin letters) or English.
 CLAIMS_DONE = re.compile(router.bg(r"готово|направих|изпратих|пратих|пуснах|записах|запазих|създадох|сложих|включих|"
                                    r"изключих|отворих|изпълних|свърших|успях|готов[аио]? е|е направен|инсталирах|"
@@ -1160,7 +1169,8 @@ class Jarvis:
         texts: list[str] = []
         acted = False
         failed: list[str] = []  # the tools that failed in the last round of steps (empty when it went well)
-        checked_done = False
+        last_tools: list[str] = []  # the tools of the last round of steps
+        checked_done = checked_seen = False
         pushed = not (insist or verify)  # told to do something: one "Готов?" / "да продължа ли?" gets pushed on
         previous, repeated = last_answer(messages), False  # a copy of the previous answer gets one more look
         verified: list[str] | None = None  # the answer before the final check, while its reply is awaited
@@ -1205,6 +1215,12 @@ class Jarvis:
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
                     messages.append({"role": "user", "content": DONE_CHECK.format(failed=", ".join(failed))})
                     continue
+                if not checked_seen and set(last_tools) & SCREEN_ACTIONS and claims_done(" ".join(texts)):
+                    # "Готово" right after a click or a key, with no look at the result: once more, looking first
+                    checked_seen = True
+                    messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
+                    messages.append({"role": "user", "content": SEEN_CHECK})
+                    continue
                 if verify and acted:  # a mission: the whole result is checked against the goal before it counts
                     verify = False
                     verified = list(texts)
@@ -1218,6 +1234,7 @@ class Jarvis:
 
             results = []
             failed = []
+            last_tools = [b.name for b in response.content if b.type == "tool_use"]
             for block in response.content:
                 if block.type != "tool_use":
                     continue
