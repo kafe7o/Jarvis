@@ -401,3 +401,20 @@ def test_a_google_search_moves_to_the_next_model_when_one_is_used_up():
     client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
     assert gemini.search("следващ мач на Левски", client=client) == "Левски играе в четвъртък."
     assert asked == gemini.FREE_MODELS[:2]
+
+
+def test_when_gemini_cannot_search_the_results_come_from_duckduckgo(registry, monkeypatch):
+    """On the laptop google_search failed on every try, and the brain spent ten steps on other sites instead."""
+    from jarvis.plugins import daily
+    from conftest import Approver
+
+    def broken(query, model=None, client=None):
+        raise errors.ClientError(429, {"error": {"code": 429, "message": "quota"}})
+
+    page = ('<div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flevski.bg'
+            '%2Fmatches&amp;rut=x">Програма на <b>Левски</b></a><a class="result__snippet" href="x">Левски - НЕК, '
+            'четвъртък 22:00</a></div>')
+    monkeypatch.setattr(gemini, "search", broken)
+    monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None: page)
+    out, err = registry.run("google_search", {"query": "следващ мач на Левски"}, Approver())
+    assert not err and "- Програма на Левски (https://levski.bg/matches): Левски - НЕК, четвъртък 22:00" in out
