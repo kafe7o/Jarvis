@@ -683,6 +683,16 @@ CORRECTS = rx(r"(?:^|\s)(?:не (?:така|това|е така|е това|с�
               r"грешно|сбърка|казах ти|пак не|отново не|защо не|не правиш|не върши)(?=\s|$|[,.!?])")
 
 
+# The owner is pleased with how the last task went ("евала", "браво", "точно така"): the way it was done is kept.
+PRAISES = rx(r"^(?:евала|браво|точно така|така се прави|супер|перфектно|страхотно|идеално|много добре|добра работа|"
+             r"отлично|това е|да,? така|exactly|well done|perfect|great)(?: (?:бе|брат|бате|джарвис|jarvis|си|е))?[!. ]*$")
+
+
+def praises(text: str) -> bool:
+    """The whole message is praise for the last task ("евала", "браво"): worth keeping the way it was done."""
+    return bool(PRAISES.match(clean(text)))
+
+
 def corrects(text: str) -> bool:
     """The owner says Jarvis got something wrong ("не така", "казах ти", "пак не стана"): worth a lesson."""
     return bool(CORRECTS.search(clean(text)))

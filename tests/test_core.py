@@ -493,6 +493,54 @@ def test_review_myself_shows_what_failed_and_learn_keeps_lessons(settings, ctx, 
     assert "Already" in out
 
 
+def test_a_task_that_struggled_then_worked_becomes_a_recipe_he_follows_next_time(settings, ctx, registry):
+    from conftest import Approver
+    from jarvis import recipes
+
+    settings.learn = True
+    struggled = [("click_text", {"target": "Upload"}, "no such text on the screen", True),
+                 ("press_keys", {"keys": "ctrl+o"}, "pressed", False),
+                 ("control_input", {"text": "C:\\x.pdf"}, "typed", False)]
+    assert recipes.worth_it(struggled, "Готово, качих файла в NotebookLM.")
+    assert not recipes.worth_it(struggled[1:], "Готово, качих файла.")  # went smoothly: nothing new to keep
+    assert not recipes.worth_it(struggled[::-1], "Не успях да кача файла.")  # ended badly: a lesson, not a recipe
+    client = FakeClient([response(text_block(
+        "Качване на файлове в NotebookLM през браузъра\n1. Отвори бележника и натисни „Добави източник“.\n"
+        "2. Натисни Ctrl+O и напиши пълния път на файла.\n3. Провери екрана, че файлът се вижда.\n"
+        "Избягвай: да търсиш бутон Upload по име."))])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    assert jarvis.make_recipe("качи тези pdf-и в notebooklm в нов бележник", struggled, "Готово, качих файла.") \
+        == "Качване на файлове в NotebookLM през браузъра"
+    assert "NotebookLM" in recipes.listing(ctx.store)
+    assert recipes.matching(ctx.store, "kachi tezi pdf-i v notebooklm v nov belejnik")  # Latin typing finds it too
+    assert not recipes.matching(ctx.store, "какво е времето в София")
+    client.responses.append(response(text_block("Готово, качих ги.")))
+    jarvis.ask("качи тези файлове в notebooklm")
+    sent = client.requests[-1]["messages"][-1]["content"]
+    assert "Натисни Ctrl+O" in sent and "do not mention them" in sent  # the recipe goes with the request
+    assert all("Ctrl+O" not in r["content"] for r in ctx.store.history("main"))  # but not into the saved talk
+    ctx.jarvis = jarvis
+    out, err = registry.run("review_myself", {}, Approver())
+    assert not err and "Качване на файлове в NotebookLM" in out
+
+
+def test_praise_keeps_the_way_the_last_task_was_done(settings, ctx, registry):
+    from jarvis import router
+
+    assert router.praises("евала") and router.praises("Браво бе!") and router.praises("tochno taka")
+    assert not router.praises("евала, сега отвори пощата") and not router.praises("браво на теб, но пак не работи")
+    settings.learn = True
+    client = FakeClient([response(tool_block("list_tasks", {}), stop="tool_use"), response(text_block("Ето ги.")),
+                         response(text_block("Благодаря, сър."))])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    kept = []
+    jarvis.recipe_later = lambda request, steps, answer: kept.append(request)
+    jarvis.ask("покажи ми задачите")
+    assert kept == []  # it went smoothly, so nothing was kept on its own
+    jarvis.ask("евала")
+    assert kept == ["покажи ми задачите"]  # the owner's praise says the way was right: it is kept
+
+
 def test_update_reads_a_private_repository_with_the_owners_token(monkeypatch):
     """When the repository is private the public zip is gone (404); the API zip with the token works instead."""
     import io
