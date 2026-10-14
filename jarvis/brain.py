@@ -329,7 +329,7 @@ def claude_unusable(exc: Exception) -> bool:
 
 
 class BudgetReached(RuntimeError):
-    """Claude's daily spending cap (JARVIS_DAILY_BUDGET) is reached and no free brain is set up."""
+    """The daily spending cap for paid brains (JARVIS_DAILY_BUDGET) is reached and no free brain is set up."""
 
 
 # Which tools a free brain gets for one request. Claude takes all of them (they are cached); the free brains do
@@ -494,9 +494,10 @@ def keep_brain(model: str) -> None:
         log.warning("could not save the brain in .env: %s", exc)
 
 
-def free_brain() -> str | None:
-    """The strongest free brain that is set up: Mistral, NVIDIA, OpenRouter, Gemini, Groq (None when there is none)."""
-    strong = next((key for key in freeapi.PROVIDERS if freeapi.available(key)), None)
+def free_brain(paid: bool = True) -> str | None:
+    """The strongest brain that is set up besides Claude: Mistral (paid per token, unless ``paid`` is False),
+    NVIDIA, OpenRouter, Gemini, Groq (None when there is none)."""
+    strong = next((key for key in freeapi.PROVIDERS if freeapi.available(key) and (paid or key not in freeapi.PAID)), None)
     if strong:
         return strong
     if gemini.available():
@@ -637,12 +638,13 @@ class Jarvis:
                                   effort if hard_step(messages) else "low", images=has_images(messages))
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
-        strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # Mistral, NVIDIA, OpenRouter: the strongest free ones
+        providers = self.affordable()  # Mistral (while under the daily cap), NVIDIA, OpenRouter
+        strong = [k for k in providers if freeapi.available(k)]  # the ones with a key: the strongest free ones
         sees = has_images(messages)  # a picture in the message: Gemini sees it, NVIDIA/OpenRouter/Groq do not
         if groq.is_groq(model):
-            order = [model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, "local"]
+            order = [model, *strong, gemini.DEFAULT_MODEL, *providers, "local"]
         elif model.startswith("gemini"):
-            order = [model, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
+            order = [model, *providers, groq.DEFAULT_MODEL, "local"]
             if tools and len(tools) > len(WEB_TOOLS) and model == gemini.DEFAULT_MODEL and not sees:
                 # Real work on the default brain: Gemini Flash first while its free requests last (it sees the
                 # screen and carries a task), then the strong free models of NVIDIA or OpenRouter, then Flash-Lite,
@@ -653,7 +655,10 @@ class Jarvis:
                 if self.flash_ready() and not is_background(messages):
                     order = [gemini.AGENT_MODEL, *order]
         elif freeapi.is_free_api(model):
-            order = [model, *strong, gemini.DEFAULT_MODEL, *freeapi.PROVIDERS, groq.DEFAULT_MODEL, "local"]
+            first = [model] if brain_kind(model) in providers else []  # a paid brain past the cap: a free one answers
+            if not first:
+                log.info("the daily cap is reached; a free brain answers instead of %s", model)
+            order = [*first, *strong, gemini.DEFAULT_MODEL, *providers, groq.DEFAULT_MODEL, "local"]
         else:
             order = None
         if order is not None:
@@ -663,7 +668,7 @@ class Jarvis:
             return self._ask_free(order, system, messages, tools, max_tokens, effort, images=sees)
         free = self.free_instead()
         if free:
-            log.info("Claude's daily cap is reached; %s answers instead", free)
+            log.info("the daily cap is reached; %s answers instead of Claude", free)
             return self._request(messages, user, system, allowed, model=free, **again)
         claude_tools = [t for t in tools if t["name"] not in gemini.ONLY_FOR_GEMINI]
         if claude_tools and (allowed is None or "web" in allowed):
@@ -687,23 +692,24 @@ class Jarvis:
         """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
         in the middle of a task too.
         A picture goes to Gemini (it sees), then Mistral (sees too); a short answer to Groq (the fastest); a hard
-        step (hard_step) to the smartest quick brain (Gemini Flash while its day lasts, then Mistral, else
-        Flash-Lite thinking fully); everyday work to Mistral (a few seconds a step, strong with tools, no daily
-        cap) and without its key to Gemini Flash-Lite. The others follow when one is overloaded or used up.
-        Only the brains with a key in .env are asked."""
-        strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]
-        quick = [k for k in strong if k in freeapi.QUICK]  # Mistral
+        step (hard_step) to the smartest quick brain (Gemini Flash while its day lasts, then Mistral Medium, else
+        Flash-Lite thinking fully); everyday work to Mistral Small (a few seconds a step, strong with tools, a
+        tenth of Medium's price) and without its key or past the daily cap to Gemini Flash-Lite. The others follow
+        when one is overloaded or used up. Only the brains with a key in .env are asked."""
+        strong = [k for k in self.affordable() if freeapi.available(k)]
+        cheap = [freeapi.MISTRAL_CHEAP] if "mistral" in strong else []
+        best = [freeapi.MISTRAL_BEST] if "mistral" in strong else []
         slow = [k for k in strong if k not in freeapi.QUICK]  # NVIDIA and OpenRouter come last: 20-45 s a step
         flash = [gemini.AGENT_MODEL] if self.flash_ready() and not is_background(messages) else []
         lite, fast = gemini.QUICK_MODEL, groq.DEFAULT_MODEL
         if has_images(messages):
-            order = [lite, *flash, *quick, fast, *slow]
+            order = [lite, *flash, *best, fast, *slow]
         elif not tools:
-            order = [fast, *quick, lite, *slow]
+            order = [fast, *cheap, lite, *slow]
         elif hard_step(messages):
-            order = [*flash, *quick, gemini.DEFAULT_MODEL, fast, *slow]
+            order = [*flash, *best, gemini.DEFAULT_MODEL, fast, *slow]
         else:
-            order = [*quick, lite, fast, *slow]
+            order = [*cheap, lite, fast, *slow]
         order = [m for m in [*order, *backups()] if self._ready(m)] or ["local"]
         log.info("auto brain: %s", order[0])
         return list(dict.fromkeys(order))
@@ -711,7 +717,18 @@ class Jarvis:
     def _ready(self, model: str) -> bool:
         kind = brain_kind(model)
         return (groq.available() if kind == "groq" else local.available() if kind == "local"
-                else freeapi.available(model) if kind in self.free_apis else gemini.available())
+                else freeapi.available(model) and kind in self.affordable() if kind in self.free_apis
+                else gemini.available())
+
+    def under_cap(self) -> bool:
+        """Whether today's spending on paid brains (Claude, Mistral) is still under the daily cap."""
+        cap = self.settings.budget()
+        return cap is None or usage.spent_today(self.store) < cap
+
+    def affordable(self) -> list[str]:
+        """The API providers Jarvis may ask now: the free ones always, the paid ones (Mistral) under the cap."""
+        under = self.under_cap()
+        return [k for k in freeapi.PROVIDERS if k not in freeapi.PAID or under]
 
     def flash_ready(self) -> bool:
         """True while Gemini's agent model (Flash) still has free requests today and is not resting."""
@@ -722,13 +739,12 @@ class Jarvis:
 
     def free_instead(self) -> str | None:
         """A free brain to use instead of Claude once today's spending reached the cap (JARVIS_DAILY_BUDGET)."""
-        cap = self.settings.budget()
-        if cap is None or usage.spent_today(self.store) < cap:
+        if self.under_cap():
             return None
-        free = free_brain() or ("local" if local.available() else None)
+        free = free_brain(paid=False) or ("local" if local.available() else None)
         if free:
             return free
-        raise BudgetReached(f"Claude's daily cap of ${cap:g} is reached and no free brain is set up.")
+        raise BudgetReached(f"The daily cap of ${self.settings.budget():g} is reached and no free brain is set up.")
 
     def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str,
                   images: bool = False) -> object:
@@ -743,9 +759,7 @@ class Jarvis:
                 kind = brain_kind(model)
                 if images and kind in BLIND:
                     continue
-                ready = (groq.available() if kind == "groq" else local.available() if kind == "local"
-                         else freeapi.available(model) if kind in self.free_apis else gemini.available())
-                if kind in asked or (i and not ready):
+                if kind in asked or (i and not self._ready(model)):
                     continue
                 if kind in self.free_apis and not self.free_apis[kind].models(model):
                     continue  # every model of this provider rests (too slow or used up today): quietly the next one

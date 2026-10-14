@@ -79,6 +79,11 @@ class Answer:
     usage: dict | None = None  # tokens, for the app's "Разход" tab (see usage.py)
 
 
+def brain_note(name: str, model: str) -> str:
+    """Told to every brain, so Jarvis never guesses which model he runs on (Mistral once said "Opus 5.5")."""
+    return f"\n\nThe brain answering right now is {name} ({model}). Asked which model or brain you run on, say exactly that."
+
+
 def _get(block, key, default=None):
     return block.get(key, default) if isinstance(block, dict) else getattr(block, key, default)
 
@@ -295,6 +300,7 @@ class GeminiBrain:
         )
         busy = empty = None
         for current in self.models(model, agent=bool(tools)):
+            config.system_instruction = system + brain_note("Gemini", current)
             contents = to_contents(messages, current)
             for attempt in range(3):
                 try:

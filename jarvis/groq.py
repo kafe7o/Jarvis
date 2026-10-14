@@ -18,9 +18,10 @@ import urllib.error
 import urllib.request
 import uuid
 
-from .gemini import Answer, Block, Reply, _get, _text_of
+from .gemini import Answer, Block, Reply, _get, _text_of, brain_note
 from .local import LOCAL_TOOLS
 from .tools import normalize_schema
+
 
 log = logging.getLogger("jarvis.groq")
 
@@ -88,20 +89,31 @@ def to_messages(system: str, messages: list) -> list[dict]:
     return out
 
 
+CUT = 1500  # characters an old tool result keeps when the current task alone is too big for the room
+
+
 def trim(chat: list[dict], room: int) -> list[dict]:
-    """Keep the system prompt and as much of the end of the conversation as fits ``room`` characters,
-    starting at one of the person's own messages so every tool call keeps its result."""
+    """Keep the system prompt and as much of the end of the conversation as fits ``room`` characters, starting
+    at one of the person's own messages so every tool call keeps its result. When the current task alone (from
+    the person's last message) is too big, its oldest tool results are cut to CUT characters instead of dropping
+    messages: the laptop's mission, 00:32, sent Mistral a tool result right after the system prompt and got
+    "Unexpected role 'tool' after role 'system'" from every model."""
     size = lambda m: len(m.get("content") or "") + len(json.dumps(m.get("tool_calls") or "", ensure_ascii=False))
     system, rest = chat[0], chat[1:]
-    total = sum(size(m) for m in rest)
-    start = 0
-    while total > room and start < len(rest) - 1:
-        total -= size(rest[start])
-        start += 1
-        while start < len(rest) - 1 and rest[start]["role"] != "user":
-            total -= size(rest[start])
-            start += 1
-    return [system, *rest[start:]]
+    starts = [i for i, m in enumerate(rest) if m["role"] == "user"] or [0]
+    for start in starts:
+        if sum(size(m) for m in rest[start:]) <= room:
+            return [system, *rest[start:]]
+    kept = [dict(m) for m in rest[starts[-1]:]]
+    total = sum(size(m) for m in kept)
+    for m in kept:  # the oldest results first; the newest keeps as much as possible
+        if total <= room:
+            break
+        if m["role"] == "tool" and isinstance(m.get("content"), str) and len(m["content"]) > CUT:
+            total -= len(m["content"]) - CUT - 8
+            m["content"] = m["content"][:CUT] + " …(cut)"
+    return [system, *kept]
+
 
 
 def to_tools(tools: list, only: set | None = LOCAL_TOOLS) -> list[dict]:
@@ -159,7 +171,7 @@ class GroqBrain:
         for current in self.models(model):
             budget, cap, broken = self.fits.get(current, BUDGET), (2048 if declared else 1500), False
             for attempt in range(3):
-                body = {"model": current, "messages": fit(system, messages, declared, budget),
+                body = {"model": current, "messages": fit(system + brain_note("Groq", current), messages, declared, budget),
                         "max_tokens": min(max_tokens, cap)}
                 if declared:
                     body.update(tools=declared, tool_choice="auto")

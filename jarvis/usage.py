@@ -14,12 +14,19 @@ PRICES = {
     "claude-fable-5-1": (10.0, 50.0, 0.25, 12.5),
     "claude-sonnet-5-5": (2.0, 10.0, 0.20, 2.5),
     "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125),
+    # Mistral is paid per token once its free month is spent (the owner turned payment on 2026-10-14): Medium 3.5
+    # costs about what Claude Sonnet does, Small 4 a tenth of that. "large" is priced like the dearer Large 4
+    # preview and any other Mistral model like Medium, so the sum is never too low. (benchlm.ai, October 2026.)
+    "mistral:mistral-medium": (1.50, 7.50, 0.0, 0.0),
+    "mistral:mistral-large": (1.36, 4.18, 0.0, 0.0),
+    "mistral:mistral-small": (0.15, 0.60, 0.0, 0.0),
+    "mistral": (1.50, 7.50, 0.0, 0.0),
 }
 
 
 def free(model: str) -> bool:
-    """The free tiers (Gemini, Groq, Mistral, NVIDIA, OpenRouter) and the brain on this computer cost nothing."""
-    return model.startswith(("gemini", "groq", "local", "mistral", "nvidia", "openrouter"))
+    """The free tiers (Gemini, Groq, NVIDIA, OpenRouter) and the brain on this computer cost nothing."""
+    return model.startswith(("gemini", "groq", "local", "nvidia", "openrouter"))
 
 
 def price(model: str) -> tuple[float, float, float, float]:
@@ -56,7 +63,7 @@ def record(store, response, model: str) -> None:
 
 
 def spent_today(store) -> float:
-    """US dollars spent on paid brains today (for the daily cap, JARVIS_DAILY_BUDGET)."""
+    """US dollars spent on the paid brains (Claude, Mistral) today, for the daily cap (JARVIS_DAILY_BUDGET)."""
     rows = store.query("SELECT model, input, output, cache_read, cache_write FROM usage WHERE created >= ?",
                        (datetime.now().date().isoformat(),))
     return sum(cost(r["model"], r["input"], r["output"], r["cache_read"], r["cache_write"]) for r in rows)

@@ -397,10 +397,14 @@ def test_mistral_is_the_best_free_brain_and_speaks_its_dialect(settings, ctx, re
     assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних."
     first, second = fake.bodies
     assert first["model"] == "mistral-medium-latest" and first["tool_choice"] == "auto"
+    assert "The brain answering right now is Mistral (mistral-medium-latest)" in first["messages"][0]["content"]
     assert second["messages"][-1] == {"role": "tool", "tool_call_id": "Ab3dE6gH9", "content": "Remembered (id 1)."}
     assert brain.sees == {"mistral-medium-latest", "mistral-small-latest"}
     assert {r["model"] for r in ctx.store.query("SELECT model FROM usage")} == {"mistral:mistral-medium-latest"}
-    assert usage.price("mistral:mistral-medium-latest") == (0, 0, 0, 0)
+    # paid per token (the free month runs out fast): priced, counted and held to the daily cap like Claude
+    assert usage.price("mistral:mistral-medium-latest") == (1.5, 7.5, 0, 0) and not usage.free("mistral:mistral-small-latest")
+    assert usage.price("mistral:mistral-small-latest") == (0.15, 0.6, 0, 0) and usage.price("mistral:labs-x")[0] == 1.5
+    assert round(usage.spent_today(ctx.store), 4) == round(2 * (9000 * 1.5 + 40 * 7.5) / 1e6, 4)
     # ids from Gemini or NVIDIA become a fixed nine-character hash, the same on the call and on its result
     history = [{"role": "user", "content": "виж"},
                {"role": "assistant", "content": [{"type": "tool_use", "id": "call_gemini_123456", "name": "look_at_screen", "input": {}}]},
@@ -464,11 +468,19 @@ def test_auto_runs_everyday_steps_on_mistral_and_pictures_on_gemini_first(settin
     monkeypatch.setattr(jarvis, "flash_ready", lambda: False)
     tools = registry.definitions(None)
     ask = [{"role": "user", "content": "направи го"}]
-    assert jarvis.auto_order(ask, tools)[:3] == ["mistral", gemini.QUICK_MODEL, groq.DEFAULT_MODEL]
-    assert jarvis.auto_order(ask, [])[:2] == [groq.DEFAULT_MODEL, "mistral"]
+    cheap, best = freeapi.MISTRAL_CHEAP, freeapi.MISTRAL_BEST  # Small for everyday steps, Medium for hard ones
+    assert jarvis.auto_order(ask, tools)[:3] == [cheap, gemini.QUICK_MODEL, groq.DEFAULT_MODEL]
+    assert jarvis.auto_order(ask, [])[:2] == [groq.DEFAULT_MODEL, cheap]
+    hard = ask + [{"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "open_page", "input": {}}]},
+                  {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "page not found", "is_error": True}]}]
+    assert jarvis.auto_order(hard, tools)[0] == best
+    # the daily cap (JARVIS_DAILY_BUDGET) now covers Mistral: at the cap the free brains do every step
+    settings.daily_budget = "0"
+    assert "mistral" not in " ".join(jarvis.auto_order(ask, tools)) and jarvis.auto_order(ask, tools)[0] == gemini.QUICK_MODEL
+    settings.daily_budget = "1"
     picture = [{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "x"}},
                                             {"type": "text", "text": "какво е това"}]}]
-    assert jarvis.auto_order(picture, tools)[:2] == [gemini.QUICK_MODEL, "mistral"]
+    assert jarvis.auto_order(picture, tools)[:2] == [gemini.QUICK_MODEL, best]
     assert jarvis.auto_order(ask, tools)[-2:] == ["nvidia", "local"] or "nvidia" in jarvis.auto_order(ask, tools)[-2:]
     out, err = registry.run("switch_brain", {"brain": "mistral"}, Approver())
     assert not err and settings.model == "mistral"

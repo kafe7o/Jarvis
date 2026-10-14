@@ -51,7 +51,12 @@ PROVIDERS = {
                            "openrouter.ai/keys", ("openrouter/free",)),
 }
 QUICK = {"mistral"}  # providers that answer a tool step in a few seconds (the others take 20-45 s on a free key)
-# Mistral's chat brains, best first: Medium (fast, strong with tools), Large (smarter, slower), Small. Only these
+PAID = {"mistral"}  # charged per token (see usage.PRICES): counted and held to the daily cap like Claude
+# What Авто asks Mistral for: the cheap Small for everyday steps (a tenth of Medium's price), Medium for a hard
+# step or a picture. "-latest" names are stable; the listing supplies the fallbacks.
+MISTRAL_CHEAP = "mistral:mistral-small-latest"
+MISTRAL_BEST = "mistral:mistral-medium-latest"
+# Mistral's chat brains, best first: Medium (fast, strong with tools), Large (slower), Small (cheap). Only these
 # families are asked: the first live run picked up "mistral-code-latest" and "mistral-vibe-cli-latest" (coding and
 # terminal models, which answered every turn with the same apology), so a model outside them is never a brain.
 MISTRAL_PREFER = ("mistral-medium", "mistral-large", "mistral-small")
@@ -281,14 +286,14 @@ class FreeBrain:
             system = "\n\n".join(_get(b, "text", "") for b in system)
         declared = groq.to_tools(tools, only=None)
         room = max(BUDGET - len(system) - len(json.dumps(declared, ensure_ascii=False)), 8000)
-        chat = groq.trim(groq.to_messages(system, messages), room)
         self.timeout = TIMEOUT if declared else QUICK_TIMEOUT
         last, tried = "no model to ask", 0
         for current in self.models(model):
             if tried >= TRIES:
                 break
-            if p.key == "mistral":
-                chat = groq.trim(mistral_chat(system, messages, current in self.sees), room)
+            told = system + groq.brain_note(p.name, current)
+            chat = groq.trim(mistral_chat(told, messages, current in self.sees) if p.key == "mistral"
+                             else groq.to_messages(told, messages), room)
             body = {"model": current, "messages": chat, "max_tokens": min(max_tokens, 4096)}
             if declared:
                 body.update(tools=declared, tool_choice="auto")
