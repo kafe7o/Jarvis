@@ -413,3 +413,21 @@ def test_a_search_that_asks_something_goes_to_the_ai_for_the_answer():
     """„Потърси в Google колко струва бензинът“ only opened Google: the owner wants the price said."""
     assert steps("Потърси в Google колко струва литър бензин А95 в България днес") is None
     assert steps("отвори google и потърси рецепта за мусака")[0][0] == "open_target"
+
+
+def test_change_the_voice_by_saying_so(routed, ctx, registry, tmp_path, monkeypatch):
+    from jarvis import tts
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_TTS_VOICE", raising=False)
+    ctx.settings.tts_voice = "bg-BG-BorislavNeural"
+    client = FakeClient([])
+    jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=client)
+    assert jarvis.ask("смени гласа").startswith("Вече говоря с гласа Калина")  # the next one, never the same
+    assert ctx.settings.tts_voice == "bg-BG-KalinaNeural" and client.requests == []
+    assert jarvis.ask("smeni glasa na andrew").startswith("Вече говоря с гласа Andrew")
+    assert ctx.settings.tts_voice == "en-US-AndrewMultilingualNeural"
+    assert jarvis.ask("сложи женски глас").startswith("Вече говоря с гласа Ava")
+    assert tts.find_voice("глупост", "bg-BG-BorislavNeural") is None
+    assert tts.find_voice("андрю", "")[0] == "en-US-AndrewMultilingualNeural"

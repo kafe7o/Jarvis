@@ -138,6 +138,9 @@ REPLY_ON = rx(r"^(?:отговаряй|отговарай) (?:вместо ме�
               r"^(?:включи|пусни) (?:автоматичните )?отговори(?:те)?(?: на съобщенията)?$")
 REPLY_OFF = rx(r"^(?:спри|престани|изключи) (?:да отговаряш|автоматичните отговори|отговорите)(?: вместо мен| на съобщенията)?$|"
                r"^не отговаряй (?:вместо мен|на съобщенията)$")
+# „смени гласа“, „сложи женски глас“, „смени гласа на Калина“, „искам друг глас“: straight to switch_voice, no AI.
+VOICE = rx(r"^(?:смени|сложи|промени|избери|пусни|искам|дай)(?: ми| си)? (?:(друг|нов|мъжки|женски|по-добър|по-хубав) )?"
+           r"глас(?:а|ът)?(?: си)?(?: (?:на|с|със|да е) ([^\s,.!?]+))?$")
 UNDO_UPGRADE = rx(r"^(?:върни|отмени|махни)(?: последната| си)? (?:надстройка(?:та)?|промяна(?:та)?)(?: (?:на|в) себе си)?$")
 UPDATE_SELF = rx(r"^(?:обнови се|ъпдейтни се|самоъпдейтни се|обнови (?:jarvis|джарвис)|"
                  r"провери за (?:нова версия|обновления|ъпдейт))$")
@@ -298,6 +301,9 @@ def _talk(s: str, info: Info) -> Step | None:
         return Step(lambda _o: info.spending() or "Днес не съм похарчил нищо.")
     if (REPLY_ON.match(s) or REPLY_OFF.match(s)) and info.owner:  # „отговаряй вместо мен“ (replies.py)
         return Step(lambda out: out, "auto_reply", {"action": "on" if REPLY_ON.match(s) else "off"})
+    voice = VOICE.match(s)
+    if voice and info.owner:
+        return Step(lambda out: out, "switch_voice", {"voice": voice.group(2) or voice.group(1) or "друг"})
     if UNDO_UPGRADE.match(s) and info.owner:  # works even when an upgrade broke the AI part (upgrades.py)
         return Step(lambda out: out, "undo_upgrade", {})
     if UPDATE_SELF.match(s) and info.owner:
