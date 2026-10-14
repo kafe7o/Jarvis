@@ -275,3 +275,20 @@ def test_voice_tab_lists_voices_and_plays_the_picked_one(settings, ctx, registry
         raise AssertionError("expected 400")
     except urllib.error.HTTPError as err:
         assert err.code == 400
+
+
+def test_elevenlabs_can_be_heard_in_the_voice_tab(settings, ctx, registry, monkeypatch):
+    from jarvis import tts
+
+    monkeypatch.setattr(tts, "elevenlabs", lambda text: b"eleven-mp3")
+    hub, port = make_hub(settings, ctx, registry, [])
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    try:
+        call(port, "/api/tts", {"text": "Здравей", "voice": "elevenlabs"})
+        raise AssertionError("expected 400 without a key")
+    except urllib.error.HTTPError as err:
+        assert err.code == 400
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "x")
+    assert call(port, "/api/tts", {"text": "Здравей", "voice": "elevenlabs"}) == (200, "eleven-mp3")
+    assert json.loads(call(port, "/api/voices")[1])["eleven"] is True
+    assert next(s for s in hub.settings_view() if s["title"] == "Глас")["ready"]

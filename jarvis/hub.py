@@ -772,7 +772,7 @@ class Hub:
                 secret = is_secret(key)
                 items.append({"key": key, "label": label, "secret": secret, "set": bool(value),
                               "value": "" if secret else value, "hint": (value[:4] + "…") if secret and value else ""})
-            ready = all(i["set"] for i in items)
+            ready = all(i["set"] for i in items) or title == "Глас"  # the voice works with nothing typed; the rest is optional
             extra = {}
             if title == "Мозък":
                 where, ready = brain_choices(items, stored), True
@@ -997,6 +997,15 @@ class Hub:
             from .tts import synthesize, voice_ok
 
             voice = str(b.get("voice") or "")  # „Чуй“ in Settings > Глас: exactly this voice
+            if voice == "elevenlabs":
+                from .tts import clean, elevenlabs
+
+                if not os.environ.get("ELEVENLABS_API_KEY"):
+                    raise HTTPError(400, "Няма ElevenLabs ключ в Настройки > Връзки > Глас.")
+                try:
+                    return 200, (elevenlabs(clean(str(b.get("text", "")))), "audio/mpeg")
+                except Exception as exc:
+                    raise HTTPError(503, f"ElevenLabs не отговори: {exc}")
             if voice and not voice_ok(voice):
                 raise HTTPError(400, "Непознат глас.")
             try:

@@ -130,8 +130,8 @@ def synthesize(text: str, configured_voice: str = "bg-BG-BorislavNeural", sample
     if not exact and os.environ.get("ELEVENLABS_API_KEY"):
         try:
             return elevenlabs(text)
-        except Exception:
-            pass  # fall back to the free voice
+        except Exception as exc:  # used up or refused: the free voice reads it
+            log.warning("ElevenLabs failed, the free voice reads it: %s", exc)
     voice = configured_voice if exact else pick_voice(clean(sample) if sample else text, configured_voice)
     for attempt in range(3):  # a hiccup on the way to Microsoft must not hand the answer to the browser's flat voice
         try:

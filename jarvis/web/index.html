@@ -2761,18 +2761,22 @@ async function tabPerms() {
 let voicePlayer = null;
 async function tabVoice() {
   const v = await api("/api/voices");
+  const eleven = { id: "elevenlabs", name: "ElevenLabs", about: "платен глас с твоя ключ; говори, докато има минути" };
+  const backup = v.eleven ? v.current : "";
+  if (v.eleven) { v.voices = [eleven, ...v.voices]; v.current = "elevenlabs"; }
   const known = v.voices.some((x) => x.id === v.current);
   const now = known ? v.voices.find((x) => x.id === v.current) : { id: v.current, name: v.current, about: "написан ръчно" };
   $("tabBody").innerHTML = `
     <div class="note">${icon("info")}<div>Сега Jarvis говори с: <b>${esc(now.name)}</b> (${esc(now.about)}). Натисни „Чуй“, за да чуеш глас, и „Избери“, за да го сложиш. Важи веднага.
-      ${v.eleven ? "<br>Имаш ElevenLabs ключ в Връзки: докато е там, говори ElevenLabs, а тези гласове са резервни." : ""}</div></div>
+      ${v.eleven ? "<br>Докато ElevenLabs ключът е в Връзки, говори ElevenLabs. Гласът, който избереш долу, е резервен: чуваш го, когато минутите в ElevenLabs свършат." : ""}</div></div>
     <div class="section">
       ${v.voices.map((x) => `
         <div class="voice-row${x.id === v.current ? " on" : ""}">
           <div><b>${esc(x.name)}</b> <span class="hint">${esc(x.about)}</span></div>
           <div class="row">
             <button class="btn ghost small" data-hear="${esc(x.id)}">${icon("speaker")}Чуй</button>
-            ${x.id === v.current ? `<span class="badge ok">Сега</span>` : `<button class="btn primary small" data-pick="${esc(x.id)}">Избери</button>`}
+            ${x.id === v.current ? `<span class="badge ok">Сега</span>` : x.id === backup ? `<span class="badge">Резервен</span>`
+              : `<button class="btn primary small" data-pick="${esc(x.id)}">Избери</button>`}
           </div>
         </div>`).join("")}
       <p class="sub">Многоезичните гласове четат и български, с лек акцент, а английския като роден. Двата български са без акцент.</p>
@@ -2789,7 +2793,10 @@ async function tabVoice() {
       if (!res.ok) { let d = {}; try { d = await res.json(); } catch (e) {} throw new Error(d.error || res.statusText); }
       voicePlayer = new Audio(URL.createObjectURL(await res.blob()));
       voicePlayer.play().catch(() => {});
-    } catch (err) { toast("Не мога да пусна този глас сега (няма връзка с Microsoft или гласът не е наличен). Опитай пак или друг глас.", "Глас", "warn"); }
+    } catch (err) {
+      toast(b.dataset.hear === "elevenlabs" ? err.message
+            : "Не мога да пусна този глас сега (няма връзка с Microsoft или гласът не е наличен). Опитай пак или друг глас.", "Глас", "warn");
+    }
     b.disabled = false; b.innerHTML = label;
   }));
   $("tabBody").querySelectorAll("button[data-pick]").forEach((b) => b.addEventListener("click", async () => {
