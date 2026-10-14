@@ -293,6 +293,11 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 }
 
 /* ---------- Order and polish (one look everywhere) ---------- */
+.voice-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; }
+.voice-row.on { border-color: var(--accent); }
+.voice-row .row { display: flex; gap: 8px; align-items: center; }
+.voice-row .hint { margin-left: 6px; }
 header.top { background: rgba(5, 8, 15, .55); backdrop-filter: blur(10px); gap: 12px; }
 header.top .tools { display: flex; align-items: center; gap: 6px; }
 .live-open svg.i, .hud-open svg.i { width: 16px; height: 16px; }
@@ -2599,6 +2604,7 @@ const TABS = [
   { id: "activity", label: "Задачи", icon: "list", owner: true, group: "Jarvis", sub: "Какво работи сега и какво е свършил" },
   { id: "routines", label: "Рутини", icon: "clock", owner: true, group: "Jarvis", sub: "Работа, която прави сам в избран час" },
   { id: "soul", label: "Личност", icon: "spark", owner: true, group: "Jarvis", sub: "Как говори, какво знае за теб и какво е научил" },
+  { id: "voice", label: "Глас", icon: "speaker", owner: true, group: "Jarvis", sub: "Чуй гласовете и избери как да звучи Jarvis" },
   { id: "usage", label: "Разход", icon: "chart", owner: true, group: "Jarvis", sub: "Колко заявки прави и към кои мозъци" },
   { id: "connections", label: "Връзки", icon: "plug", owner: true, group: "Система", sub: "Мозъкът, ключовете и услугите" },
   { id: "accounts", label: "Акаунти", icon: "users", owner: true, group: "Система", sub: "Хората, които ползват Jarvis" },
@@ -2632,7 +2638,7 @@ async function showTab(id) {
   $("tabSub").textContent = tab.sub || "";
   $("tabBody").scrollTop = 0;
   $("tabBody").innerHTML = `<div class="hint">Зареждам…</div>`;
-  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
+  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, voice: tabVoice, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
   catch (err) { $("tabBody").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
 }
 
@@ -2742,6 +2748,52 @@ async function tabPerms() {
       seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
       if (user.id === state.me.id) state.me = user;
     } catch (err) { toast(err.message, "Грешка", "err"); }
+  }));
+}
+
+// The voice (Глас): every voice with „Чуй“ (a short sample in exactly that voice) and „Избери“ (saved, used at once).
+let voicePlayer = null;
+async function tabVoice() {
+  const v = await api("/api/voices");
+  const known = v.voices.some((x) => x.id === v.current);
+  const now = known ? v.voices.find((x) => x.id === v.current) : { id: v.current, name: v.current, about: "написан ръчно" };
+  $("tabBody").innerHTML = `
+    <div class="note">${icon("info")}<div>Сега Jarvis говори с: <b>${esc(now.name)}</b> (${esc(now.about)}). Натисни „Чуй“, за да чуеш глас, и „Избери“, за да го сложиш. Важи веднага.
+      ${v.eleven ? "<br>Имаш ElevenLabs ключ в Връзки: докато е там, говори ElevenLabs, а тези гласове са резервни." : ""}</div></div>
+    <div class="section">
+      ${v.voices.map((x) => `
+        <div class="voice-row${x.id === v.current ? " on" : ""}">
+          <div><b>${esc(x.name)}</b> <span class="hint">${esc(x.about)}</span></div>
+          <div class="row">
+            <button class="btn ghost small" data-hear="${esc(x.id)}">${icon("speaker")}Чуй</button>
+            ${x.id === v.current ? `<span class="badge ok">Сега</span>` : `<button class="btn primary small" data-pick="${esc(x.id)}">Избери</button>`}
+          </div>
+        </div>`).join("")}
+      <p class="sub">Многоезичните гласове четат и български, с лек акцент, а английския като роден. Двата български са без акцент.</p>
+    </div>`;
+  $("tabBody").querySelectorAll("button[data-hear]").forEach((b) => b.addEventListener("click", async () => {
+    if (voicePlayer) voicePlayer.pause();
+    const label = b.innerHTML;
+    b.disabled = true; b.textContent = "Зареждам…";
+    try {
+      const headers = { "Content-Type": "application/json", "X-Jarvis": "1" };
+      if (bearer) headers["Authorization"] = "Bearer " + bearer;
+      const res = await fetch("/api/tts", { method: "POST", headers, credentials: "same-origin",
+                                            body: JSON.stringify({ text: v.sample, voice: b.dataset.hear }) });
+      if (!res.ok) { let d = {}; try { d = await res.json(); } catch (e) {} throw new Error(d.error || res.statusText); }
+      voicePlayer = new Audio(URL.createObjectURL(await res.blob()));
+      voicePlayer.play().catch(() => {});
+    } catch (err) { toast("Не мога да пусна този глас сега (няма връзка с Microsoft или гласът не е наличен). Опитай пак или друг глас.", "Глас", "warn"); }
+    b.disabled = false; b.innerHTML = label;
+  }));
+  $("tabBody").querySelectorAll("button[data-pick]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      await api("/api/settings", { values: { JARVIS_TTS_VOICE: b.dataset.pick } });
+      shortVoices.clear();  // the short phrases already fetched were in the old voice
+      toast("Гласът е сменен. Важи веднага.", "Глас");
+      tabVoice();
+    } catch (err) { b.disabled = false; toast(err.message, "Глас", "warn"); }
   }));
 }
 

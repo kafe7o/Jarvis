@@ -335,6 +335,7 @@ def test_bulgarian_voice_reads_every_answer_and_markdown_is_cleaned():
     assert pick_voice("Good evening, sir.", "bg-BG-BorislavNeural") == "bg-BG-BorislavNeural"  # always Bulgarian
     assert pick_voice("Dobar vecher, sar.", "bg-BG-BorislavNeural") == "bg-BG-BorislavNeural"
     assert pick_voice("Good evening, sir.", "de-DE-ConradNeural") == ENGLISH_VOICE
+    assert pick_voice("Good evening, sir.", "en-US-AndrewMultilingualNeural") == "en-US-AndrewMultilingualNeural"
     assert clean("**Готово** виж [тук](https://x.y) ```код```") == "Готово виж тук"
 
 
@@ -540,3 +541,15 @@ def test_a_job_on_the_web_gets_the_fast_lane_a_short_brief_and_a_dozen_tools(set
     jarvis.ask("Виж в браузъра пощата ми")  # the mail needs its own tools: the full agent
     names = {t["name"] for t in client.requests[-1]["tools"]}
     assert {"run_shell", "gmail_search"} <= names and "team of specialists" in system_text(client.requests[-1])
+
+
+def test_hearing_a_voice_plays_exactly_that_voice(monkeypatch):
+    from jarvis import tts
+
+    used = []
+    monkeypatch.setattr(tts, "edge", lambda text, voice: used.append(voice) or b"mp3")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "x")  # „Чуй“ plays the picked voice, not ElevenLabs
+    monkeypatch.setattr(tts, "elevenlabs", lambda text: (_ for _ in ()).throw(AssertionError("not ElevenLabs")))
+    assert tts.synthesize("Hello, sir.", "de-DE-ConradNeural", exact=True) == b"mp3" and used == ["de-DE-ConradNeural"]
+    assert all(tts.voice_ok(v) for v, _n, _a in tts.VOICES)
+    assert not tts.voice_ok("Калина") and not tts.voice_ok("bg-BG-x; rm")
