@@ -71,7 +71,7 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .scale-range::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .scale-range::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
 .scale-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--glow); }
-.scale-names { position: relative; height: 46px; margin: 2px 30px 0; }
+.scale-names { position: relative; height: 56px; margin: 2px 30px 0; }
 .scale-names button { position: absolute; transform: translateX(-50%); background: none; border: 0; padding: 0; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 1px; font: inherit; color: var(--muted); white-space: nowrap; }
 .scale-names b { font-size: 13px; font-weight: 600; } .scale-names small { font-size: 11px; color: var(--faint); }
@@ -292,6 +292,62 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   .chips { grid-template-columns: 1fr; }
 }
 
+/* ---------- Order and polish (one look everywhere) ---------- */
+header.top { background: rgba(5, 8, 15, .55); backdrop-filter: blur(10px); gap: 12px; }
+header.top .tools { display: flex; align-items: center; gap: 6px; }
+.live-open svg.i, .hud-open svg.i { width: 16px; height: 16px; }
+.live-open .ld { display: none; }
+.live-open.busy .ld, .live-open.wait .ld, .mem-open.lit .ld { display: inline-block; }
+.list-label { padding: 14px 14px 6px; font-size: 11px; font-weight: 600; }
+#chatList { padding-top: 2px; }
+#newChat { border-color: rgba(79,209,255,.35); color: var(--accent); }
+#newChat:hover { background: rgba(79,209,255,.08); }
+.chat-item { margin-bottom: 2px; }
+.msg.error .md { color: #ffd0d5; background: rgba(255,93,108,.07); border: 1px solid rgba(255,93,108,.3); border-radius: 12px; padding: 10px 14px; }
+.msg.assistant .md { line-height: 1.6; }
+.sheet { width: min(1020px, 100%); height: min(780px, 100%); }
+.sheet nav { width: 230px; padding: 20px 12px; gap: 1px; overflow-y: auto; }
+.sheet nav h3 { margin: 0 10px 6px; font-size: 17px; }
+.tab-group { padding: 14px 11px 6px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.tab.active { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.active svg.i { color: var(--accent); }
+.sheet .content header { padding: 18px 24px; gap: 12px; }
+.tab-head { flex: 1; min-width: 0; }
+.tab-head h4 { margin: 0; font-size: 18px; font-weight: 600; }
+.tab-head small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+#tabBody { padding: 22px 24px 28px; }
+#tabBody > * { max-width: 820px; }
+.section { padding: 18px 20px; margin-bottom: 16px; border-radius: 16px; }
+.section h5 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.note { border-radius: 14px; margin-bottom: 16px; line-height: 1.5; }
+.stats { gap: 12px; margin-bottom: 16px; }
+.stat { border-radius: 16px; padding: 14px 16px; }
+@media (max-width: 820px) {
+  .tab-group { display: none; }
+  .sheet { width: 100%; height: 100%; }
+  .sheet nav { width: auto; padding: 10px; }
+  .tab.active { box-shadow: inset 0 -2px 0 var(--accent); }
+  .tab { flex: none; }
+  .sheet .content header { padding: 14px 16px; }
+  #tabBody { padding: 16px 14px 24px; }
+  .section { padding: 16px; }
+}
+@media (max-width: 560px) {
+  header.top { gap: 6px; }
+  header.top .tools { gap: 4px; }
+  .live-open span:not(.ld) { display: none; }
+  .live-open { position: relative; }
+  .live-open .ld { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; }
+  .live-open b { position: absolute; top: -4px; right: -4px; }
+  #brainName { display: none; }
+  .scale-track { margin: 8px 18px 4px; }
+  .scale-names { margin: 2px 18px 0; height: 52px; }
+  .scale-names button { white-space: normal; text-align: center; max-width: 76px; line-height: 1.2; }
+  .scale-names b { font-size: 12px; }
+  .scale-names small { display: none; }
+  .tab-head small { display: none; }
+}
+
 /* ---------- Jarvis mode: full-screen voice HUD ---------- */
 .hud-open { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(79,209,255,.45);
   background: rgba(79,209,255,.08); color: var(--accent); font-weight: 600; font-size: 13px; cursor: pointer; }
@@ -330,7 +386,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .r4 { stroke-width: 4; stroke-dasharray: 150 40 20 40; opacity: .9; animation: spin 9s linear infinite; }
 .r5 { stroke-width: 1; stroke-dasharray: 1 5; opacity: .7; animation: spin 25s linear infinite reverse; }
 .ticks line { stroke: rgba(var(--hud-rgb), .55); stroke-width: 2; }
-.core { position: absolute; left: 50%; top: 50%; width: 30%; aspect-ratio: 1; border-radius: 50%;
+#hud .core { position: absolute; left: 50%; top: 50%; width: 30%; aspect-ratio: 1; border-radius: 50%;
   transform: translate(-50%, -50%) scale(calc(1 + var(--lvl) * .45));
   background: radial-gradient(circle, #fff 0 12%, rgba(var(--hud-rgb), .95) 30%, rgba(var(--hud-rgb), .45) 55%, rgba(var(--hud-rgb), .22) 100%);
   box-shadow: 0 0 calc(30px + var(--lvl) * 90px) rgba(var(--hud-rgb), .45);
@@ -627,7 +683,6 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   <aside>
     <div class="brand"><div class="reactor" style="--s:34px"></div><div><b>J.A.R.V.I.S.</b><small>Личен асистент</small></div></div>
     <button class="btn ghost" id="newChat"><svg class="i"><use href="#i-plus"/></svg>Нов разговор</button>
-    <div class="list-label">Разговори</div>
     <nav id="chatList"></nav>
     <div class="me">
       <div class="avatar" id="meAvatar"></div>
@@ -641,10 +696,12 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
       <button class="icon-btn" id="menuBtn" title="Меню"><svg class="i"><use href="#i-menu"/></svg></button>
       <h2 id="chatTitle">Нов разговор</h2>
       <span class="status"><span class="dot" id="netDot"></span><span class="txt" id="netText">На линия</span></span>
-      <button class="live-open" id="liveBtn" title="Какво прави Jarvis в момента, стъпка по стъпка"><span class="ld"></span><span>На живо</span><b id="liveCount"></b></button>
-      <button class="live-open mem-open hidden" id="memBtn" title="Какво помни Jarvis и как е свързано; светва, докато работи"><span class="ld"></span><span>Памет</span></button>
+      <div class="tools">
+      <button class="live-open" id="liveBtn" title="Какво прави Jarvis в момента, стъпка по стъпка"><svg class="i"><use href="#i-pulse"/></svg><span>На живо</span><span class="ld"></span><b id="liveCount"></b></button>
+      <button class="live-open mem-open hidden" id="memBtn" title="Какво помни Jarvis и как е свързано; светва, докато работи"><svg class="i"><use href="#i-net"/></svg><span>Памет</span><span class="ld"></span></button>
       <button class="hud-open" id="hudBtn" title="Jarvis режим: говори с него с глас"><span class="reactor" style="--s:18px"></span><span>Jarvis режим</span></button>
       <button class="icon-btn" id="speakBtn" title="Чети отговорите на глас"><svg class="i"><use href="#i-speaker"/></svg></button>
+      </div>
     </header>
     <div id="scroller">
       <div id="empty">
@@ -764,7 +821,7 @@ code.k { font-family: var(--mono); font-size: 12px; color: var(--faint); }
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Настройки">
     <nav id="tabs"><h3>Настройки</h3></nav>
     <div class="content">
-      <header><h4 id="tabTitle"></h4><button class="icon-btn" id="closeSettings" title="Затвори"><svg class="i"><use href="#i-x"/></svg></button></header>
+      <header><div class="tab-head"><h4 id="tabTitle"></h4><small id="tabSub"></small></div><button class="icon-btn" id="closeSettings" title="Затвори"><svg class="i"><use href="#i-x"/></svg></button></header>
       <div id="tabBody"></div>
     </div>
   </div>
@@ -966,8 +1023,18 @@ async function loadChats() {
   state.chats = (await api("/api/chats")).chats;
   renderChats();
 }
+// The chats under "Днес", "Вчера", "Тази седмица" and "По-рано" (newest first, as they come).
+function chatGroup(updated) {
+  const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const when = updated ? new Date(String(updated).replace(" ", "T")) : null;
+  if (!when || isNaN(when)) return "По-рано";
+  const days = Math.round((day(new Date()) - day(when)) / 864e5);
+  return days <= 0 ? "Днес" : days === 1 ? "Вчера" : days < 7 ? "Тази седмица" : "По-рано";
+}
 function renderChats() {
+  let group = "";
   $("chatList").innerHTML = state.chats.length ? state.chats.map((c) => `
+    ${chatGroup(c.updated) !== group ? `<div class="list-label">${group = chatGroup(c.updated)}</div>` : ""}
     <div class="chat-item ${state.chat && state.chat.id === c.id ? "active" : ""}" data-id="${c.id}">
       <button class="t" data-a="open" title="${esc(c.title)}">${esc(c.title)}</button>
       <button class="act" data-a="rename" title="Преименувай">${icon("edit")}</button>
@@ -2527,22 +2594,24 @@ function closeDrawer() { $("app").classList.remove("drawer"); }
 
 // ---------- Settings ----------
 const TABS = [
-  { id: "profile", label: "Профил", icon: "user" },
-  { id: "accounts", label: "Акаунти", icon: "users", owner: true },
-  { id: "perms", label: "Разрешения", icon: "shield" },
-  { id: "soul", label: "Личност", icon: "spark", owner: true },
-  { id: "routines", label: "Рутини", icon: "clock", owner: true },
-  { id: "activity", label: "Задачи", icon: "list", owner: true },
-  { id: "usage", label: "Разход", icon: "chart", owner: true },
-  { id: "connections", label: "Връзки", icon: "plug", owner: true },
-  { id: "devices", label: "Устройства", icon: "devices", owner: true },
+  { id: "profile", label: "Профил", icon: "user", group: "Ти", sub: "Името ти, имейлът и паролата за вход" },
+  { id: "perms", label: "Разрешения", icon: "shield", group: "Ти", sub: "Какво може да прави Jarvis без да пита" },
+  { id: "activity", label: "Задачи", icon: "list", owner: true, group: "Jarvis", sub: "Какво работи сега и какво е свършил" },
+  { id: "routines", label: "Рутини", icon: "clock", owner: true, group: "Jarvis", sub: "Работа, която прави сам в избран час" },
+  { id: "soul", label: "Личност", icon: "spark", owner: true, group: "Jarvis", sub: "Как говори, какво знае за теб и какво е научил" },
+  { id: "usage", label: "Разход", icon: "chart", owner: true, group: "Jarvis", sub: "Колко заявки прави и към кои мозъци" },
+  { id: "connections", label: "Връзки", icon: "plug", owner: true, group: "Система", sub: "Мозъкът, ключовете и услугите" },
+  { id: "accounts", label: "Акаунти", icon: "users", owner: true, group: "Система", sub: "Хората, които ползват Jarvis" },
+  { id: "devices", label: "Устройства", icon: "devices", owner: true, group: "Система", sub: "Телефон, телевизор и други компютри" },
 ];
 let currentTab = "profile";
 let permsFor = null;
 
 function openSettings(tab) {
   const owner = state.me.role === "owner";
+  let group = "";
   $("tabs").innerHTML = "<h3>Настройки</h3>" + TABS.filter((t) => owner || !t.owner).map((t) =>
+    (t.group !== group ? `<div class="tab-group">${group = t.group}</div>` : "") +
     `<button class="tab" data-tab="${t.id}">${icon(t.icon)}${t.label}</button>`).join("");
   $("settings").classList.remove("hidden");
   showTab(tab || currentTab);
@@ -2557,7 +2626,11 @@ async function showTab(id) {
   const tab = TABS.find((t) => t.id === id && (state.me.role === "owner" || !t.owner)) || TABS[0];
   currentTab = tab.id;
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab.id));
+  const on = document.querySelector(".tab.active");
+  if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "center" });
   $("tabTitle").textContent = tab.label;
+  $("tabSub").textContent = tab.sub || "";
+  $("tabBody").scrollTop = 0;
   $("tabBody").innerHTML = `<div class="hint">Зареждам…</div>`;
   try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
   catch (err) { $("tabBody").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
@@ -2764,10 +2837,10 @@ async function tabUsage() {
   const day = (iso) => new Date(iso + "T12:00").toLocaleDateString("bg-BG", { day: "numeric", month: "short" });
   const freeToday = u.gemini.reduce((n, g) => n + g.today, 0);
   $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>Колко струва мозъкът на Jarvis. Claude се плаща на брой думи (токени); Gemini е безплатен до дневен лимит на Google, който се подновява всеки ден около 10:00. „Пусни…“, „колко е часът“, „времето утре“, „спри музиката“, „напомни ми в 18:00…“ минават без AI и не струват нищо. Таванът за Claude е във Връзки → Пестене.</div></div>
+    <div class="note">${icon("info")}<div>Jarvis работи на безплатни мозъци (Gemini, Groq, NVIDIA, OpenRouter). Gemini има дневен лимит, който се подновява всеки ден около 10:00. „Пусни…“, „колко е часът“, „времето утре“, „напомни ми в 18:00…“ минават без AI. Платен е само Claude и само ако сам го избереш (таванът е във Връзки → Пестене).</div></div>
     <div class="stats">
-      <div class="stat"><small>Днес (Claude)</small><b>${usd(u.today.cost)}</b><small>${u.today.requests} заявки общо</small></div>
-      <div class="stat"><small>Последните 7 дни</small><b>${usd(u.week.cost)}</b><small>${u.week.requests} заявки</small></div>
+      <div class="stat"><small>Заявки днес</small><b>${u.today.requests}</b><small>платено: ${usd(u.today.cost)}</small></div>
+      <div class="stat"><small>Последните 7 дни</small><b>${u.week.requests}</b><small>заявки · платено: ${usd(u.week.cost)}</small></div>
       <div class="stat"><small>Безплатни днес (Gemini)</small><b>${freeToday}</b><small>заявки от 10:00 насам</small></div>
     </div>
     <div class="stats">
