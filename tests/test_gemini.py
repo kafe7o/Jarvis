@@ -468,3 +468,27 @@ def test_when_gemini_cannot_search_google_is_read_in_the_browser_then_duckduckgo
     out, err = registry.run("google_search", {"query": "следващ мач на Левски"}, Approver())
     assert not err and "- Програма на Левски (https://levski.bg/matches): Левски - НЕК, четвъртък 22:00" in out
     assert "Jarvis" not in asked[0]  # a plain browser's name: DuckDuckGo checks for robots otherwise
+
+
+def test_a_search_goes_to_the_owners_browser_first_and_a_robot_check_is_left_to_the_owner(registry, ctx, monkeypatch):
+    from conftest import Approver
+    from jarvis import browsers, winui
+    from jarvis.plugins import websearch
+
+    monkeypatch.setattr(gemini, "search", lambda query, model=None, client=None: (_ for _ in ()).throw(
+        errors.ClientError(429, {"error": {"code": 429, "message": "quota"}})))
+    opened = []
+    monkeypatch.setattr(browsers, "open_url", lambda url, facts=None: opened.append(url) or "Avast Secure Browser")
+    monkeypatch.setattr(winui, "on_windows", lambda: True)
+    monkeypatch.setattr(websearch.time, "sleep", lambda s: None)
+    monkeypatch.setattr(winui, "read", lambda title=None: f'Window: "{title}" link "Левски - НЕК, 15 октомври 22:00"' + " x" * 120)
+    out, err = registry.run("google_search", {"query": "мач на Левски"}, Approver())
+    assert not err and out.startswith("Google results (in the owner's browser") and "15 октомври" in out
+    assert opened[0].startswith("https://www.google.com/search?q=")
+
+    # Google asks "not a robot": nothing is clicked, the brain is told to leave it to the owner and search on
+    monkeypatch.setattr(winui, "read", lambda title=None: "Our systems have detected unusual traffic. I'm not a robot")
+    ctx.browser = lambda: SimpleNamespace(do=lambda fn, timeout=None: ("https://www.google.com/sorry/index", "x"))
+    monkeypatch.setattr(websearch, "duckduckgo", lambda query: (_ for _ in ()).throw(RuntimeError(f"DuckDuckGo {websearch.ROBOT}.")))
+    out, err = registry.run("google_search", {"query": "мач на Левски"}, Approver())
+    assert err and "Never solve or click such a check" in out
