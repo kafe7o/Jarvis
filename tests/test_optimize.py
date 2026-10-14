@@ -96,6 +96,10 @@ def test_connections_tool_shows_what_is_missing_and_save_setting_stores_a_key(se
     assert setup_wizard.read_env(env) == {"NVIDIA_API_KEY": "nvapi-x", "TELEGRAM_BOT_TOKEN": "123:abc"}
     assert "✅ Telegram" not in registry.tools["connections"].func("Telegram")  # the owner id is still missing
     assert registry.tools["save_setting"].func("NOT_A_KEY", "x").startswith("No setting is called NOT_A_KEY")
+    said = registry.tools["save_setting"].func("JARVIS_TTS_VOICE", "Калина")  # a name, not a voice: nothing saved
+    assert said.startswith("'Калина' is not a voice name") and "bg-BG-KalinaNeural" in said
+    said = registry.tools["save_setting"].func("JARVIS_TTS_VOICE", "bg-BG-KalinaNeural")
+    assert "now speaks with bg-BG-KalinaNeural" in said and setup_wizard.read_env(env)["JARVIS_TTS_VOICE"] == "bg-BG-KalinaNeural"
     tool = registry.tools["save_setting"]
     assert tool.confirm and tool.local and tool.group == "agent" and registry.tools["connections"].group == "core"
     assert "123:abc" not in tool.describe_call({"key": "TELEGRAM_BOT_TOKEN", "value": "123:abc"})  # the yes/no card hides it

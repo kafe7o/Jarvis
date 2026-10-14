@@ -257,3 +257,21 @@ def test_a_remote_task_can_pick_the_brain_for_itself(settings, ctx, registry, tm
     remote.run_one(hub, where / "groq.txt")
     assert seen == [("виж имейлите", "groq")] and brain.CHOSEN.get() is None
     assert "Модел: groq" in (where / "groq.answer.txt").read_text(encoding="utf-8")
+
+
+def test_voice_tab_lists_voices_and_plays_the_picked_one(settings, ctx, registry, monkeypatch):
+    from jarvis import tts
+
+    used = []
+    monkeypatch.setattr(tts, "edge", lambda text, voice: used.append(voice) or b"mp3")
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    hub, port = make_hub(settings, ctx, registry, [])
+    voices = json.loads(call(port, "/api/voices")[1])
+    assert voices["current"] == settings.tts_voice and any(v["id"] == "bg-BG-KalinaNeural" for v in voices["voices"])
+    status, _audio = call(port, "/api/tts", {"text": voices["sample"], "voice": "en-US-AndrewMultilingualNeural"})
+    assert status == 200 and used == ["en-US-AndrewMultilingualNeural"]
+    try:
+        call(port, "/api/tts", {"text": "здравей", "voice": "<script>"})
+        raise AssertionError("expected 400")
+    except urllib.error.HTTPError as err:
+        assert err.code == 400

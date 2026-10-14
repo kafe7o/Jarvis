@@ -85,7 +85,16 @@ def register(registry: ToolRegistry, ctx) -> None:
         value = (value or "").strip()
         if "\n" in value:
             return "A setting is one line."
+        if key == "JARVIS_TTS_VOICE" and value:
+            from ..tts import VOICES, voice_ok
+
+            if not voice_ok(value):
+                return (f"'{value}' is not a voice name. Pick one of: " + ", ".join(v for v, _n, _a in VOICES)
+                        + ". The owner can also hear each one in Settings > Глас.")
         save_settings(ctx, {key: value})
+        if key == "JARVIS_TTS_VOICE":  # once Jarvis said "switched to Kalina" while saving Borislav again
+            return (f"Saved: Jarvis now speaks with {value or 'bg-BG-BorislavNeural (the default)'}. Tell the owner exactly "
+                    "this name, and that Settings > Глас lets the owner hear every voice and pick one.")
         if not value:
             return f"Removed {key}."
         return f"Saved {key} ({known[key]}). " + ("It applies now." if key.startswith("JARVIS_") else RESTART)

@@ -524,7 +524,7 @@ EXTRA_SETTINGS = [
         ("JARVIS_REPLY_STYLE", "Как пишеш, за отговорите (напр. кратко, на ти, без емоджита)"),
     ]),
     ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
-        ("JARVIS_TTS_VOICE", "Безплатен глас на български (bg-BG-BorislavNeural)"),
+        ("JARVIS_TTS_VOICE", "Безплатен глас (по-лесно: Настройки > Глас, където чуваш всеки и избираш)"),
         ("JARVIS_SILENCE", "Колко секунди тишина да изчака, преди да започне, за да не те прекъсва (празно = 2)"),
         ("JARVIS_STT", "Как да те чува в приложението: празно = гласа на браузъра, а където той не работи (Avast, Brave) сам минава на Whisper; whisper = винаги Whisper през безплатния Groq ключ (по-точен български)"),
         ("ELEVENLABS_API_KEY", "ElevenLabs ключ, за глас като във филма или твой клониран глас (по желание)"),
@@ -992,10 +992,14 @@ class Hub:
             return 200, {"text": text}
 
         if p == "/api/tts" and m == "POST":
-            from .tts import synthesize
+            from .tts import synthesize, voice_ok
 
+            voice = str(b.get("voice") or "")  # „Чуй“ in Settings > Глас: exactly this voice
+            if voice and not voice_ok(voice):
+                raise HTTPError(400, "Непознат глас.")
             try:
-                audio = synthesize(str(b.get("text", "")), self.ctx.settings.tts_voice, str(b.get("sample") or "")[:3000] or None)
+                audio = synthesize(str(b.get("text", "")), voice or self.ctx.settings.tts_voice,
+                                   str(b.get("sample") or "")[:3000] or None, exact=bool(voice))
                 return 200, (audio, "audio/mpeg")
             except ValueError:
                 raise
@@ -1045,6 +1049,13 @@ class Hub:
             updated = self.accounts.update(uid, name=b.get("name"), password=b.get("password") or None,
                                            role=b.get("role"), perms=b.get("perms"), email=b.get("email"))
             return 200, {"user": updated.public()}
+        if p == "/api/voices" and m == "GET":  # Settings > Глас: the voices to hear and pick, and the one in use
+            from . import tts
+
+            return 200, {"current": self.ctx.settings.tts_voice, "sample": tts.SAMPLE,
+                         "eleven": bool(os.environ.get("ELEVENLABS_API_KEY")),
+                         "voices": [{"id": v, "name": n, "about": a} for v, n, a in tts.VOICES]}
+
         if p == "/api/brain" and m == "GET":  # the brain slider next to the message box (Мозък)
             from .setup_wizard import env_path, read_env
 
