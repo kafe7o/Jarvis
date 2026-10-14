@@ -29,6 +29,8 @@ DEFAULT_MODEL = FREE_MODELS[0]
 # requests, so it keeps short answers, but with dozens of tools it often talks instead of acting. When Flash's
 # free requests run out for the day, the others follow in FREE_MODELS order.
 AGENT_MODEL = "gemini-3.5-flash"
+# Авто's quick steps: Flash-Lite itself, even with tools (DEFAULT_MODEL with tools starts on AGENT_MODEL).
+QUICK_MODEL = "gemini-quick"
 THINKING = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
 REFUSED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
 # A tool call written out as text instead of made, the way older versions told a model about another one's calls.
@@ -349,6 +351,8 @@ class GeminiBrain:
         """The model to use and the free ones to fall back to. Real work (``agent``: a request with tools) on the
         default model starts on AGENT_MODEL."""
         first = [AGENT_MODEL, model] if agent and model == DEFAULT_MODEL else [model]
+        if model == QUICK_MODEL:
+            first = [DEFAULT_MODEL]
         return list(dict.fromkeys([*first, *FREE_MODELS]))
 
     def models(self, model: str, agent: bool = False) -> list[str]:

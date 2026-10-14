@@ -320,8 +320,9 @@ def test_long_thinkers_go_last():
 
 
 def test_auto_picks_the_brain_for_every_step_and_switches_in_the_middle_of_a_task(settings, ctx, registry, monkeypatch):
-    """Settings > Мозък > Авто: a quick brain for easy steps, the smartest after a failed step or for a mission,
-    Gemini for a picture, Groq for a short answer; chosen again at every step."""
+    """Settings > Мозък > Авто: a quick brain thinking briefly for easy steps (a mission's too), the smartest
+    thinking fully after a failed step or in a long task, Gemini for a picture, Groq for a short answer; chosen
+    again at every step. NVIDIA and OpenRouter (20-45 s a step) come last."""
     from jarvis.hub import brain_scale
 
     for key in ("GEMINI_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
@@ -330,7 +331,8 @@ def test_auto_picks_the_brain_for_every_step_and_switches_in_the_middle_of_a_tas
     jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]))
     monkeypatch.setattr(jarvis, "flash_ready", lambda: True)
     asked = []
-    monkeypatch.setattr(jarvis, "_ask_free", lambda order, *a, **kw: asked.append(order) or SimpleNamespace(
+    efforts = []
+    monkeypatch.setattr(jarvis, "_ask_free", lambda order, *a, **kw: asked.append(order) or efforts.append(a[4]) or SimpleNamespace(
         content=[SimpleNamespace(type="text", text="Готово.")], stop_reason="end_turn"))
     tools = [{"name": "open_page"}]
     easy = [{"role": "user", "content": "виж в браузъра курса на долара"}]
@@ -346,14 +348,15 @@ def test_auto_picks_the_brain_for_every_step_and_switches_in_the_middle_of_a_tas
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "1", "content": "ok"}]}]
     jarvis._request(easy + step * 3, tools=tools)  # still quick
     jarvis._request(easy + step * 4, tools=tools)  # a long task: the smartest takes over
-    assert [order[0] for order in asked] == [gemini.DEFAULT_MODEL, gemini.AGENT_MODEL, gemini.DEFAULT_MODEL,
-                                             groq.DEFAULT_MODEL, gemini.AGENT_MODEL, gemini.DEFAULT_MODEL,
+    quick = gemini.QUICK_MODEL
+    assert [order[0] for order in asked] == [quick, gemini.AGENT_MODEL, quick, groq.DEFAULT_MODEL, quick, quick,
                                              gemini.AGENT_MODEL]
-    assert "nvidia" in asked[1] and asked[1].index("nvidia") < asked[1].index(gemini.DEFAULT_MODEL)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
-    jarvis._request(failed, tools=tools)  # openrouter/free (a lottery of models) comes after Flash-Lite
-    assert asked[-1].index("nvidia") < asked[-1].index(gemini.DEFAULT_MODEL) < asked[-1].index("openrouter")
-    monkeypatch.delenv("OPENROUTER_API_KEY")
+    assert efforts == ["low", settings.effort, "low", "low", "low", "low", settings.effort]
+    assert asked[1][-1] == "nvidia"  # the slow one last
+    monkeypatch.setattr(jarvis, "flash_ready", lambda: False)  # Flash used up today: Flash-Lite thinks fully
+    jarvis._request(failed, tools=tools)
+    assert asked[-1][0] == gemini.DEFAULT_MODEL and efforts[-1] == settings.effort
+    assert gemini.GeminiBrain().candidates(quick, agent=True)[0] == gemini.DEFAULT_MODEL  # really Flash-Lite
     monkeypatch.delenv("NVIDIA_API_KEY")
     jarvis._request(failed, tools=tools)
     assert "nvidia" not in asked[-1]  # only the brains with a key

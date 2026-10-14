@@ -402,6 +402,12 @@ def task_rounds(messages: list) -> int:
 LONG_TASK = 4  # Авто: after this many rounds a quick brain has not finished, the smartest one takes over
 
 
+def hard_step(messages: list) -> bool:
+    """Авто: the step right after a failed one, or a task still going after LONG_TASK rounds, gets the smartest
+    brain thinking fully; every other step (a mission's too) a quick brain thinking briefly."""
+    return last_round_failed(messages) or task_rounds(messages) >= LONG_TASK
+
+
 def web_lane(text: str) -> bool:
     """A job on web pages that needs nothing else (no mail, phone, files or settings): the fast lane."""
     return router.web_task(text) and not any(rx.search(text) for rx in GROUP_RX.values())
@@ -615,9 +621,9 @@ class Jarvis:
                 tools = select_tools(tools, groups, recent_text(messages))
         system = system if system is not None else self.system_prompt(user)
         again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
-        if model == AUTO:
-            return self._ask_free(self.auto_order(messages, tools), system, messages, tools, max_tokens, effort,
-                                  images=has_images(messages))
+        if model == AUTO:  # a quick step thinks briefly; a hard one (hard_step) thinks as set
+            return self._ask_free(self.auto_order(messages, tools), system, messages, tools, max_tokens,
+                                  effort if hard_step(messages) else "low", images=has_images(messages))
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
         strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # NVIDIA, OpenRouter: the strongest free ones
@@ -669,21 +675,20 @@ class Jarvis:
     def auto_order(self, messages: list, tools: list) -> list[str]:
         """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
         in the middle of a task too.
-        A picture goes to Gemini (it sees); a short answer to Groq (the fastest); a hard step (a mission, right
-        after a failed one, or a task still going after LONG_TASK rounds) to the smartest free brain (Gemini Flash while its day lasts, then NVIDIA; OpenRouter only after Flash-Lite);
+        A picture goes to Gemini (it sees); a short answer to Groq (the fastest); a hard step (hard_step) to the
+        smartest quick brain (Gemini Flash while its day lasts, else Flash-Lite thinking fully);
         everyday work to Gemini Flash-Lite (quick and good with a dozen tools). The others follow when one is
         overloaded or used up. Only the brains with a key in .env are asked."""
         strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]
         flash = [gemini.AGENT_MODEL] if self.flash_ready() and not is_background(messages) else []
-        lite, fast = gemini.DEFAULT_MODEL, groq.DEFAULT_MODEL
+        lite, fast = gemini.QUICK_MODEL, groq.DEFAULT_MODEL
+        # NVIDIA and OpenRouter come last: 20-45 s a step, too slow for an answer in 15-20 s
         if has_images(messages):
             order = [lite, *flash, fast, *strong]
         elif not tools:
             order = [fast, lite, *strong]
-        elif (router.is_mission(recent_text(messages)) or last_round_failed(messages)
-              or task_rounds(messages) >= LONG_TASK):
-            smart = [k for k in strong if k != "openrouter"]  # openrouter/free is a lottery of models: not "smarter"
-            order = [*flash, *smart, lite, *[k for k in strong if k not in smart], fast]
+        elif hard_step(messages):
+            order = [*(flash or [gemini.DEFAULT_MODEL]), fast, *strong]
         else:
             order = [lite, fast, *strong]
         order = [m for m in [*order, *backups()] if self._ready(m)] or ["local"]
