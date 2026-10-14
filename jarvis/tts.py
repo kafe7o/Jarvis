@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import urllib.request
+
+log = logging.getLogger("jarvis.tts")
 
 ENGLISH_VOICE = "en-GB-RyanNeural"  # British male, the film Jarvis
 ELEVEN_DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # "George", warm British male
@@ -69,6 +72,39 @@ def elevenlabs(text: str) -> bytes:
         return resp.read()
 
 
+EDGE_MIN = (7, 3, 1)  # Microsoft changed its sign-in in 2026; older edge-tts gets no audio, so every voice fell
+FRESHENED = {"done": False}  # back to the browser's flat one, whatever the owner picked
+
+
+def edge_version() -> tuple:
+    from importlib.metadata import version
+
+    try:
+        return tuple(int(p) for p in re.findall(r"\d+", version("edge-tts"))[:3])
+    except Exception:
+        return ()
+
+
+def freshen_edge() -> bool:
+    """Once per run: when edge-tts is older than EDGE_MIN, update it and load the new one. True if it did."""
+    if FRESHENED["done"] or edge_version() >= EDGE_MIN:
+        return False
+    FRESHENED["done"] = True
+    import subprocess
+    import sys
+
+    log.warning("edge-tts %s is too old for Microsoft's voices now; updating it", ".".join(map(str, edge_version())))
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "edge-tts>=%d.%d.%d" % EDGE_MIN],
+                       capture_output=True, timeout=300, check=True)
+    except Exception as exc:
+        log.warning("could not update edge-tts: %s", exc)
+        return False
+    for name in [m for m in sys.modules if m == "edge_tts" or m.startswith("edge_tts.")]:
+        del sys.modules[name]
+    return True
+
+
 def edge(text: str, voice: str) -> bytes:
     import edge_tts
 
@@ -100,8 +136,11 @@ def synthesize(text: str, configured_voice: str = "bg-BG-BorislavNeural", sample
     for attempt in range(3):  # a hiccup on the way to Microsoft must not hand the answer to the browser's flat voice
         try:
             return edge(text, voice)
-        except Exception:
+        except Exception as exc:
+            if attempt == 0 and freshen_edge():
+                continue
             if attempt == 2:
+                log.warning("Jarvis's voice %s failed, the app uses the browser's: %s", voice, exc)
                 raise
     raise RuntimeError("unreachable")
 

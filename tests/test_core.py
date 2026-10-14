@@ -553,3 +553,31 @@ def test_hearing_a_voice_plays_exactly_that_voice(monkeypatch):
     assert tts.synthesize("Hello, sir.", "de-DE-ConradNeural", exact=True) == b"mp3" and used == ["de-DE-ConradNeural"]
     assert all(tts.voice_ok(v) for v, _n, _a in tts.VOICES)
     assert not tts.voice_ok("Калина") and not tts.voice_ok("bg-BG-x; rm")
+
+
+def test_an_old_edge_tts_is_updated_once_and_the_voice_retried(monkeypatch):
+    import subprocess
+
+    from jarvis import tts
+
+    calls, ran = [], []
+    def edge(text, voice):
+        calls.append(voice)
+        if len(calls) == 1:
+            raise RuntimeError("403 Invalid response status")  # Microsoft refuses the old sign-in
+        return b"mp3"
+    monkeypatch.setattr(tts, "edge", edge)
+    monkeypatch.setattr(tts, "edge_version", lambda: (7, 2, 8))
+    monkeypatch.setattr(tts, "FRESHENED", {"done": False})
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: ran.append(cmd))
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    assert tts.synthesize("Здравей.", "bg-BG-KalinaNeural") == b"mp3"
+    assert calls == ["bg-BG-KalinaNeural"] * 2 and ran and "edge-tts>=7.3.1" in ran[0]
+    assert tts.freshen_edge() is False  # once per run
+
+
+def test_an_email_in_a_brain_field_is_not_a_brain(monkeypatch):
+    from jarvis.brain import backups
+
+    monkeypatch.setenv("JARVIS_BACKUP", "groq, someone@example.com")
+    assert backups() == ["groq"]

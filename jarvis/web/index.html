@@ -1281,8 +1281,13 @@ async function speak(text) {
   const rest = await playVoice(text, alive, (audio) => { voiceAudio = audio; });
   if (rest && alive()) browserSpeak(rest);
 }
+let warnedVoice = false;
 function browserSpeak(text) {
   if (!("speechSynthesis" in window)) return;
+  if (!warnedVoice) {  // the owner must know why the picked voice is not the one playing
+    warnedVoice = true;
+    toast("Избраният глас не отговаря в момента, затова чуваш гласа на Windows. Пробвай го в Настройки > Глас.", "Глас", "warn");
+  }
   const clean = text.replace(/```[\s\S]*?```/g, "").replace(/https?:\/\/\S+/g, "линк").replace(/[*#`>_]/g, "");
   const u = new SpeechSynthesisUtterance(clean);
   u.lang = "bg-BG";
@@ -3005,7 +3010,7 @@ async function tabConnections() {
         ${s.fields.map((f) => `
           <div class="field"><label>${esc(f.label)} <code class="k">${esc(f.key)}</code></label>
             ${f.options ? pickBrain(f) : ""}
-            <input class="input" data-k="${esc(f.key)}" type="${f.secret ? "password" : "text"}" autocomplete="off"
+            <input class="input" data-k="${esc(f.key)}" type="${f.secret ? "password" : "text"}" autocomplete="${f.secret ? "new-password" : "off"}" name="jv-${esc(f.key)}"
               ${f.options && (!f.value || f.options.some((o) => o.value === f.value)) ? `style="display:none"` : ""}
               value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + ") — пиши, за да смениш" : "Не е въведено") : f.options ? "Напиши модел, напр. groq:llama-3.1-8b-instant или groq, openrouter" : ""}"></div>`).join("")}
         <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>
