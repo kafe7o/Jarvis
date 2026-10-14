@@ -17,7 +17,7 @@ from typing import Callable
 
 import anthropic
 
-from . import core_files, freeapi, gemini, groq, local, notices, router, usage, work
+from . import core_files, freeapi, gemini, groq, local, notices, recipes, router, usage, work
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -578,6 +578,8 @@ class Jarvis:
         self.wait = time.sleep
         self._halts: dict = defaultdict(int)  # bumped by stop_work ("спри"): "*" stops everyone's work
         self._reflected = 0.0  # when reflect last looked back at a task
+        self._last_task: tuple | None = None  # (request, steps, answer) of the last task with steps, for a praise
+        self._recipe_at = 0.0  # when a recipe was last written
 
     def system_prompt(self, user=None) -> str:
         return self._base_prompt(user) + self._clock()
@@ -895,6 +897,10 @@ class Jarvis:
         news = (notices.unseen(self.store) if route is not False and (user is None or user.is_owner)
                 and not is_background([{"role": "user", "content": text}]) else [])
         hint = notices.hint(news)
+        owner = user is None or user.is_owner
+        if owner and self.settings.learn and self._last_task and router.praises(text):
+            # "евала": the way the last task was done is worth keeping, whatever its steps looked like
+            self.recipe_later(*self._last_task)
         if (self.settings.router if route is None else route) and not images:
             answer = self.cheap_answer(text, conversation, confirmer, user, on_progress, on_step, hint=hint)
             if answer is not None:
@@ -905,6 +911,8 @@ class Jarvis:
                 self.store.add_message(conversation, "assistant", answer)
                 return answer
         web = web_lane(text) and not images
+        # How a task like this one worked before (recipes.py): the brain sees it with the request
+        hint += recipes.hint(recipes.matching(self.store, text)) if owner else ""
         messages = self._messages(conversation, text, limit=8 if web else 40, hint=hint)
         if images:
             blocks = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": data}} for mt, data in images]
@@ -924,9 +932,12 @@ class Jarvis:
                             rounds=self.settings.max_tool_rounds * (MISSION_ROUNDS if mission else 1))
         self.count(3)
         notices.seen(self.store, news)
-        if self.settings.learn and (user is None or user.is_owner) and (
-                any(failed for *_r, failed in steps) or router.corrects(text)):
+        if steps:
+            self._last_task = (text, steps, answer)
+        if self.settings.learn and owner and (any(failed for *_r, failed in steps) or router.corrects(text)):
             self.reflect_later(text, steps, answer, conversation)
+        if self.settings.learn and owner and recipes.worth_it(steps, answer):
+            self.recipe_later(text, steps, answer)  # it struggled, then worked: the way is kept for next time
         answer = redact_secrets(answer)
         self.store.add_message(conversation, "user", text + (IMAGE_MARK if images else ""))
         self.store.add_message(conversation, "assistant", answer)
@@ -961,6 +972,31 @@ class Jarvis:
             return None
         log.info("learned: %s", lesson)
         return lesson
+
+    def recipe_later(self, request: str, steps: list, answer: str) -> None:
+        """Write down how a task finally worked (recipes.py), in the background so the answer is not delayed."""
+        if not steps or time.time() - self._recipe_at < 30:
+            return
+        self._recipe_at = time.time()
+        threading.Thread(target=self.make_recipe, args=(request, steps, answer), name="jarvis-recipe",
+                         daemon=True).start()
+
+    def make_recipe(self, request: str, steps: list, answer: str) -> str | None:
+        """Ask the quick brain for a recipe out of the steps and keep it; the title, or None when there is none."""
+        prompt = recipes.PROMPT.format(request=request[:1500], steps=recipes.describe(steps)[:6000], answer=answer[:1000])
+        try:
+            response = self._request([{"role": "user", "content": prompt}], None, "You are Jarvis, learning from "
+                                     "your own work.", set(), model=self.fast_model(), effort="low", tools=[],
+                                     max_tokens=600)
+        except Exception:
+            log.warning("could not write a recipe for the task", exc_info=True)
+            return None
+        said = " ".join(b.text for b in response.content if b.type == "text").strip()
+        recipe = recipes.parse(said)
+        if not recipe or not recipes.save(self.store, *recipe):
+            return None
+        log.info("recipe kept: %s", recipe[0])
+        return recipe[0]
 
     def stop_work(self, user=None) -> None:
         """"спри": every task of this person (of everyone, when it is the owner) ends at its next step."""

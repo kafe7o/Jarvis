@@ -8,7 +8,7 @@ from pathlib import Path
 
 import threading
 
-from .. import upgrades
+from .. import recipes, upgrades
 from ..tools import ToolRegistry, obj
 
 # Where things are, so the model finds the right file without reading everything.
@@ -144,6 +144,7 @@ def register(registry: ToolRegistry, ctx) -> None:
             lines.append("Tools that failed most: " + ", ".join(f"{t} ({b} failed of {b + g})" for b, g, t in worst))
         lines += ["Latest failed steps:"] + [f"- {r['created']} {r['tool']}: {r['summary'][:200]}" for r in failed[:25]]
         lines.append("Your lessons (LESSONS.md):\n" + (core_files.read(ctx.settings.home, "LESSONS.md") or "(none yet)"))
+        lines.append("Your recipes (ways that worked, shown to you again on similar tasks):\n" + recipes.listing(ctx.store))
         made = upgrades.records(ctx.settings.home)
         lines.append("Your upgrades: " + ("; ".join(upgrades.describe(r) for r in made[-5:]) or "none yet"))
         return "\n".join(lines)
