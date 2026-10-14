@@ -402,9 +402,10 @@ def test_emag_prices_skip_accessories_and_translations_come_back(monkeypatch):
 
 def test_a_job_on_web_pages_is_told_apart_from_the_rest():
     for text in ["Отвори сайта на БНБ в браузъра и ми кажи курса на долара днес", "намери в интернет кога играе Левски",
-                 "виж на abv.bg какво пише", "vij v brauzara kolko struva"]:
+                 "виж на abv.bg какво пише", "vij v brauzara kolko struva",
+                 "Мисия: намери в интернет 3 приложения за бележки. Провери всичко."]:  # a web mission too
         assert router.web_task(text), text
-    for text in ["колко е часът", "пусни музика", "провери всичко в браузъра докато не стане"]:
+    for text in ["колко е часът", "пусни музика", "провери всичко докато не стане"]:
         assert not router.web_task(text), text
 
 

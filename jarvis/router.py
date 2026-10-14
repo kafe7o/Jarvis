@@ -647,9 +647,9 @@ WEB = rx(r"браузър|браузер|\bсайт|страниц|интерн�
 
 
 def web_task(text: str) -> bool:
-    """"Виж в браузъра…", "отвори сайта на БНБ и…": a task done on web pages (a mission keeps every tool)."""
-    said = clean(text)
-    return bool(WEB.search(said)) and not is_mission(said)
+    """"Виж в браузъра…", "отвори сайта на БНБ и…": a task done on web pages. A mission on the web takes it too
+    (with its extra steps and final check): with seventy tools a free brain wandered off to the phone and files."""
+    return bool(WEB.search(clean(text)))
 
 
 def think_harder(text: str) -> bool:
