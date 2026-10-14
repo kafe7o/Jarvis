@@ -2,8 +2,38 @@
 
 from __future__ import annotations
 
+import logging
+import re
+import urllib.parse
+from html import unescape
+
 from .. import gemini
 from ..tools import ToolRegistry, obj
+
+log = logging.getLogger("jarvis.websearch")
+
+
+def _plain(html: str) -> str:
+    return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", html))).strip()
+
+
+def duckduckgo(query: str, fetch=None, limit: int = 8) -> str:
+    """The first results of a DuckDuckGo search (no key, no AI): title, address and the snippet of each."""
+    if fetch is None:
+        from .daily import fetch
+    page = fetch("https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query}), timeout=10)
+    found = []
+    for block in re.split(r'class="result__a"', page)[1:limit + 1]:
+        link = re.search(r'href="([^"]+)"[^>]*>(.*?)</a>', block, re.S)
+        if not link:
+            continue
+        url = unescape(link.group(1))
+        url = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("uddg", [url])[0]  # DuckDuckGo's redirect
+        snippet = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', block, re.S)
+        found.append(f"- {_plain(link.group(2))} ({url}): {_plain(snippet.group(1)) if snippet else ''}")
+    if not found:
+        raise RuntimeError("DuckDuckGo returned no results.")
+    return "Results (DuckDuckGo; open_page the best one if the snippets are not enough):\n" + "\n".join(found)
 
 
 def register(registry: ToolRegistry, ctx) -> None:
@@ -14,7 +44,12 @@ def register(registry: ToolRegistry, ctx) -> None:
     )
     def google_search(query: str):
         model = ctx.settings.model if ctx.settings.model.startswith("gemini") else gemini.DEFAULT_MODEL
-        answer = gemini.search(query, model)
+        try:
+            answer = gemini.search(query, model)
+        except Exception as exc:  # no Gemini key, or its searches are used up: the results page, without AI
+            log.warning("Google search through Gemini failed (%s: %s); DuckDuckGo instead", type(exc).__name__,
+                        str(exc)[:200])
+            return duckduckgo(query)
         ctx.store.insert("usage", model=model)  # one free request, for the "Разход" tab
         return answer
 
