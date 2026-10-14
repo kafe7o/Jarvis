@@ -793,6 +793,8 @@ class Hub:
         for key, value in values.items():
             if key not in known or not isinstance(value, str) or "\n" in value:
                 continue
+            if (key.endswith("_MODEL") or key == "JARVIS_BACKUP") and "@" in value:
+                continue  # the browser filled the login e-mail into a brain field: not a brain
             stored[key] = value.strip()
             if value.strip():
                 os.environ[key] = value.strip()

@@ -509,7 +509,13 @@ def backups() -> list[str]:
     used up or broken, before the automatic order ("groq", "openrouter", "nvidia:<model>", "gemini", "local").
     One without its key in .env is passed over."""
     names = re.split(r"[,;\s]+", os.environ.get("JARVIS_BACKUP", ""))
-    return [ALIASES.get(n.lower(), n) for n in names if n.strip() and n.lower() != AUTO]
+    return [ALIASES.get(n.lower(), n) for n in names if model_name(n) and n.lower() != AUTO]
+
+
+def model_name(name: str) -> bool:
+    """A brain's name, not something else a browser typed into the field (once the owner's e-mail landed there and
+    every backup turn failed with "models/<e-mail> is not found")."""
+    return bool(re.fullmatch(r"[\w.:/\-]+", name.strip())) and "@" not in name
 
 
 def strip_thinking(messages: list) -> bool:
