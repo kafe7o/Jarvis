@@ -23,6 +23,8 @@ BRAINS = {
                "slower than Groq; needs NVIDIA_API_KEY"),
     "openrouter": ("openrouter", "OpenRouter", "free models (about 50 requests a day), with every tool; "
                    "needs OPENROUTER_API_KEY"),
+    "auto": ("auto", "Авто", "Jarvis picks the free brain for every step himself and switches in the middle of a "
+             "task: quick ones for easy steps, the smartest for hard ones or after a failed step"),
     "local": ("local", "the brain on this computer (Ollama)", "free with no daily limit and works offline, but slower "
               "and simpler; needs Ollama installed"),
 }

@@ -77,6 +77,12 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .scale-names b { font-size: 13px; font-weight: 600; } .scale-names small { font-size: 11px; color: var(--faint); }
 .scale-names button.on { color: var(--text); } .scale-names button.on small { color: var(--muted); }
 .scale-names em { font-style: normal; font-size: 11px; color: var(--accent); }
+.scale-top { align-items: center; }
+.auto-btn { font: inherit; font-size: 12px; font-weight: 600;
+  padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); color: var(--muted); cursor: pointer; }
+.auto-btn:hover { border-color: var(--accent); color: var(--text); }
+.auto-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.scale.auto .scale-track, .scale.auto .scale-names { opacity: .45; }
 .scale-now { font-size: 14px; margin-top: 6px; } .scale-now b { color: var(--text); } .scale-now span { color: var(--muted); }
 .field label { font-size: 13px; color: var(--muted); }
 .input { width: 100%; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; padding: 11px 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
@@ -2793,14 +2799,15 @@ function brainSlider(sc) {
   const n = sc.stops.length, rec = sc.stops.findIndex((x) => x.recommended);
   const at = sc.at >= 0 ? sc.at : Math.max(rec, 0);
   const left = (i) => `calc(13px + (100% - 26px) * ${i / (n - 1)})`;
-  return `<div class="scale">
-    <div class="scale-top"><span>По-бърз</span><span>По-умен</span></div>
+  return `<div class="scale${sc.auto ? " auto" : ""}">
+    <div class="scale-top"><span>По-бърз</span><button type="button" class="auto-btn${sc.auto ? " on" : ""}" aria-pressed="${sc.auto}">Авто${sc.auto ? ": вкл." : ""}</button><span>По-умен</span></div>
     <div class="scale-track"><div class="rail"></div>
       <div class="dots">${sc.stops.map((x, i) => `<i class="${i === rec ? "rec" : ""}"></i>`).join("")}</div>
       <input type="range" class="scale-range" min="0" max="${n - 1}" step="1" value="${at}" aria-label="Мозък: по-бърз или по-умен"></div>
     <div class="scale-names">${sc.stops.map((x, i) => `<button type="button" data-stop="${i}" style="left:${left(i)}"
       class="${i === at && sc.at >= 0 ? "on" : ""}"><b>${esc(x.name)}</b><small>${esc(x.model.split("/").pop())}</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`).join("")}</div>
-    <div class="scale-now">${sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b> <span>(написан ръчно; премести кръгчето, за да избереш от списъка)</span>`}</div>
+    <div class="scale-now">${sc.auto ? `<b>Авто</b> <span>· сам избира мозъка за всяка стъпка и го сменя и по средата на задача: бърз за лесното, най-умния за трудното или след грешка. Премести кръгчето, за да го изключиш.</span>`
+      : sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b> <span>(написан ръчно; премести кръгчето, за да избереш от списъка)</span>`}</div>
   </div>`;
 }
 // Moving the knob shows the brain; letting go (or clicking a name) saves it as JARVIS_MODEL, then ``done`` redraws.
@@ -2810,10 +2817,15 @@ function wireScale(el, sc, done) {
   el.querySelectorAll("button[data-stop]").forEach((b) => b.addEventListener("click", () => {
     r.value = b.dataset.stop; r.dispatchEvent(new Event("change"));
   }));
-  r.addEventListener("change", async () => {
-    const x = sc.stops[Number(r.value)];
-    try { await api("/api/settings", { values: { JARVIS_MODEL: x.value } }); toast(`Мозък: ${x.name}. Важи веднага.`); done(); loadBrainBtn(); }
+  const save = async (value, name) => {
+    try { await api("/api/settings", { values: { JARVIS_MODEL: value } }); toast(`Мозък: ${name}. Важи веднага.`); done(); loadBrainBtn(); }
     catch (err) { now.textContent = err.message; }
+  };
+  r.addEventListener("change", () => { const x = sc.stops[Number(r.value)]; save(x.value, x.name); });
+  // Авто on: Jarvis picks the brain for every step; off: back to the recommended stop on the slider
+  el.querySelector(".auto-btn").addEventListener("click", () => {
+    const rec = sc.stops.find((x) => x.recommended) || sc.stops[0];
+    if (sc.auto) save(rec.value, rec.name); else save("auto", "Авто");
   });
 }
 
@@ -2824,7 +2836,7 @@ async function loadBrainBtn() {
   try { sc = await api("/api/brain"); } catch (e) { return; }
   state.brainScale = sc;
   $("brainBtn").classList.toggle("hidden", sc.stops.length < 2);
-  $("brainName").textContent = sc.at >= 0 ? sc.stops[sc.at].name : sc.model;
+  $("brainName").textContent = sc.auto ? "Авто" : sc.at >= 0 ? sc.stops[sc.at].name : sc.model;
   if (!$("brainPop").classList.contains("hidden")) drawBrainPop();
 }
 function drawBrainPop() {

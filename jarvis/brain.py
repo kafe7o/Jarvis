@@ -366,6 +366,17 @@ Keys and passwords never appear in your answers.
 - Between steps say nothing; the answer comes with the result: one to three sentences with what was asked."""
 
 
+AUTO = "auto"  # JARVIS_MODEL=auto (Settings > Мозък > Авто): Jarvis picks the brain for every step himself
+
+
+def last_round_failed(messages: list) -> bool:
+    """True when a tool in the newest round of results failed (not a "no" from the owner)."""
+    content = messages[-1].get("content") if messages and messages[-1].get("role") == "user" else None
+    return isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error")
+        and not str(b.get("content", "")).startswith("The user declined") for b in content)
+
+
 def web_lane(text: str) -> bool:
     """A job on web pages that needs nothing else (no mail, phone, files or settings): the fast lane."""
     return router.web_task(text) and not any(rx.search(text) for rx in GROUP_RX.values())
@@ -467,7 +478,7 @@ def backups() -> list[str]:
     used up or broken, before the automatic order ("groq", "openrouter", "nvidia:<model>", "gemini", "local").
     One without its key in .env is passed over."""
     names = re.split(r"[,;\s]+", os.environ.get("JARVIS_BACKUP", ""))
-    return [ALIASES.get(n.lower(), n) for n in names if n.strip()]
+    return [ALIASES.get(n.lower(), n) for n in names if n.strip() and n.lower() != AUTO]
 
 
 def strip_thinking(messages: list) -> bool:
@@ -579,6 +590,9 @@ class Jarvis:
                 tools = select_tools(tools, groups, recent_text(messages))
         system = system if system is not None else self.system_prompt(user)
         again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
+        if model == AUTO:
+            return self._ask_free(self.auto_order(messages, tools), system, messages, tools, max_tokens, effort,
+                                  images=has_images(messages))
         if local.is_local(model):
             return self._ask_local(model, system, messages, tools, max_tokens, effort)
         strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]  # NVIDIA, OpenRouter: the strongest free ones
@@ -626,6 +640,33 @@ class Jarvis:
             s.model = takeover
             keep_brain(takeover)
             return self._request(messages, user, system, allowed, model=s.model, **again)
+
+    def auto_order(self, messages: list, tools: list) -> list[str]:
+        """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
+        in the middle of a task too.
+        A picture goes to Gemini (it sees); a short answer to Groq (the fastest); a hard step (a mission, or right
+        after a failed one) to the smartest free brain (Gemini Flash while its day lasts, then NVIDIA/OpenRouter);
+        everyday work to Gemini Flash-Lite (quick and good with a dozen tools). The others follow when one is
+        overloaded or used up. Only the brains with a key in .env are asked."""
+        strong = [k for k in freeapi.PROVIDERS if freeapi.available(k)]
+        flash = [gemini.AGENT_MODEL] if self.flash_ready() and not is_background(messages) else []
+        lite, fast = gemini.DEFAULT_MODEL, groq.DEFAULT_MODEL
+        if has_images(messages):
+            order = [lite, *flash, fast, *strong]
+        elif not tools:
+            order = [fast, lite, *strong]
+        elif router.is_mission(recent_text(messages)) or last_round_failed(messages):
+            order = [*flash, *strong, lite, fast]
+        else:
+            order = [lite, fast, *strong]
+        order = [m for m in [*order, *backups()] if self._ready(m)] or ["local"]
+        log.info("auto brain: %s", order[0])
+        return list(dict.fromkeys(order))
+
+    def _ready(self, model: str) -> bool:
+        kind = brain_kind(model)
+        return (groq.available() if kind == "groq" else local.available() if kind == "local"
+                else freeapi.available(model) if kind in self.free_apis else gemini.available())
 
     def flash_ready(self) -> bool:
         """True while Gemini's agent model (Flash) still has free requests today and is not resting."""
