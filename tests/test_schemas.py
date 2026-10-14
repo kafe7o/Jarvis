@@ -143,6 +143,13 @@ def test_a_mission_gets_more_steps_and_a_check_of_the_result(settings, ctx, regi
     assert jarvis.ask("прегледай задачите и провери всичко до край").startswith("Проверих")
     assert client.requests[2]["messages"][-1]["content"] == VERIFY_CHECK
     assert len(client.requests) == 4 and VERIFY_CHECK[:30] not in str(ctx.store.history("main", 10))
+    # the check answered off the subject ("no active task") keeps the real answer; one on the subject replaces it
+    for reply, answer in [("Разбирам правилото, но в момента нямам активна задача за проверка.", "Намерих: Keep, Notion"),
+                          ("Проверих приложенията: Keep, Notion и Obsidian са безплатни.", "Проверих приложенията")]:
+        client.responses = [response(tool_block("list_tasks", {}), stop="tool_use"),
+                            response(text_block("Намерих: Keep, Notion и Obsidian са безплатни приложения.")),
+                            response(text_block(reply))]
+        assert jarvis.ask("намери приложения и провери всичко до край").startswith(answer)
     # an ordinary request gets no check
     client.responses = [response(tool_block("list_tasks", {}), stop="tool_use"), response(text_block("Нямаш задачи."))]
     client.requests.clear()

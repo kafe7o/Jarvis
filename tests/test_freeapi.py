@@ -350,6 +350,10 @@ def test_auto_picks_the_brain_for_every_step_and_switches_in_the_middle_of_a_tas
                                              groq.DEFAULT_MODEL, gemini.AGENT_MODEL, gemini.DEFAULT_MODEL,
                                              gemini.AGENT_MODEL]
     assert "nvidia" in asked[1] and asked[1].index("nvidia") < asked[1].index(gemini.DEFAULT_MODEL)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    jarvis._request(failed, tools=tools)  # openrouter/free (a lottery of models) comes after Flash-Lite
+    assert asked[-1].index("nvidia") < asked[-1].index(gemini.DEFAULT_MODEL) < asked[-1].index("openrouter")
+    monkeypatch.delenv("OPENROUTER_API_KEY")
     monkeypatch.delenv("NVIDIA_API_KEY")
     jarvis._request(failed, tools=tools)
     assert "nvidia" not in asked[-1]  # only the brains with a key
