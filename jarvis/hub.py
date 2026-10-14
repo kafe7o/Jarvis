@@ -124,7 +124,7 @@ def friendly_error(exc: Exception) -> str:
         return "Groq ключът е грешен или липсва. Вземи нов от console.groq.com/keys и го сложи в Настройки > Връзки."
     if isinstance(exc, FreeUsedUp):
         return ("Безплатните модели са заети или изчерпани за момента. Опитай пак след минута, "
-                "или сложи още един безплатен ключ (Gemini, Groq, NVIDIA или OpenRouter) в Настройки > Връзки.")
+                "или сложи още един безплатен ключ (Mistral, Gemini, Groq, NVIDIA или OpenRouter) в Настройки > Връзки.")
     for p in PROVIDERS.values():
         if p.name.lower() in low and ("key" in low or "401" in low):
             return f"{p.name} ключът е грешен или липсва. Вземи нов от {p.site} и го сложи в Настройки > Връзки."
@@ -438,6 +438,7 @@ BRAINS = [
     ("groq", "Groq (безплатен, най-бързият)", "GROQ_API_KEY"),
     ("gemini", "Gemini (безплатен, вижда снимки)", "GEMINI_API_KEY"),
     ("auto", "Авто (сам избира и сменя мозъка според стъпката)", ""),
+    ("mistral", "Mistral (безплатен, бърз и силен, без дневен лимит)", "MISTRAL_API_KEY"),
     ("nvidia", "NVIDIA (безплатни силни модели)", "NVIDIA_API_KEY"),
     ("openrouter", "OpenRouter (безплатни модели)", "OPENROUTER_API_KEY"),
     ("local", "На лаптопа през Ollama (без лимит, по-бавен)", ""),
@@ -466,6 +467,7 @@ def brain_choices(items: list[dict], stored: dict) -> str:
 SCALE = [
     ("groq", "Groq", "най-бързият, отговаря за секунда; слаб с дълги задачи", "GROQ_API_KEY"),
     ("gemini", "Gemini", "Flash за работа, докато има заявки за деня, после другите с ключ", "GEMINI_API_KEY"),
+    ("mistral", "Mistral", "бърз и силен с всички инструменти, вижда снимки, без дневен лимит", "MISTRAL_API_KEY"),
     ("openrouter", "OpenRouter", "безплатни модели, които се сменят; средно бърз", "OPENROUTER_API_KEY"),
     ("nvidia", "NVIDIA", "силни модели, но на безплатния ключ често бавни", "NVIDIA_API_KEY"),
     ("gemini-3.5-flash", "Gemini Flash", "най-умният безплатен и вижда екрана; около 25 заявки на ден", "GEMINI_API_KEY"),
@@ -484,10 +486,10 @@ def brain_scale(stored: dict) -> dict:
 
     env = lambda key, default: (stored.get(key) or os.environ.get(key, "")).strip() or default
     models = {"groq": env("JARVIS_GROQ_MODEL", FREE_MODELS[0]), "gemini": "Flash + Lite",
-              "openrouter": env("JARVIS_OPENROUTER_MODEL", "сам избира"),
+              "openrouter": env("JARVIS_OPENROUTER_MODEL", "сам избира"), "mistral": env("JARVIS_MISTRAL_MODEL", "Medium"),
               "nvidia": env("JARVIS_NVIDIA_MODEL", "сам избира")}
     stops = [{"value": DEFAULT_MODEL if value == "gemini" else value, "name": name, "about": about,
-              "model": models.get(value, value), "recommended": value == "gemini"}
+              "model": models.get(value, value), "recommended": value == ("mistral" if has("MISTRAL_API_KEY") else "gemini")}
              for value, name, about, key in SCALE if has(key)]
     current = (stored.get("JARVIS_MODEL") or os.environ.get("JARVIS_MODEL", "")).strip() or default_brain()
     current = DEFAULT_MODEL if current == "gemini" else current

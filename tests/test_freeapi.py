@@ -361,3 +361,80 @@ def test_auto_picks_the_brain_for_every_step_and_switches_in_the_middle_of_a_tas
     jarvis._request(failed, tools=tools)
     assert "nvidia" not in asked[-1]  # only the brains with a key
     assert brain_scale({"JARVIS_MODEL": "auto"})["auto"] and not brain_scale({"JARVIS_MODEL": "groq"})["auto"]
+
+
+MISTRAL_LIST = [
+    {"id": "mistral-medium-latest", "capabilities": {"completion_chat": True, "function_calling": True, "vision": True}},
+    {"id": "mistral-medium-2508", "capabilities": {"completion_chat": True, "function_calling": True, "vision": True}},
+    {"id": "mistral-large-latest", "capabilities": {"completion_chat": True, "function_calling": True, "vision": False}},
+    {"id": "mistral-small-latest", "capabilities": {"completion_chat": True, "function_calling": True, "vision": True}},
+    {"id": "codestral-latest", "capabilities": {"completion_chat": True, "function_calling": True}},
+    {"id": "ministral-8b-latest", "capabilities": {"completion_chat": True, "function_calling": True}},
+    {"id": "mistral-embed", "capabilities": {"completion_chat": False, "function_calling": False}},
+    {"id": "mistral-ocr-latest", "capabilities": {"completion_chat": False, "function_calling": False}},
+    {"id": "magistral-medium-latest", "capabilities": {"completion_chat": True, "function_calling": True}},
+    {"id": "pixtral-large-latest", "capabilities": {"completion_chat": True, "function_calling": False, "vision": True}},
+]
+
+
+def test_mistral_is_the_best_free_brain_and_speaks_its_dialect(settings, ctx, registry, monkeypatch):
+    """October 2026: Mistral's free plan (a phone number, no card) has no daily cap and Medium 3.5 is quick and
+    strong with tools, so with its key it goes first: as the default brain, as Авто's everyday brain, and before
+    NVIDIA and OpenRouter. Mistral wants nine-character tool call ids, so ids from the other brains are rewritten."""
+    from jarvis.brain import free_brain
+
+    monkeypatch.setenv("MISTRAL_API_KEY", "free-key")
+    monkeypatch.setenv("NVIDIA_API_KEY", "free-key")
+    assert default_brain() == "mistral" and free_brain() == "mistral"
+    assert freeapi.choose(freeapi.PROVIDERS["mistral"], MISTRAL_LIST) == [
+        "mistral-medium-latest", "mistral-large-latest", "mistral-small-latest"]  # no code, tiny, picture-only or thinking ones
+    settings.model = "mistral"
+    fake = FakeAPI([said("", [call("remember", {"topic": "кафе", "fact": "без захар"}, id="Ab3dE6gH9")]), said("Запомних.")])
+    brain = freeapi.FreeBrain("mistral", post=fake, get=lambda: MISTRAL_LIST)
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]), free_brains={"mistral": brain})
+    assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних."
+    first, second = fake.bodies
+    assert first["model"] == "mistral-medium-latest" and first["tool_choice"] == "auto"
+    assert second["messages"][-1] == {"role": "tool", "tool_call_id": "Ab3dE6gH9", "content": "Remembered (id 1)."}
+    assert brain.sees == {"mistral-medium-latest", "mistral-small-latest"}
+    assert {r["model"] for r in ctx.store.query("SELECT model FROM usage")} == {"mistral:mistral-medium-latest"}
+    assert usage.price("mistral:mistral-medium-latest") == (0, 0, 0, 0)
+    # ids from Gemini or NVIDIA become a fixed nine-character hash, the same on the call and on its result
+    history = [{"role": "user", "content": "виж"},
+               {"role": "assistant", "content": [{"type": "tool_use", "id": "call_gemini_123456", "name": "look_at_screen", "input": {}}]},
+               {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_gemini_123456",
+                                             "content": [{"type": "text", "text": "the screen"},
+                                                         {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR"}}]},
+                                            {"type": "text", "text": "(An image was shared here; this brain cannot see images.)"}]}]
+    chat = freeapi.mistral_chat("Ти си Jarvis.", history, sees=True)
+    short = chat[2]["tool_calls"][0]["id"]
+    assert len(short) == 9 and short.isalnum() and chat[3]["tool_call_id"] == short
+    assert chat[-1]["role"] == "user" and chat[-1]["content"][1]["image_url"]["url"] == "data:image/png;base64,iVBOR"
+    assert "attached" in chat[-2]["content"]
+    blind = freeapi.mistral_chat("s", history, sees=False)
+    assert blind[-1]["content"] == groq.NO_EYES  # no picture for a model that cannot see
+    merged = freeapi.mistral_chat("s", [{"role": "user", "content": "а"}, {"role": "user", "content": "б"}], sees=False)
+    assert [m["content"] for m in merged] == ["s", "а\n\nб"]  # never two user messages in a row
+
+
+def test_auto_runs_everyday_steps_on_mistral_and_pictures_on_gemini_first(settings, ctx, registry, monkeypatch):
+    monkeypatch.setenv("MISTRAL_API_KEY", "free-key")
+    monkeypatch.setenv("NVIDIA_API_KEY", "free-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setenv("GROQ_API_KEY", "x")
+    settings.model = "auto"
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]))
+    monkeypatch.setattr(jarvis, "flash_ready", lambda: False)
+    tools = registry.definitions(None)
+    ask = [{"role": "user", "content": "направи го"}]
+    assert jarvis.auto_order(ask, tools)[:3] == ["mistral", gemini.QUICK_MODEL, groq.DEFAULT_MODEL]
+    assert jarvis.auto_order(ask, [])[:2] == [groq.DEFAULT_MODEL, "mistral"]
+    picture = [{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "x"}},
+                                            {"type": "text", "text": "какво е това"}]}]
+    assert jarvis.auto_order(picture, tools)[:2] == [gemini.QUICK_MODEL, "mistral"]
+    assert jarvis.auto_order(ask, tools)[-2:] == ["nvidia", "local"] or "nvidia" in jarvis.auto_order(ask, tools)[-2:]
+    out, err = registry.run("switch_brain", {"brain": "mistral"}, Approver())
+    assert not err and settings.model == "mistral"
+    monkeypatch.delenv("MISTRAL_API_KEY")
+    out, err = registry.run("switch_brain", {"brain": "mistral"}, Approver())
+    assert err and "console.mistral.ai" in out

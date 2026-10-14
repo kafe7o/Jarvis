@@ -18,8 +18,8 @@ PRICES = {
 
 
 def free(model: str) -> bool:
-    """The free tiers (Gemini, Groq, NVIDIA, OpenRouter) and the brain on this computer cost nothing."""
-    return model.startswith(("gemini", "groq", "local", "nvidia", "openrouter"))
+    """The free tiers (Gemini, Groq, Mistral, NVIDIA, OpenRouter) and the brain on this computer cost nothing."""
+    return model.startswith(("gemini", "groq", "local", "mistral", "nvidia", "openrouter"))
 
 
 def price(model: str) -> tuple[float, float, float, float]:

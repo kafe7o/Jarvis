@@ -40,8 +40,11 @@ def silence_seconds() -> float:
 
 
 def default_brain() -> str:
-    """No brain chosen (JARVIS_MODEL empty): the strongest free one that is set up: NVIDIA (Kimi, DeepSeek),
-    OpenRouter, then Gemini, then Groq (fast, but weak with tools); Claude (paid) only when there is none."""
+    """No brain chosen (JARVIS_MODEL empty): the strongest free one that is set up: Mistral (fast, strong, no
+    daily cap), NVIDIA (Kimi, DeepSeek), OpenRouter, then Gemini, then Groq (fast, but weak with tools); Claude
+    (paid) only when there is none."""
+    if _env("MISTRAL_API_KEY"):
+        return "mistral"
     if _env("NVIDIA_API_KEY"):
         return "nvidia"
     if _env("OPENROUTER_API_KEY"):
