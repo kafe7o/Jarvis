@@ -217,6 +217,19 @@ def test_a_task_dropped_in_the_remote_folder_is_asked_as_the_owner(settings, ctx
     assert any("Нямаш задачи." in m["content"] for m in hub.accounts.messages(chat["id"]))
 
 
+def test_a_remote_task_cut_off_by_a_restart_is_asked_again_once(tmp_path):
+    from jarvis import remote
+
+    where = remote.folder(tmp_path)
+    where.mkdir()
+    (where / "a.working.txt").write_text("задача", encoding="utf-8")
+    (where / "b.again.working.txt").write_text("задача", encoding="utf-8")
+    remote.resume(where)
+    assert [f.name for f in remote.waiting(where)] == ["a.again.txt"]
+    assert "два пъти" in (where / "b.again.answer.txt").read_text(encoding="utf-8")
+    assert not list(where.glob("*.working.txt"))
+
+
 def test_the_apps_own_hub_gets_auto_update_and_the_remote_folder(settings, ctx, registry, monkeypatch):
     # `jarvis app` serves its hub before start_background: the background work must still start for it.
     from jarvis import app, remote

@@ -5,7 +5,7 @@ while the owner is away and see how fast he started on it. Each ``*.txt`` is ask
 „Задачи отдалеч“ (with the same confirmations as the app) and gets an answer file next to it:
 ``<name>.answer.txt`` with when the task was picked up, when the first step started, which brains answered and
 what Jarvis said. A first line „модел: groq“ (any JARVIS_MODEL value) runs that task on that brain.
-JARVIS_REMOTE_FOLDER=0 switches it off.
+A task cut off by a restart (an update) is asked again once. JARVIS_REMOTE_FOLDER=0 switches it off.
 """
 from __future__ import annotations
 
@@ -37,6 +37,21 @@ def waiting(where: Path) -> list[Path]:
 
 def clock(t: float | None) -> str:
     return datetime.fromtimestamp(t).strftime("%H:%M:%S") if t else "-"
+
+
+def resume(where: Path) -> list[Path]:
+    """Tasks cut off by a restart (an update, a crash) are asked again once, as ``<name>.again.txt``; one cut off
+    twice gets an answer file saying so instead of a third try."""
+    back = []
+    for working in sorted(where.glob("*.working.txt")) if where.is_dir() else []:
+        stem = working.name[:-len(".working.txt")]
+        if stem.endswith(".again"):
+            working.with_name(stem + ".answer.txt").write_text(
+                "Задачата прекъсна два пъти (рестарт на Jarvis); не я пускам трети път.", encoding="utf-8")
+            working.unlink(missing_ok=True)
+        else:
+            back.append(working.replace(working.with_name(stem + ".again.txt")))
+    return back
 
 
 def run_one(hub, task: Path) -> Path:
@@ -105,6 +120,7 @@ def watch(hub, home: Path, every: float = 1.0, rounds: int | None = None) -> thr
             time.sleep(every)
 
     where.mkdir(parents=True, exist_ok=True)
+    resume(where)
     thread = threading.Thread(target=loop, name="jarvis-remote-folder", daemon=True)
     thread.start()
     return thread
