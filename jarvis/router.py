@@ -110,6 +110,8 @@ SEARCHES = [
     (r"amazon|амазон", "Amazon", "https://www.amazon.de/s?k={q}"),
     (r"google maps|гугъл мапс|maps|мапс|картите", "Google Maps", "https://www.google.com/maps/search/{q}"),
 ]
+# A search that asks something ("колко струва", "кога излиза"): the AI looks it up and says the answer.
+ASKS = rx(r"(?:^|\s)(?:колко|кога|какво|каква|какъв|какви|кой|коя|кое|кои|къде|защо|как|дали)(?=\s|$)")
 LOCK = rx(r"^(?:заключи|lock) (?:компютъра|лаптопа|компа|екрана|пц-то|pc-то)$")
 SLEEP = rx(r"^(?:приспи|сложи да спи) (?:компютъра|лаптопа|компа)$")
 SHUTDOWN = rx(r"^(?:изключи|угаси|спри) (?:компютъра|лаптопа|компа)$")
@@ -330,6 +332,8 @@ def _site_search(s: str, info: Info) -> Step | list[Step] | None:
     if not known or not query or words(query) > 10:
         return None
     name, url = known
+    if name in ("Google", "Уикипедия") and ASKS.search(query):  # "колко струва бензинът": an answer, not a page
+        return None
     if name == "YouTube" and re.search(bg(r"пусни|play"), rest, re.I):
         return Step(lambda out: (f"Пускам „{m[1]}“." if (m := re.search(r"“(.+?)”", out)) else
                                  f"Отворих YouTube с резултатите за „{query}“."), "play_youtube", {"query": query}, s)

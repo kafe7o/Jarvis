@@ -407,7 +407,6 @@ def test_when_gemini_cannot_search_google_is_read_in_the_browser_then_duckduckgo
     """On the laptop Gemini's searches are used up ("exceeded your current quota"), and the brain then spent ten
     steps on other sites. Now the search itself goes on: Google's results page in Jarvis's browser (its cookie
     page refused), and when Google asks for a robot check, DuckDuckGo's results page."""
-    from jarvis.plugins import daily
     from conftest import Approver
 
     def broken(query, model=None, client=None):
@@ -454,6 +453,18 @@ def test_when_gemini_cannot_search_google_is_read_in_the_browser_then_duckduckgo
     ddg = ('<div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Flevski.bg'
            '%2Fmatches&amp;rut=x">Програма на <b>Левски</b></a><a class="result__snippet" href="x">Левски - НЕК, '
            'четвъртък 22:00</a></div>')
-    monkeypatch.setattr(daily, "fetch", lambda url, timeout=10, cookie=None: ddg)
+    import io
+    from contextlib import contextmanager
+    from jarvis.plugins import websearch
+
+    asked = []
+
+    @contextmanager
+    def urlopen(request, timeout=None):
+        asked.append(request.get_header("User-agent"))
+        yield io.BytesIO(ddg.encode())
+
+    monkeypatch.setattr(websearch.urllib.request, "urlopen", urlopen)
     out, err = registry.run("google_search", {"query": "следващ мач на Левски"}, Approver())
     assert not err and "- Програма на Левски (https://levski.bg/matches): Левски - НЕК, четвъртък 22:00" in out
+    assert "Jarvis" not in asked[0]  # a plain browser's name: DuckDuckGo checks for robots otherwise
