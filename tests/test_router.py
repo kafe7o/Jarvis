@@ -191,6 +191,9 @@ def test_budget_setting():
     for value, cap in [("", 1.0), ("2,5", 2.5), ("0", 0.0), ("без", None), ("abc", 1.0)]:
         s.daily_budget = value
         assert s.budget() == cap
+    for value, cap in [("", 2.0), ("0,5", 0.5), ("0", 0.0), ("без", None), ("abc", 2.0)]:
+        s.mistral_budget = value
+        assert s.mistral_cap() == cap
 
 
 class FakeOllama:

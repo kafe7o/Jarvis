@@ -39,6 +39,16 @@ def silence_seconds() -> float:
     return min(max(seconds, 0.5), 10.0)
 
 
+def _cap(value: str, default: float) -> float | None:
+    value = (value or "").strip().lower() or str(default)
+    if value in ("без", "няма", "none", "no", "off", "-1"):
+        return None
+    try:
+        return max(0.0, float(value.replace(",", ".").lstrip("$").rstrip("$")))
+    except ValueError:
+        return default
+
+
 def default_brain() -> str:
     """No brain chosen (JARVIS_MODEL empty): the strongest one that is set up: Mistral (fast, strong; paid per
     token within the daily cap), NVIDIA (Kimi, DeepSeek), OpenRouter, then Gemini, then Groq (fast, but weak with
@@ -75,6 +85,7 @@ class Settings:
     learn: bool = field(default_factory=lambda: _flag("JARVIS_LEARN", True))  # lessons from failed or corrected tasks
     fast_model: str = field(default_factory=lambda: _env("JARVIS_FAST_MODEL", ""))
     daily_budget: str = field(default_factory=lambda: _env("JARVIS_DAILY_BUDGET", "1"))
+    mistral_budget: str = field(default_factory=lambda: _env("JARVIS_MISTRAL_BUDGET", "2"))
     local_model: str = field(default_factory=lambda: _env("JARVIS_LOCAL_MODEL", ""))
 
     # Identity
@@ -120,14 +131,13 @@ class Settings:
     tts_voice: str = field(default_factory=lambda: _env("JARVIS_TTS_VOICE", "bg-BG-BorislavNeural"))
 
     def budget(self) -> float | None:
-        """Most US dollars a day for the paid brains (Claude, Mistral); None means no cap, 0 means only free brains."""
-        value = (self.daily_budget or "1").strip().lower()
-        if value in ("без", "няма", "none", "no", "off", "-1"):
-            return None
-        try:
-            return max(0.0, float(value.replace(",", ".").lstrip("$").rstrip("$")))
-        except ValueError:
-            return 1.0
+        """Most US dollars a day for Claude; None means no cap, 0 means never Claude (only the other brains)."""
+        return _cap(self.daily_budget, 1.0)
+
+    def mistral_cap(self) -> float | None:
+        """Most US dollars a day for Mistral (paid per token), its own cap: the owner's "0" for Claude, set when he
+        refused to pay for it, must not silence the brain he then paid for. None = no cap, 0 = never Mistral."""
+        return _cap(self.mistral_budget, 2.0)
 
     @property
     def db_path(self) -> Path:

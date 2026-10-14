@@ -720,15 +720,15 @@ class Jarvis:
                 else freeapi.available(model) and kind in self.affordable() if kind in self.free_apis
                 else gemini.available())
 
-    def under_cap(self) -> bool:
-        """Whether today's spending on paid brains (Claude, Mistral) is still under the daily cap."""
-        cap = self.settings.budget()
-        return cap is None or usage.spent_today(self.store) < cap
+    def under_cap(self, brain: str = "claude") -> bool:
+        """Whether today's spending on that paid brain is still under its daily cap (JARVIS_DAILY_BUDGET for
+        Claude, JARVIS_MISTRAL_BUDGET for Mistral)."""
+        cap = self.settings.mistral_cap() if brain == "mistral" else self.settings.budget()
+        return cap is None or usage.spent_today(self.store, brain) < cap
 
     def affordable(self) -> list[str]:
-        """The API providers Jarvis may ask now: the free ones always, the paid ones (Mistral) under the cap."""
-        under = self.under_cap()
-        return [k for k in freeapi.PROVIDERS if k not in freeapi.PAID or under]
+        """The API providers Jarvis may ask now: the free ones always, the paid ones (Mistral) under their cap."""
+        return [k for k in freeapi.PROVIDERS if k not in freeapi.PAID or self.under_cap(k)]
 
     def flash_ready(self) -> bool:
         """True while Gemini's agent model (Flash) still has free requests today and is not resting."""
@@ -744,7 +744,7 @@ class Jarvis:
         free = free_brain(paid=False) or ("local" if local.available() else None)
         if free:
             return free
-        raise BudgetReached(f"The daily cap of ${self.settings.budget():g} is reached and no free brain is set up.")
+        raise BudgetReached(f"Claude's daily cap of ${self.settings.budget():g} is reached and no free brain is set up.")
 
     def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str,
                   images: bool = False) -> object:

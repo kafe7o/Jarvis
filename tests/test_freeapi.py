@@ -474,10 +474,14 @@ def test_auto_runs_everyday_steps_on_mistral_and_pictures_on_gemini_first(settin
     hard = ask + [{"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "open_page", "input": {}}]},
                   {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "page not found", "is_error": True}]}]
     assert jarvis.auto_order(hard, tools)[0] == best
-    # the daily cap (JARVIS_DAILY_BUDGET) now covers Mistral: at the cap the free brains do every step
+    # Mistral has its own daily cap (JARVIS_MISTRAL_BUDGET): at it the free brains do every step. Claude's cap
+    # (JARVIS_DAILY_BUDGET) does not touch it: the laptop had "0" there from the days of refusing to pay for
+    # Claude, and the first night on the paid Mistral ran entirely on Gemini Lite and Groq, which lied "Качих".
     settings.daily_budget = "0"
+    assert jarvis.auto_order(ask, tools)[0] == cheap
+    settings.mistral_budget = "0"
     assert "mistral" not in " ".join(jarvis.auto_order(ask, tools)) and jarvis.auto_order(ask, tools)[0] == gemini.QUICK_MODEL
-    settings.daily_budget = "1"
+    settings.mistral_budget, settings.daily_budget = "2", "1"
     picture = [{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "x"}},
                                             {"type": "text", "text": "какво е това"}]}]
     assert jarvis.auto_order(picture, tools)[:2] == [gemini.QUICK_MODEL, best]
