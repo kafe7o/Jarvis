@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import urllib.parse
 import urllib.request
 from html import unescape
@@ -19,7 +20,26 @@ def _plain(html: str) -> str:
 
 
 AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
-BLOCKED = re.compile(r"unusual traffic|captcha|не сте робот|необичаен трафик", re.I)
+BLOCKED = re.compile(r"unusual traffic|captcha|не сте робот|необичаен трафик|not a robot|bots use duckduckgo|"
+                     r"google\.com/sorry", re.I)
+ROBOT = ("asks to prove this is not a robot. Never solve or click such a check, not with the mouse or the keyboard "
+         "either: the owner answers it himself if he wants")
+
+
+def in_owners_browser(query: str, facts: list[str], wait: float = 2.5) -> str:
+    """Google's results in the owner's own browser (their profile, the way they search), read off the screen."""
+    from .. import browsers, winui
+
+    if not winui.on_windows():
+        raise RuntimeError("the owner's browser is read on Windows only")
+    name = browsers.open_url("https://www.google.com/search?" + urllib.parse.urlencode({"q": query, "hl": "bg"}), facts)
+    time.sleep(wait)  # the new tab loads
+    text = winui.read(name.split()[0] if name != "the default browser" else "браузъра")
+    if BLOCKED.search(text):
+        raise RuntimeError(f"Google in the owner's browser {ROBOT}")
+    if len(text) < 200:
+        raise RuntimeError("no results page in the owner's browser")
+    return "Google results (in the owner's browser; open_page the best one if this is not enough):\n" + text[:5000]
 
 
 ENGINES = [("Google", "https://www.google.com/search?{}", "hl"), ("Bing", "https://www.bing.com/search?{}", "setlang")]
@@ -51,7 +71,9 @@ def _results(browser, address: str) -> str:
 
     where, text = browser().do(act, timeout=30)
     text = re.sub(r"\n\s*\n+", "\n", text).strip()
-    if len(text) < 200 or BLOCKED.search(text[:3000]):  # a check for robots is never answered: another way
+    if BLOCKED.search(where) or BLOCKED.search(text[:3000]):  # a check for robots is never answered: another way
+        raise RuntimeError(f"{ROBOT} ({where})")
+    if len(text) < 200:
         raise RuntimeError(f"no results page ({where}: {text[:120]!r})")
     return text[:5000]
 
@@ -75,7 +97,8 @@ def duckduckgo(query: str, fetch=None, limit: int = 8) -> str:
         snippet = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', block, re.S)
         found.append(f"- {_plain(link.group(2))} ({url}): {_plain(snippet.group(1)) if snippet else ''}")
     if not found:
-        raise RuntimeError(f"DuckDuckGo returned no results ({_plain(page)[:120]!r}).")
+        said = _plain(page)
+        raise RuntimeError(f"DuckDuckGo {ROBOT}." if BLOCKED.search(said) else f"DuckDuckGo returned no results ({said[:120]!r}).")
     return "Results (DuckDuckGo; open_page the best one if the snippets are not enough):\n" + "\n".join(found)
 
 
@@ -92,6 +115,10 @@ def register(registry: ToolRegistry, ctx) -> None:
         except Exception as exc:  # no Gemini key, or its searches are used up: the results page, without AI
             log.warning("Google search through Gemini failed (%s: %s); the browser instead", type(exc).__name__,
                         str(exc)[:200])
+            try:  # the owner's own browser first: it searches as they do
+                return in_owners_browser(query, [r["fact"] for r in ctx.store.query("SELECT fact FROM facts")])
+            except Exception as exc:
+                log.warning("Google in the owner's browser failed (%s: %s)", type(exc).__name__, str(exc)[:200])
             browser = getattr(ctx, "browser", None)
             if browser is not None:
                 try:
