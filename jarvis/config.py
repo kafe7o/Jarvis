@@ -40,9 +40,9 @@ def silence_seconds() -> float:
 
 
 def default_brain() -> str:
-    """No brain chosen (JARVIS_MODEL empty): the strongest free one that is set up: Mistral (fast, strong, no
-    daily cap), NVIDIA (Kimi, DeepSeek), OpenRouter, then Gemini, then Groq (fast, but weak with tools); Claude
-    (paid) only when there is none."""
+    """No brain chosen (JARVIS_MODEL empty): the strongest one that is set up: Mistral (fast, strong; paid per
+    token within the daily cap), NVIDIA (Kimi, DeepSeek), OpenRouter, then Gemini, then Groq (fast, but weak with
+    tools); Claude (paid) only when there is none."""
     if _env("MISTRAL_API_KEY"):
         return "mistral"
     if _env("NVIDIA_API_KEY"):
@@ -120,7 +120,7 @@ class Settings:
     tts_voice: str = field(default_factory=lambda: _env("JARVIS_TTS_VOICE", "bg-BG-BorislavNeural"))
 
     def budget(self) -> float | None:
-        """Most US dollars a day for paid brains (Claude); None means no cap, 0 means only free brains."""
+        """Most US dollars a day for the paid brains (Claude, Mistral); None means no cap, 0 means only free brains."""
         value = (self.daily_budget or "1").strip().lower()
         if value in ("без", "няма", "none", "no", "off", "-1"):
             return None

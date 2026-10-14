@@ -18,8 +18,8 @@ BRAINS = {
     "sonnet": ("claude-sonnet-5-5", "Sonnet 5.5", "fast everyday work, cheaper"),
     "haiku": ("claude-haiku-5-5", "Haiku 5.5", "the fastest and cheapest, for simple things"),
     "gemini": ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Google's model, free within Google's daily limits; needs GEMINI_API_KEY"),
-    "mistral": ("mistral", "Mistral", "free (no card, a phone number), fast and strong with every tool, sees pictures, "
-                "no daily cap; needs MISTRAL_API_KEY"),
+    "mistral": ("mistral", "Mistral", "paid per token within the daily cap (Small is cheap, Medium costs about what "
+                "Claude Sonnet does), fast and strong with every tool, sees pictures; needs MISTRAL_API_KEY"),
     "groq": ("groq", "Groq", "free (no card) and the fastest; simpler, with the most useful tools only; needs GROQ_API_KEY"),
     "nvidia": ("nvidia", "NVIDIA", "free (no card) strong open models such as Kimi and DeepSeek, with every tool; "
                "slower than Groq; needs NVIDIA_API_KEY"),

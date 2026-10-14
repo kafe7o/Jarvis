@@ -13,7 +13,7 @@ STEPS = [
     ("Мозъкът: Claude (платен)", "console.anthropic.com > API Keys", [("ANTHROPIC_API_KEY", "Claude API ключ")]),
     ("Мозъкът: Gemini (безплатен)", "aistudio.google.com/apikey > Create API key", [("GEMINI_API_KEY", "Gemini API ключ")]),
     ("Бърз безплатен мозък: Groq", "console.groq.com/keys > Create API Key (без карта)", [("GROQ_API_KEY", "Groq API ключ")]),
-    ("Безплатен силен и бърз мозък: Mistral", "console.mistral.ai > API Keys > Create new key (без карта, с телефон)",
+    ("Силен и бърз мозък: Mistral (платен на дума след безплатния месец)", "console.mistral.ai > API Keys > Create new key",
      [("MISTRAL_API_KEY", "Mistral API ключ")]),
     ("Безплатни силни модели: NVIDIA", "build.nvidia.com > Get API Key (без карта)", [("NVIDIA_API_KEY", "NVIDIA API ключ")]),
     ("Безплатни модели: OpenRouter", "openrouter.ai/keys > Create API Key", [("OPENROUTER_API_KEY", "OpenRouter API ключ")]),

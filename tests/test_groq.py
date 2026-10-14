@@ -94,6 +94,23 @@ def test_a_long_conversation_is_cut_to_fit_without_breaking_tool_calls():
     assert "cannot see images" in cut[-1]["content"]
 
 
+def test_a_task_too_big_for_the_room_keeps_its_rounds_and_cuts_its_oldest_results():
+    """The laptop, 00:32: the mission's page texts outgrew the room, trim kept only the last tool result, and
+    Mistral refused every model with "Unexpected role 'tool' after role 'system'". Now the task keeps its shape."""
+    chat = groq.to_messages("system", [
+        {"role": "user", "content": "намери три приложения"},
+        {"role": "assistant", "content": [Block("tool_use", id="t1", name="open_page", input={})]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "страница " * 600}]},
+        {"role": "assistant", "content": [Block("tool_use", id="t2", name="open_page", input={})]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "друга " * 800}]},
+    ])
+    cut = groq.trim(chat, 8000)
+    assert [m["role"] for m in cut] == ["system", "user", "assistant", "tool", "assistant", "tool"]
+    assert cut[3]["content"].endswith("…(cut)") and len(cut[3]["content"]) < 1600 and cut[5]["content"] == chat[5]["content"]
+    assert chat[3]["content"].startswith("страница") and "(cut)" not in chat[3]["content"]  # the caller's chat is untouched
+    assert groq.trim(chat, 100_000) == chat
+
+
 def test_groq_takes_the_quick_lane_and_stands_in_when_gemini_is_used_up(settings, ctx, registry, key, monkeypatch):
     settings.router, settings.model = True, gemini.DEFAULT_MODEL
     monkeypatch.setenv("GEMINI_API_KEY", "x")
