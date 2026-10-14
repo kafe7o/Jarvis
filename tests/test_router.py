@@ -366,6 +366,32 @@ def test_searching_google_maps_needs_no_ai():
         assert steps(not_a_place) is None or steps(not_a_place)[0][0] != "open_target"
 
 
+def test_facebook_marketplace_searches_with_prices_in_the_owners_browser():
+    """The laptop, 22:02: "iskam da tovorish facebook marketplace i da potursish za laptop ot 200 do 400 evro" ended
+    three times in the same apology: the AI used its own browser (not signed in to Facebook) and never found the
+    search box. Now Marketplace's own search page with the price filter opens in the owner's browser at once."""
+    import urllib.parse
+
+    def opened(text):
+        found = steps(text)
+        assert found and len(found) == 1 and found[0][0] == "open_target", text
+        return urllib.parse.unquote_plus(found[0][1]["target"])
+
+    assert opened("iskam da tovorish facebook marketplace i da potursish za laptop ot 200 do 400 evro") \
+        == "https://www.facebook.com/marketplace/search/?query=laptop&minPrice=200&maxPrice=400"
+    assert opened("Отвори Facebook Marketplace и потърси лаптоп от 200 до 400 евро.") \
+        == "https://www.facebook.com/marketplace/search/?query=лаптоп&minPrice=200&maxPrice=400"
+    assert opened("виж във фейсбук маркетплейс има ли iphone 15 над 300 евро") \
+        == "https://www.facebook.com/marketplace/search/?query=iphone 15&minPrice=300"
+    assert opened("потърси в маркетплейс велосипед до 150 лв") \
+        == "https://www.facebook.com/marketplace/search/?query=велосипед&maxPrice=77"  # Marketplace filters in euro
+    assert opened("отвори facebook marketplace") == "https://www.facebook.com/marketplace/"
+    found = router.match("отвори marketplace и потърси диван от 100 до 300 евро", info())
+    assert found[0].say("") == "Отворих Facebook Marketplace в твоя браузър: „диван“ от 100 до 300 евро."
+    assert steps("колко струва лаптоп в marketplace") is None  # a question: the AI answers it
+    assert router.web_task("iskam da tovorish facebook marketplace i da potursish za laptop")  # the web lane, not 70 tools
+
+
 def test_harder_browser_tasks_open_the_right_page_at_once():
     """Timed on the laptop through the AI: eMAG 50 s and no price, YouTube over 3 minutes of clicking. Now one step."""
     import urllib.parse
