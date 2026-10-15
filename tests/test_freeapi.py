@@ -468,8 +468,10 @@ def test_auto_runs_everyday_steps_on_mistral_and_pictures_on_gemini_first(settin
     monkeypatch.setattr(jarvis, "flash_ready", lambda: False)
     tools = registry.definitions(None)
     ask = [{"role": "user", "content": "направи го"}]
-    cheap, best = freeapi.MISTRAL_CHEAP, freeapi.MISTRAL_BEST  # Small for everyday steps, Medium for hard ones
-    assert jarvis.auto_order(ask, tools)[:3] == [cheap, gemini.QUICK_MODEL, groq.DEFAULT_MODEL]
+    cheap, best = freeapi.MISTRAL_CHEAP, freeapi.MISTRAL_BEST
+    # Medium for every step with tools (Small, Lite and Groq printed commands as text, drifted to older tasks and
+    # claimed things not done, the night the owner asked what Jarvis is missing); Small only for a plain answer
+    assert jarvis.auto_order(ask, tools)[:3] == [best, gemini.QUICK_MODEL, groq.DEFAULT_MODEL]
     assert jarvis.auto_order(ask, [])[:2] == [groq.DEFAULT_MODEL, cheap]
     hard = ask + [{"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "open_page", "input": {}}]},
                   {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "page not found", "is_error": True}]}]
@@ -478,7 +480,7 @@ def test_auto_runs_everyday_steps_on_mistral_and_pictures_on_gemini_first(settin
     # (JARVIS_DAILY_BUDGET) does not touch it: the laptop had "0" there from the days of refusing to pay for
     # Claude, and the first night on the paid Mistral ran entirely on Gemini Lite and Groq, which lied "Качих".
     settings.daily_budget = "0"
-    assert jarvis.auto_order(ask, tools)[0] == cheap
+    assert jarvis.auto_order(ask, tools)[0] == best
     settings.mistral_budget = "0"
     assert "mistral" not in " ".join(jarvis.auto_order(ask, tools)) and jarvis.auto_order(ask, tools)[0] == gemini.QUICK_MODEL
     settings.mistral_budget, settings.daily_budget = "2", "1"

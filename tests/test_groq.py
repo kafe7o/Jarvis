@@ -61,6 +61,23 @@ def test_groq_is_the_brain_with_the_useful_tools_and_costs_nothing(settings, ctx
     assert models == {"groq:openai/gpt-oss-120b"} and usage.price("groq:openai/gpt-oss-120b") == (0, 0, 0, 0)
 
 
+def test_a_command_written_out_as_the_answer_is_run_instead_of_printed():
+    """The owner saw {"name": "run_shell", "arguments": {"command": "taskmgr.exe"}} printed in the chat as Jarvis's
+    answer to "aide davai": a weak brain wrote the call out instead of making it. Such an answer is the call."""
+    for text in ['{"name": "run_shell", "arguments": {"command": "taskmgr.exe", "timeout": 30}}',
+                 '```json\n{"name": "run_shell", "parameters": {"command": "taskmgr.exe", "timeout": 30}}\n```',
+                 '<tool_call>\n{"name": "run_shell", "arguments": "{\\"command\\": \\"taskmgr.exe\\", \\"timeout\\": 30}"}\n</tool_call>',
+                 '[{"type": "function", "function": {"name": "run_shell", "arguments": {"command": "taskmgr.exe", "timeout": 30}}}]']:
+        answer = groq.from_reply(said(text), "openai/gpt-oss-20b")
+        assert answer.stop_reason == "tool_use" and len(answer.content) == 1, text
+        assert answer.content[0].name == "run_shell" and answer.content[0].input == {"command": "taskmgr.exe", "timeout": 30}
+    for text in ["Готово.", 'Настройката е {"name": "x"} в JSON файла.', '{"result": "ok"}', '{"name": "Иван", "age": 3}']:
+        answer = groq.from_reply(said(text), "openai/gpt-oss-20b")
+        assert answer.stop_reason == "end_turn" and answer.content[0].type == "text", text
+    answer = groq.from_reply(said('{"name": "list_tasks", "arguments": {}}', [call("list_tasks", {})]), "m")
+    assert [b.type for b in answer.content] == ["text", "tool_use"]  # a real call beside it: the text stays as said
+
+
 def test_a_busy_or_used_up_model_hands_over_to_the_next_free_one(key):
     rested = []
     fake = FakeGroq([(429, '{"error": {"message": "Rate limit reached ... tokens per day (TPD)"}}'),

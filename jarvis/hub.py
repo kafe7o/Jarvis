@@ -467,7 +467,7 @@ def brain_choices(items: list[dict], stored: dict) -> str:
 SCALE = [
     ("groq", "Groq", "най-бързият, отговаря за секунда; слаб с дълги задачи", "GROQ_API_KEY"),
     ("gemini", "Gemini", "Flash за работа, докато има заявки за деня, после другите с ключ", "GEMINI_API_KEY"),
-    ("mistral", "Mistral", "платен на дума, със свой дневен таван; Авто дава лесните стъпки на евтиния Small, трудните на Medium", "MISTRAL_API_KEY"),
+    ("mistral", "Mistral", "платен на дума, със свой дневен таван; Авто дава всяка стъпка с действие на умния Medium, кратките отговори на евтиния Small", "MISTRAL_API_KEY"),
     ("openrouter", "OpenRouter", "безплатни модели, които се сменят; средно бърз", "OPENROUTER_API_KEY"),
     ("nvidia", "NVIDIA", "силни модели, но на безплатния ключ често бавни", "NVIDIA_API_KEY"),
     ("gemini-3.5-flash", "Gemini Flash", "най-умният безплатен и вижда екрана; около 25 заявки на ден", "GEMINI_API_KEY"),

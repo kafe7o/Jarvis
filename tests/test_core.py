@@ -517,11 +517,43 @@ def test_a_task_that_struggled_then_worked_becomes_a_recipe_he_follows_next_time
     client.responses.append(response(text_block("Готово, качих ги.")))
     jarvis.ask("качи тези файлове в notebooklm")
     sent = client.requests[-1]["messages"][-1]["content"]
-    assert "Натисни Ctrl+O" in sent and "do not mention them" in sent  # the recipe goes with the request
+    assert "Натисни Ctrl+O" in sent and "Never mention them" in sent  # the recipe goes with the request
+    # another kind of task shares only the everyday words ("отвори", "приложенията"): no recipe for it
+    assert not recipes.matching(ctx.store, "отвори task manager, сложи end task на claude и го отвори от приложенията")
     assert all("Ctrl+O" not in r["content"] for r in ctx.store.history("main"))  # but not into the saved talk
     ctx.jarvis = jarvis
     out, err = registry.run("review_myself", {}, Approver())
     assert not err and "Качване на файлове в NotebookLM" in out
+
+
+def test_a_go_ahead_continues_his_own_plan_and_a_correction_makes_him_act(settings, ctx, registry):
+    """The owner's laptop at 4 a.m.: "Отварям Task Manager, спирам Claude и го пускам" - "davai de" - and the brain
+    went back to the NotebookLM task from earlier in the conversation; told "на компютъра, не на телефона" it
+    answered "Разбрах, отварям..." and did nothing."""
+    from jarvis import router
+    from jarvis.brain import ACT_CHECK, GO_AHEAD_HINT
+
+    for text in ["davai de", "aide davai", "давай", "ок, действай", "Добре, продължи.", "go ahead"]:
+        assert router.go_ahead(text), text
+    for text in ["давай да видим пощата", "ok, now open the mail", "давай ми новините всяка сутрин"]:
+        assert not router.go_ahead(text), text
+    settings.act_check = True
+    client = FakeClient([
+        response(text_block("Разбрах, спирам Claude и го пускам пак.")),  # said, not done: one more look
+        response(tool_block("list_tasks", {}), stop="tool_use"),
+        response(text_block("Готово, Claude е пуснат.")),
+    ])
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
+    jarvis.ask("ideyata beshe da go napravish na kompyutura ne na telefona")  # a correction: act, don't tell
+    assert client.requests[1]["messages"][-1]["content"] == ACT_CHECK
+    client.responses = [response(text_block("Ще започна с NotebookLM.")), response(tool_block("list_tasks", {}), stop="tool_use"),
+                        response(text_block("Готово."))]
+    client.requests.clear()
+    jarvis.ask("davai de")
+    sent = client.requests[0]["messages"][-1]["content"]
+    assert sent.endswith(GO_AHEAD_HINT) and "exactly what your previous message said" in sent
+    assert client.requests[1]["messages"][-1]["content"] == ACT_CHECK  # talk only: the go-ahead means act
+    assert all(GO_AHEAD_HINT not in r["content"] for r in ctx.store.history("main"))
 
 
 def test_praise_keeps_the_way_the_last_task_was_done(settings, ctx, registry):

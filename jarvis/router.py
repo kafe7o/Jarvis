@@ -693,6 +693,17 @@ def praises(text: str) -> bool:
     return bool(PRAISES.match(clean(text)))
 
 
+# A go-ahead on its own ("давай", "aide davai", "ок, действай"): do what was just said, not something else.
+GO_AHEAD = rx(r"^(?:айде|хайде|давай|дай|карай|ок|окей|да|добре|yes|ok|go|go ahead|продължи|продължавай|действай|"
+              r"направи го|започвай|почвай|почни|започни)"
+              r"(?:[ ,]+(?:де|бе|давай|го|сега|направи го|продължи|действай|действай де|jarvis|джарвис|моля|please|then))*[!. ]*$")
+
+
+def go_ahead(text: str) -> bool:
+    """The whole message is a go-ahead ("давай де", "aide davai"): Jarvis is to do what it just said it would."""
+    return bool(GO_AHEAD.match(clean(text)))
+
+
 def corrects(text: str) -> bool:
     """The owner says Jarvis got something wrong ("не така", "казах ти", "пак не стана"): worth a lesson."""
     return bool(CORRECTS.search(clean(text)))

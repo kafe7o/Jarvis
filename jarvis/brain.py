@@ -236,6 +236,9 @@ VERIFY_CHECK = ("(Before you finish this job, check it against my request: «{go
                 "everything already, give your answer again unchanged. The answer is about my request itself, with its actual "
                 "results; never mention this check in your answer.)")
 MISSION_ROUNDS = 3  # a mission may take this many times the usual steps (JARVIS_MAX_TOOL_ROUNDS)
+# Added to a bare go-ahead ("давай де"): the brain continues its own plan, not an older task from the history.
+GO_AHEAD_HINT = ("\n\n(This is a go-ahead: do now, with your tools, exactly what your previous message said you would "
+                 "do, or what I asked right before it. Not an earlier task from this conversation.)")
 # Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
 LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
 IMAGE_MARK = "\n\n(с приложена снимка)"  # kept in the saved conversation, so later turns know a picture was shown
@@ -702,11 +705,12 @@ class Jarvis:
     def auto_order(self, messages: list, tools: list) -> list[str]:
         """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
         in the middle of a task too.
-        A picture goes to Gemini (it sees), then Mistral (sees too); a short answer to Groq (the fastest); a hard
-        step (hard_step) to the smartest quick brain (Gemini Flash while its day lasts, then Mistral Medium, else
-        Flash-Lite thinking fully); everyday work to Mistral Small (a few seconds a step, strong with tools, a
-        tenth of Medium's price) and without its key or past the daily cap to Gemini Flash-Lite. The others follow
-        when one is overloaded or used up. Only the brains with a key in .env are asked."""
+        A picture goes to Gemini (it sees), then Mistral (sees too); a short answer with no tools to Groq (the
+        fastest), then Mistral Small; every step with tools to Mistral Medium (the smartest paid-by-the-word brain
+        the owner has: Small, Flash-Lite and Groq printed commands instead of running them, drifted to older tasks
+        and claimed things not done), and after it Gemini Flash while its day lasts, then Flash-Lite thinking fully.
+        Without Mistral's key or past its daily cap the free brains do it. The others follow when one is overloaded
+        or used up. Only the brains with a key in .env are asked."""
         strong = [k for k in self.affordable() if freeapi.available(k)]
         cheap = [freeapi.MISTRAL_CHEAP] if "mistral" in strong else []
         best = [freeapi.MISTRAL_BEST] if "mistral" in strong else []
@@ -718,9 +722,9 @@ class Jarvis:
         elif not tools:
             order = [fast, *cheap, lite, *slow]
         elif hard_step(messages):
-            order = [*flash, *best, gemini.DEFAULT_MODEL, fast, *slow]
+            order = [*best, *flash, gemini.DEFAULT_MODEL, fast, *slow]
         else:
-            order = [*cheap, lite, fast, *slow]
+            order = [*best, lite, fast, *slow]
         order = [m for m in [*order, *backups()] if self._ready(m)] or ["local"]
         log.info("auto brain: %s", order[0])
         return list(dict.fromkeys(order))
@@ -911,8 +915,10 @@ class Jarvis:
                 self.store.add_message(conversation, "assistant", answer)
                 return answer
         web = web_lane(text) and not images
+        go = router.go_ahead(text)  # "давай де": the brain's own last plan is the task, not an older one
+        hint += GO_AHEAD_HINT if go else ""
         # How a task like this one worked before (recipes.py): the brain sees it with the request
-        hint += recipes.hint(recipes.matching(self.store, text)) if owner else ""
+        hint += recipes.hint(recipes.matching(self.store, text)) if owner and not go else ""
         messages = self._messages(conversation, text, limit=8 if web else 40, hint=hint)
         if images:
             blocks = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": data}} for mt, data in images]
@@ -923,8 +929,8 @@ class Jarvis:
         effort = "max" if router.think_harder(text) else None
         on_progress("level:3")
         on_step({"type": "level", "level": 3})
-        if insist is None:
-            insist = self.settings.act_check and router.wants_action(text)
+        if insist is None:  # an order, a go-ahead or a correction ("не на телефона, на компютъра"): act, don't tell
+            insist = self.settings.act_check and (router.wants_action(text) or go or router.corrects(text))
         mission = router.is_mission(text)  # a long job: more steps, and the result is checked before the answer
         steps: list[tuple[str, dict, str, bool]] = []
         answer = self._loop(messages, confirmer, user, on_progress, effort=effort, on_step=on_step,

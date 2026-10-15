@@ -21,6 +21,18 @@ STOP = set("""това тези този тази които което койт
 един едни тях него нея мен теб нас вас the and for with from into that this then when what some your
 jarvis джарвис готин моля бързо веднага after before please""".split())
 LIMIT = 2  # recipes shown with one request
+# Words in every task (actions and the screen), so they never say two tasks are alike: "отвори" and "прозореца"
+# are in a Task Manager request and in a NotebookLM recipe both.
+GENERIC = set("""отвори отваряне отваря отварям натисни натискане натиска кликни кликване клик провери проверка проверява
+напиши написване въведи въвеждане избери избор пусни пускане стартирай стартиране затвори затваряне запази
+запазване свали изтегли намери търси търсене виж гледай прочети чете прочитане покажи сложи направи прави работи
+използвай ползвай изчакай изчакване повтори опитай избягвай първо после накрая отново пак
+прозореца прозорец прозорци екрана екран бутон бутона бутони поле полето полета страницата страница меню менюто
+папка папката файл файла файлът файлове стъпка стъпки резултат резултата път пътя име името адрес адреса текст
+текста програмата програма приложението приложение приложенията лаптопа компютъра компютър браузъра браузър таб
+раздел курсор мишката клавиатурата клавиш клавиша секунди минути
+open opens click press type check select find read show window screen button page file files app program
+step steps result wait again then first""".split())
 MAX_RECIPES = 300
 PROMPT = """The owner asked: {request}
 The steps you took, in order (tool, arguments -> result):
@@ -109,15 +121,16 @@ def save(store, title: str, steps: str) -> bool:
 
 def matching(store, text: str, limit: int = LIMIT) -> list[dict]:
     """The recipes about what ``text`` asks: at least two telling words in common, the best matches first."""
-    asked = words(text)
+    asked = words(text) - GENERIC
     if not asked:
         return []
     found = []
     for row in store.query("SELECT id, title, words, steps, uses FROM recipes"):
-        title = words(row["title"])
-        in_title = overlap(asked, title)
-        common = overlap(asked, set(row["words"].split()))
-        if common >= 2 or (in_title and in_title >= min(2, len(title))):
+        title = words(row["title"]) - GENERIC
+        in_steps = set(row["words"].split()) - GENERIC - title
+        in_title, common = overlap(asked, title), overlap(asked, in_steps)
+        # the title says what the recipe is for: two of its words, all of a short one, or one and two of the steps
+        if in_title >= 2 or (in_title and in_title == len(title)) or (in_title and common >= 2):
             found.append((in_title * 2 + common, row["uses"], row))
     found.sort(key=lambda f: (f[0], f[1]), reverse=True)
     chosen = [row for *_s, row in found[:limit]]
@@ -131,8 +144,9 @@ def hint(found: list[dict]) -> str:
     if not found:
         return ""
     body = "\n\n".join(f"• {r['title']}\n{r['steps']}" for r in found)
-    return ("\n\n(Recipes from your earlier tasks that worked; follow them unless you see that something is "
-            "different now, and do not mention them:\n" + body + ")")
+    return ("\n\n(Recipes from earlier tasks of yours that worked and may be like this one. Use a recipe only when "
+            "it is about the same kind of task as this request, as the way to do it; if none fits, ignore them. "
+            "Never mention them:\n" + body + ")")
 
 
 def listing(store, limit: int = 20) -> str:
