@@ -79,6 +79,41 @@ class Answer:
     usage: dict | None = None  # tokens, for the app's "Разход" tab (see usage.py)
 
 
+CALL_ARGS = ("arguments", "parameters", "input", "args")
+FENCE = re.compile(r"^```[\w-]*\s*|\s*```$|^<tool_call>\s*|\s*</tool_call>$|^\[TOOL_CALLS\]\s*", re.I)
+
+
+def written_call(text: str) -> tuple[str, dict] | None:
+    """A tool call the model wrote out as its answer instead of making it, e.g. {"name": "run_shell", "arguments":
+    {"command": "taskmgr"}} (a weak model does that; the owner once saw it printed in the chat), with or without a
+    ```json fence or <tool_call> tags: (name, arguments). None when the text is an answer."""
+    body = FENCE.sub("", FENCE.sub("", (text or "").strip())).strip()
+    if not body.startswith(("{", "[")):
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    if isinstance(data, list) and len(data) == 1:
+        data = data[0]
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get("function"), dict):  # {"type": "function", "function": {"name": .., "arguments": ..}}
+        data = data["function"]
+    name = data.get("name") or data.get("tool")
+    if not any(k in data for k in CALL_ARGS):  # {"name": "Иван", "age": 3} is data, not a call
+        return None
+    args = next(data[k] for k in CALL_ARGS if k in data)
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except ValueError:
+            return None
+    if not isinstance(name, str) or not re.fullmatch(r"[\w.-]+", name) or not isinstance(args, dict):
+        return None
+    return name, args
+
+
 def brain_note(name: str, model: str) -> str:
     """Told to every brain, so Jarvis never guesses which model he runs on (Mistral once said "Opus 5.5")."""
     return f"\n\nThe brain answering right now is {name} ({model}). Asked which model or brain you run on, say exactly that."

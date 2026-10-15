@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from .gemini import Answer, Block, Reply, _get, _text_of, brain_note
+from .gemini import Answer, Block, Reply, _get, _text_of, brain_note, written_call
 from .local import LOCAL_TOOLS
 from .tools import normalize_schema
 
@@ -129,6 +129,10 @@ def from_reply(data: dict, model: str, prefix: str = "groq") -> Answer:
     blocks = Reply()
     blocks.model = f"{prefix}:{model}"
     text = re.sub(r"<think>.*?</think>", "", message.get("content") or "", flags=re.S).strip()
+    written = written_call(text) if not message.get("tool_calls") else None
+    if written:  # the call was written out instead of made: it is made
+        blocks.append(Block("tool_use", id=f"call_{uuid.uuid4().hex[:12]}", name=written[0], input=written[1]))
+        text = ""
     if text:
         blocks.append(Block("text", text=text))
     for call in message.get("tool_calls") or []:

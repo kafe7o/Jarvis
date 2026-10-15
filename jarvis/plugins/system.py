@@ -28,9 +28,96 @@ def _clip(text: str) -> str:
     return text if len(text) <= MAX_OUTPUT else text[:MAX_OUTPUT] + f"\n... ({len(text) - MAX_OUTPUT} more characters)"
 
 
+# Windows programs by the words people use for them: open_target("task manager") starts taskmgr.
+WINDOWS_APPS = {
+    "taskmgr": ("task manager", "taskmanager", "таск мениджър", "таск мениджъра", "таск манажер", "таск манажера",
+                "таск менажер", "диспечер на задачите", "диспечера на задачите"),
+    "notepad": ("notepad", "нотпад", "бележник"),
+    "calc": ("calculator", "калкулатор", "калкулатора"),
+    "explorer": ("explorer", "file explorer", "файлов мениджър", "експлорър", "папките"),
+    "mspaint": ("paint", "пейнт"),
+    "cmd": ("cmd", "command prompt", "команден ред", "конзола", "конзолата"),
+    "powershell": ("powershell", "пауършел"),
+    "control": ("control panel", "контролен панел"),
+    "ms-settings:": ("settings", "windows settings", "настройки", "настройките"),
+    "snippingtool": ("snipping tool",),
+}
+ELEVATION = 740  # WinError: the program asks to run elevated (Task Manager does); the shell's start handles that
+
+
+def _find_named(roots: list[Path], stem: str, suffixes: tuple, depth: int = 3) -> Path | None:
+    """A file called ``stem`` (case aside) with one of the suffixes under the roots, a few folders deep; a name that
+    only begins with it when there is no exact one. Uninstallers never count."""
+    exact, starts = [], []
+    for root in roots:
+        if not root or not root.is_dir():
+            continue
+        stack = [(root, 0)]
+        while stack:
+            folder, level = stack.pop()
+            try:
+                entries = list(os.scandir(folder))
+            except OSError:
+                continue
+            for entry in entries:
+                name = entry.name.lower()
+                if entry.is_dir(follow_symlinks=False):
+                    if level < depth and not name.startswith((".", "$")):
+                        stack.append((Path(entry.path), level + 1))
+                elif name.endswith(suffixes) and "unins" not in name:
+                    base = name.rsplit(".", 1)[0]
+                    if base == stem:
+                        exact.append(Path(entry.path))
+                    elif base.startswith(stem):
+                        starts.append(Path(entry.path))
+    return (exact or sorted(starts, key=lambda p: len(p.name)) or [None])[0]
+
+
+def windows_program(name: str) -> str | None:
+    """What to start for a program named by the owner ("claude", "discord", "task manager") on Windows: a system
+    program's command, the App Paths registry, the Start Menu shortcut, else the .exe in the usual program folders.
+    None when nothing here is called that."""
+    if not sys.platform.startswith("win"):
+        return None
+    stem = re.sub(r"\.(exe|lnk)$", "", (name or "").strip().lower())
+    if not stem or "/" in stem or "\\" in stem or ":" in stem:
+        return None
+    for command, words in WINDOWS_APPS.items():
+        if stem == command or stem in words:
+            return command
+    try:
+        import winreg
+
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{stem}.exe") as key:
+                    path = (winreg.QueryValue(key, None) or "").strip('" ')
+                if path and Path(path).exists():
+                    return path
+            except OSError:
+                continue
+    except ImportError:
+        pass
+    def folder(var: str, *parts: str) -> Path | None:
+        base = os.environ.get(var)
+        return Path(base).joinpath(*parts) if base else None
+
+    menu = "Microsoft/Windows/Start Menu/Programs"
+    menus = [folder("APPDATA", menu), folder("PROGRAMDATA", menu)]
+    folders = [folder("LOCALAPPDATA", "Programs"), folder("LOCALAPPDATA"), folder("PROGRAMFILES"), folder("PROGRAMFILES(X86)")]
+    found = _find_named([m for m in menus if m], stem, (".lnk",)) or _find_named([f for f in folders if f], stem, (".exe",))
+    return str(found) if found else None
+
+
 def _open_with_os(target: str) -> None:
     if sys.platform.startswith("win"):
-        os.startfile(target)  # type: ignore[attr-defined]
+        try:
+            os.startfile(target)  # type: ignore[attr-defined]
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != ELEVATION:
+                raise
+            # Task Manager and other programs that run elevated: the shell's start takes them through Windows' prompt
+            subprocess.Popen(["cmd", "/c", "start", "", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     elif sys.platform == "darwin":
         subprocess.Popen(["open", target])
     else:
@@ -107,9 +194,11 @@ def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "Open a web address in the owner's own browser (the one chosen in Settings, else their default one; e.g. "
         "Avast) as a new tab, or a file, folder or program with the system (e.g. '~/Documents/report.pdf', "
-        "'spotify', 'calc'). The only way to open a page for the owner: never start a browser with run_shell, "
-        "run_python or pyautogui and never search the disk for it. Then work on the page with read_window and "
-        "click_text.",
+        "'spotify', 'calc'). A program is found by its name among the installed ones (Start Menu, Program Files, "
+        "AppData), so 'claude', 'discord' or 'task manager' is enough: never search the disk for it. The only way "
+        "to open a page for the owner: never start a browser with run_shell, run_python or pyautogui. Then work "
+        "on the page with read_window and click_text. To stop a program: run_shell taskkill /im name.exe /f "
+        "(no Task Manager needed); to restart it, stop it and open it again.",
         obj({"target": ("string", "URL, path or program name")}),
     )
     def open_target(target: str):
@@ -129,7 +218,15 @@ def register(registry: ToolRegistry, ctx) -> None:
         if exe:
             subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             return f"Started {target}."
-        _open_with_os(target)
+        program = windows_program(target)
+        if program:
+            _open_with_os(program)
+            return f"Started {target} ({program}). Its window takes a moment to appear: read_window(\"{target}\") waits for it."
+        try:
+            _open_with_os(target)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Nothing called {target!r} is installed here: not on PATH, in the Start Menu, "
+                                    "Program Files or AppData\\Local\\Programs. Use the program's exact name or its path.")
         return f"Asked the system to open {target}."
 
     @registry.tool(
@@ -485,7 +582,9 @@ def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "Run Python code on this computer and return what it prints. Good for calculations, data, "
         "spreadsheets, documents and images. Not for the mouse, keyboard, screen or browser: those are "
-        "click_text, control_input, read_window, look_at_screen and open_target.",
+        "click_text, control_input, read_window, look_at_screen and open_target. Never start or stop a program "
+        "from code (subprocess, os.startfile, os.system): code that waits on a program hangs until the timeout; "
+        "open_target starts programs, run_shell taskkill stops them.",
         obj({"code": ("string", "Python source"), "timeout?": ("integer", "Seconds (default 300)")}),
         confirm=True,
         local=True,

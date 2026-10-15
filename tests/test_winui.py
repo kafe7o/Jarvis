@@ -115,6 +115,23 @@ def test_a_browser_is_found_by_its_kind_and_the_own_window_is_explained(registry
     assert err and "Google Cloud Platform" in out and "leave the title out" in out
 
 
+def test_a_window_still_appearing_gets_a_moment(registry, windows, monkeypatch):
+    """open_target("task manager") and read_window("Task Manager") in the same breath: the window was not there
+    yet (<0.1 s) and the step failed. A named window is looked for again for a few seconds before giving up."""
+    taskmgr = Ctl("WindowControl", "Task Manager", (0, 0, 800, 600), [Ctl("TextControl", "Processes", (10, 10, 100, 30))],
+                  handle=4)
+    looks, waited = [], []
+    desktops = [[own, taskbar], [own, taskbar], [own, taskbar, avast, taskmgr]]
+    monkeypatch.setattr(uia, "GetRootControl", lambda: looks.append(1) or Ctl("PaneControl", "Desktop", (0, 0, 1366, 768),
+                                                                              desktops[min(len(looks), 3) - 1]))
+    monkeypatch.setattr(winui, "wait", waited.append)
+    out, err = registry.run("read_window", {"window": "Task Manager"}, Approver())
+    assert not err and out.startswith('Window: "Task Manager"') and waited == [0.5, 0.5]
+    looks.clear()
+    out, err = registry.run("read_window", {"window": "Excel"}, Approver())
+    assert err and "Task Manager" in out and len(waited) == 2 + winui.TRIES  # looked a few times, then said so
+
+
 def test_without_windows_or_the_window_he_says_so(registry, windows, monkeypatch):
     out, err = registry.run("read_window", {"window": "Excel"}, Approver())
     assert err and "Avast Secure Browser" in out and "J.A.R.V.I.S" not in out

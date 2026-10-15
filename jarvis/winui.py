@@ -124,6 +124,18 @@ def _minimized(window) -> bool:
     return _rect(window)[0] <= -30000
 
 
+def _titled(windows: list, low: str) -> list:
+    """The windows whose title has ``low`` in it; else, for a browser's name ("Avast", "браузъра", "Chrome"), the
+    browser's windows (titled after the page); else those with the words in any order ("google cloud")."""
+    found = [w for w in windows if low in (w.Name or "").lower()]
+    if not found:
+        found = [w for w in windows if is_browser(w, low)]
+    if not found:
+        words = [x for x in re.split(r"[^\w]+", low) if x]
+        found = [w for w in windows if words and all(x in (w.Name or "").lower() for x in words)]
+    return found
+
+
 def find_window(auto, title: str | None = None, handle: int | None = None):
     """The window whose title contains ``title``; else the one read last (``handle``) if it is still open; else the
     one in front, unless that is Jarvis's own app, then the topmost other one that is not minimized."""
@@ -137,12 +149,13 @@ def find_window(auto, title: str | None = None, handle: int | None = None):
         if OWN.match(low) or low in ("jarvis", "джарвис"):
             raise LookupError("That is my own app window; I never read or click it (the owner is talking to me there). "
                               "Name the program you mean, e.g. the browser, or leave the title out for the front window.")
-        found = [w for w in windows if low in (w.Name or "").lower()]
-        if not found:  # "Avast", "браузъра", "Chrome": a browser's window, whose title is only the page's
-            found = [w for w in windows if is_browser(w, low)]
-        if not found:  # the words in any order, punctuation aside ("google cloud" ~ "Cloud Console - Google")
-            words = [x for x in re.split(r"[^\w]+", low) if x]
-            found = [w for w in windows if words and all(x in (w.Name or "").lower() for x in words)]
+        found = _titled(windows, low)
+        for _ in range(TRIES):  # a program just started takes a moment to show its window
+            if found:
+                break
+            wait(0.5)
+            windows = _windows(auto)
+            found = _titled(windows, low)
         if not found:
             names = ", ".join(f'"{w.Name}"' for w in windows[:12])
             raise LookupError(f'No open window has "{title}" in its title. Open windows: {names}. Use a part of one of '
@@ -217,6 +230,8 @@ def _session(work):
 
 
 SETTLE = 0.5  # seconds a program gets to react to a click before its window is read back
+TRIES = 6  # looks, half a second apart, for a named window that is still appearing (a program just started)
+wait = time.sleep
 
 
 def read(title: str | None = None) -> str:
