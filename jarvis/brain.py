@@ -27,6 +27,8 @@ log = logging.getLogger("jarvis.brain")
 TURN: contextvars.ContextVar[dict | None] = contextvars.ContextVar("jarvis_turn", default=None)
 # A brain picked for one piece of work (remote.py tests each model); None: the one in the settings.
 CHOSEN: contextvars.ContextVar[str | None] = contextvars.ContextVar("jarvis_model", default=None)
+# Hears the answer being written, for the app to show it growing (hub.ask); None when nobody is watching.
+STREAM: contextvars.ContextVar[Callable[[str], None] | None] = contextvars.ContextVar("jarvis_stream", default=None)
 
 PERSONA = """You are J.A.R.V.I.S., the personal AI assistant of {user}. You run on their own computer \
 and act for them in the real world through your tools: phone calls and SMS, e-mail, payments, tasks, \
@@ -543,7 +545,7 @@ class Jarvis:
 
     def _request(self, messages: list, user=None, system: str | list | None = None, allowed: set | None = None, *,
                  model: str | None = None, effort: str | None = None, tools: list | None = None,
-                 max_tokens: int | None = None) -> object:
+                 max_tokens: int | None = None, stream: Callable[[str], None] | None = None) -> object:
         """One request to the brain on this computer. ``model``, ``effort`` and ``tools`` default to the settings
         and the tools this person may use that the request is about; the quick lane passes low effort and no tools."""
         s = self.settings
@@ -563,8 +565,9 @@ class Jarvis:
         if not hard_step(messages) and effort != "max":
             effort = "low"
         wanted = model.partition(":")[2] or s.local_model
+        extra = {"on_text": stream} if stream else {}
         answer = self.local.create(model=f"local:{wanted}" if wanted else "local", system=system, messages=list(messages),
-                                   tools=tools, max_tokens=max_tokens, effort=effort)
+                                   tools=tools, max_tokens=max_tokens, effort=effort, **extra)
         usage.record(self.store, answer, getattr(answer, "model", None) or "local")
         return answer
 
@@ -579,6 +582,7 @@ class Jarvis:
         route: bool | None = None,
         on_step: Callable[[dict], None] | None = None,
         insist: bool | None = None,
+        on_text: Callable[[str], None] | None = None,
     ) -> str:
         """Handle one user message end to end and return Jarvis's final answer.
 
@@ -592,6 +596,7 @@ class Jarvis:
         confirmer = confirmer or self.confirmer
         on_progress = on_progress or self.on_progress
         on_step = on_step or (lambda _event: None)
+        STREAM.set(on_text)  # ``on_text`` hears the answer as it is written (the app shows it growing)
         if router.stops_work(text):  # "спри": the work in progress ends at its next step, no AI needed
             self.stop_work(user)
             self.store.add_message(conversation, "user", text)
@@ -815,8 +820,10 @@ class Jarvis:
         guest = user is not None and not user.is_owner
         system = (QUICK_PROMPT.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
                   + self._about(user, text) + self._clock())
+        shown = STREAM.get()
+        stream = (lambda t: shown(t) if ESCALATE not in t[:60].upper() else None) if shown else None
         response = self._request(self._messages(conversation, text, limit=12, hint=hint), user, system, set(),
-                                 effort="low", tools=[], max_tokens=1500)
+                                 effort="low", tools=[], max_tokens=1500, stream=stream)
         answer = "\n\n".join(b.text for b in response.content if b.type == "text" and b.text.strip()).strip()
         if response.stop_reason not in ("end_turn", "max_tokens") or not answer or ESCALATE in answer[:60].upper():
             return None
@@ -916,7 +923,8 @@ class Jarvis:
         for _ in range(rounds or self.settings.max_tool_rounds):
             if self._mark(user) != mark:  # "спри" came while working
                 return STOPPED
-            response = self._request(messages, user, system, allowed, tools=tools)
+            response = self._request(messages, user, system, allowed, tools=tools,
+                                     stream=STREAM.get() if depth == 0 else None)
             fresh = [b.text for b in response.content if b.type == "text" and b.text.strip()]
             if fresh and echoes_check(" ".join(fresh)):
                 log.warning("the brain repeated a check note instead of answering; the earlier answer stays")
