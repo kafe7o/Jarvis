@@ -93,6 +93,25 @@ def ollama_program() -> str | None:
     return str(exe) if exe and exe.exists() else None
 
 
+# Ollama's own settings that make more of a model fit a small graphics card: flash attention, and the model's
+# working memory of the conversation (the KV cache, about 1 GB for 32,000 tokens on a 9B) kept in 8 bits instead of
+# 16, which halves it at almost no cost to quality; and one conversation at a time (Ollama otherwise keeps room for
+# several, each with its own working memory).
+TUNING = {"OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_KV_CACHE_TYPE": "q8_0", "OLLAMA_NUM_PARALLEL": "1"}
+
+
+def tune(run=None) -> list[str]:
+    """Save TUNING as the user's own settings on Windows (where Ollama's tray app reads them when it starts), the
+    ones not set yet; the names saved. Elsewhere only the server Jarvis starts gets them."""
+    missing = [k for k in TUNING if not os.environ.get(k)]
+    if not WINDOWS or not missing:
+        return []
+    for key in missing:
+        (run or subprocess.run)(["setx", key, TUNING[key]], capture_output=True, creationflags=NO_WINDOW)
+        os.environ[key] = TUNING[key]
+    return missing
+
+
 def start_ollama() -> bool:
     """Start Ollama's server in the background when it is installed but not running. True when it answers."""
     if version():
@@ -100,7 +119,13 @@ def start_ollama() -> bool:
     exe = ollama_program()
     if not exe:
         return False
-    subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+    try:
+        tune()
+    except Exception as exc:
+        log.info("could not save Ollama's settings: %s", exc)
+    env = {**TUNING, **os.environ}
+    subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW,
+                     env=env)
     for _ in range(20):
         time.sleep(0.5)
         if version():
@@ -416,6 +441,7 @@ def install_ollama(fetch=None, run=None) -> str:
         try:
             (fetch or _download)(OLLAMA_SETUP, target, state)
             state["status"] = "инсталирам"
+            tune(run)
             (run or subprocess.run)([str(target), "/SILENT"], check=False)
             state.update(percent=100, status="готово")
         except Exception as exc:

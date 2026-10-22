@@ -293,3 +293,37 @@ def test_a_9b_added_from_a_file_thinks_and_the_qwen_4b_takes_the_plain_answers(m
     ollama_has(monkeypatch, "qwen3.5-4b-q4_k_m:latest", "ornith-1.5-9b-q4_k_m:latest", "gemma-4-e4b-it-q4_k_m:latest")
     assert local.pick() == "ornith-1.5-9b-q4_k_m:latest"
     assert local.choose("local", []) == "qwen3.5-4b-q4_k_m:latest"
+
+
+def test_a_picture_goes_to_a_model_that_can_see(monkeypatch):
+    ollama_has(monkeypatch, "ornith-1.5-9b-q4_k_m:latest", "qwen3.5-4b-q4_k_m:latest", "gemma-4-e4b:latest")
+    monkeypatch.setattr(local, "_abilities", {"ornith-1.5-9b-q4_k_m:latest": ["completion", "tools", "thinking"],
+                                               "qwen3.5-4b-q4_k_m:latest": ["completion", "tools"],
+                                               "gemma-4-e4b:latest": ["completion", "vision"]})
+    monkeypatch.setattr(local, "_loaded", {"at": float("inf"), "models": []})
+    assert local.choose("local", [{"name": "x"}], images=True) == "gemma-4-e4b:latest"
+    assert local.choose("local", [{"name": "x"}]) == "ornith-1.5-9b-q4_k_m:latest"
+
+
+def test_a_plain_answer_stays_on_the_big_model_when_only_it_is_in_memory(monkeypatch):
+    ollama_has(monkeypatch, "qwen3.5-9b:latest", "qwen3.5-4b:latest")
+    monkeypatch.setattr(local, "_loaded", {"at": float("inf"), "models": ["qwen3.5-9b:latest"]})
+    assert local.choose("local", []) == "qwen3.5-9b:latest"  # no swap on a 6 GB card for one short answer
+    monkeypatch.setattr(local, "_loaded", {"at": float("inf"), "models": []})
+    assert local.choose("local", []) == "qwen3.5-4b:latest"
+
+
+def test_a_model_that_cannot_use_tools_gives_way_for_work(monkeypatch):
+    ollama_has(monkeypatch, "plain-9b:latest", "qwen3.5-4b:latest")
+    monkeypatch.setattr(local, "_abilities", {"plain-9b:latest": ["completion"], "qwen3.5-4b:latest": ["completion", "tools"]})
+    assert local.choose("local", [{"name": "x"}]) == "qwen3.5-4b:latest"
+
+
+def test_ollama_is_tuned_for_a_small_graphics_card(monkeypatch):
+    for key in localmodels.TUNING:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(localmodels, "WINDOWS", True)
+    ran = []
+    assert localmodels.tune(run=lambda cmd, **kw: ran.append(cmd)) == list(localmodels.TUNING)
+    assert ["setx", "OLLAMA_KV_CACHE_TYPE", "q8_0"] in ran
+    assert localmodels.tune(run=lambda cmd, **kw: ran.append(cmd)) == []  # once

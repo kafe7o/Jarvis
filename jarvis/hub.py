@@ -387,7 +387,7 @@ def with_files(text: str, paths: list[Path]) -> str:
         return text
     lines = "\n".join(f"- {p}" for p in paths)
     return (f"{text}\n\n(Прикачени файлове, запазени на този компютър; отвори ги с инструментите: read_file за "
-            f"текст и код, run_python за таблици, PDF и видео:\n{lines})")
+            f"текст и код, run_python за таблици и PDF, watch_video за видео:\n{lines})")
 
 
 class HTTPError(Exception):
