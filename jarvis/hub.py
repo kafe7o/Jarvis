@@ -172,11 +172,6 @@ class Turns:
         self._cond = threading.Condition()
         self._next = self._now = self._cleared = 0
 
-    @property
-    def ahead(self) -> int:
-        """Requests running or waiting right now."""
-        return self._next - self._now
-
     @contextmanager
     def turn(self):
         """Wait for this request's turn; yields False when "спри" came while it waited (then it is not done)."""
@@ -368,7 +363,6 @@ def save_files(items, home: Path) -> list[Path]:
     """Files attached in the app ({"name", "data": data URL}) are saved under ~/.jarvis/uploads/, so Jarvis can
     read or run them with his normal tools (read_file, run_python...)."""
     import base64
-    from datetime import datetime
 
     saved = []
     folder = Path(home) / "uploads"
@@ -401,9 +395,11 @@ class HTTPError(Exception):
 
 
 SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "SID")
+# Saved from their own controls, not from a settings field: the brain slider and „Избери“ (JARVIS_LOCAL_MODEL).
+SET_ELSEWHERE = {"JARVIS_LOCAL_MODEL"}
 EXTRA_SETTINGS = [
     ("Мозък", "", [
-        ("JARVIS_LOCAL_MODEL", "Моделът, с който мисли (по-лесно: бутона „Избери“ горе; празно = най-добрият изтеглен, напр. Qwen 3.5 9B)"),
+        ("JARVIS_EFFORT", "Колко да мисли"),
         ("JARVIS_ROUTER", "Простите команди без AI и кратките въпроси на малкия модел (1 = да, 0 = не)"),
         ("JARVIS_LOCAL_CTX", "Колко текст чете моделът наведнъж, в токени (празно = 32768; по-малко = по-малко памет)"),
         ("JARVIS_OLLAMA_URL", "Адрес на Ollama (празно = този компютър; друг компютър в мрежата, напр. http://192.168.1.20:11434)"),
@@ -411,7 +407,6 @@ EXTRA_SETTINGS = [
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
         ("JARVIS_FILE_ROOTS", "Папки, до които има достъп (C:\\ = целият диск)"),
-        ("JARVIS_EFFORT", "Колко да мисли: low, medium, high, xhigh, max"),
         ("JARVIS_AUTO_UPDATE", "Да се обновява сам, когато има нова версия (1 = да, 0 = не)"),
         ("GITHUB_TOKEN", "GitHub ключ за обновяване, нужен само ако хранилището kafe7o/Jarvis е частно (github.com/settings/personal-access-tokens, само четене на Contents)"),
         ("JARVIS_BROWSER", "Браузърът, в който Jarvis отваря сайтове: avast, chrome, edge, firefox, brave, opera или пълен път до програмата (празно = този по подразбиране на компютъра)"),
@@ -694,7 +689,7 @@ class Hub:
         from .config import Settings
         from .setup_wizard import STEPS, env_path, read_env, write_env
 
-        known = {key for _t, _w, fields in STEPS + EXTRA_SETTINGS for key, _l in fields}
+        known = {key for _t, _w, fields in STEPS + EXTRA_SETTINGS for key, _l in fields} | SET_ELSEWHERE
         path = env_path()
         stored = read_env(path)
         before = Settings()
@@ -735,6 +730,8 @@ class Hub:
                 if settings.local_model == model:
                     self.save_settings({"JARVIS_LOCAL_MODEL": ""})
             elif action == "use":
+                if "embed" in model.lower():
+                    raise ValueError("Този модел е за паметта (търсене по смисъл), не може да мисли.")
                 self.save_settings({"JARVIS_LOCAL_MODEL": model})
             elif action == "auto":  # Авто: no model fixed, Jarvis picks one for every step
                 self.save_settings({"JARVIS_LOCAL_MODEL": ""})
@@ -799,7 +796,7 @@ class Hub:
 
         if p == "/api/me" and m == "GET":
             return 200, {"user": user.public() if user else None, "needs_setup": self.accounts.count() == 0,
-                         "brain": "local", "silence": silence_seconds(),
+                         "silence": silence_seconds(),
                          "stt": os.environ.get("JARVIS_STT", "").strip().lower(),
                          "can_setup": req.local or req.via == "token", "restartable": self.restartable,
                          "groups": [{"key": k, "label": l, "desc": d, "sensitive": s} for k, l, d, s in GROUPS]}
@@ -828,6 +825,9 @@ class Hub:
                 return 200, {"ok": True}
 
         if p == "/api/logout" and m == "POST":
+            session = (req.query.get("_session") or [""])[0]
+            if session:  # the login ends on the server too, not only in this browser
+                self.accounts.logout(session)
             req.set_cookie = self.session_cookie("", 0)
             return 200, {"ok": True}
         if p == "/api/me" and m == "POST":
@@ -1123,6 +1123,8 @@ class Hub:
                     local = False
                 query["_ip"] = [ip]
                 user, via = hub.identify(self.headers, query)
+                session = SimpleCookie(self.headers.get("Cookie", "")).get(COOKIE)
+                query["_session"] = [session.value if session else ""]  # for /api/logout
                 try:
                     if method == "POST" and via != "token" and self.headers.get("X-Jarvis") != "1":
                         raise HTTPError(403, "Missing X-Jarvis header.")  # blocks cross-site form posts

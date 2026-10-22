@@ -52,6 +52,15 @@ def test_files_outside_allowed_roots_are_refused(registry):
     assert err and "outside the allowed folders" in out
 
 
+def test_a_file_is_deleted_but_never_an_allowed_folder_itself(tmp_path, registry):
+    target = tmp_path / "old.txt"
+    target.write_text("x")
+    out, err = registry.run("delete_path", {"path": str(target)}, Approver())
+    assert not err and not target.exists()
+    out, err = registry.run("delete_path", {"path": str(tmp_path)}, Approver())
+    assert err and "allowed root" in out and tmp_path.exists()
+
+
 def test_unconfigured_service_names_missing_keys(registry):
     out, err = registry.run("send_sms", {"to": "+359888111111", "body": "hi"}, Approver())
     assert err and "TWILIO_ACCOUNT_SID" in out
@@ -229,7 +238,7 @@ def test_phone_is_found_over_usb_without_settings(monkeypatch):
     assert android.devices_from_env() == {"phone": "9H9DS4PNZ9S8HM6H"}
 
 
-def _archive(version: str, files: dict) -> "zipfile.ZipFile":
+def _archive(version: str, files: dict):
     import io
     import zipfile
 
@@ -625,3 +634,10 @@ def test_a_cloud_brain_left_in_the_settings_means_the_laptop(monkeypatch):
     monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": ["qwen3.5:4b"]})
     assert as_local("qwen3.5:4b") == "local:qwen3.5:4b" and as_local("qwen3.5") == "local:qwen3.5"
     assert as_local("gemini-3.5-flash") == "local" and as_local(None) == "local"
+
+
+def test_every_tool_is_in_a_group_an_account_can_be_given(registry):
+    from jarvis import accounts
+
+    groups = {g[0] for g in accounts.GROUPS} | {"core"}
+    assert {n: t.group for n, t in registry.tools.items() if t.group not in groups} == {}

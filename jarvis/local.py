@@ -40,7 +40,15 @@ OPTIONS = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0}
 # How much the model reads at once. Ollama's default silently cut Jarvis's prompt and tools, so the model forgot the
 # task; his prompt and tools alone are about 13,000 tokens. One size for every step: a new size reloads the model.
 # Qwen 3.5 keeps most of its context cheaply (about 1 GB for 32,000 tokens on the 9B).
-NUM_CTX = int(os.environ.get("JARVIS_LOCAL_CTX") or 32768)
+NUM_CTX = 32768
+
+
+def num_ctx() -> int:
+    """JARVIS_LOCAL_CTX, read each time so a change in Settings applies at once."""
+    try:
+        return int(os.environ.get("JARVIS_LOCAL_CTX") or NUM_CTX)
+    except ValueError:
+        return NUM_CTX
 KEEP_LOADED = "30m"  # loading a 9B model into the graphics card takes seconds: it stays there between steps
 _seen: dict = {"at": 0.0, "models": []}
 
@@ -66,10 +74,6 @@ def models(timeout: float = 0.8) -> list[str]:
         _abilities.clear()  # a model added again under the same name may be able to do other things
     _seen.update(at=time.time(), models=names)
     return names
-
-
-def available() -> bool:
-    return bool(models())
 
 
 NOT_READY = ("Мозъкът на лаптопа (Ollama) не работи или няма изтеглен модел. Отвори Настройки > Мозък: там се "
@@ -287,7 +291,7 @@ def choose(model: str, tools: list, images: bool = False) -> str | None:
 
 
 class LocalBrain:
-    """Answers Claude-format requests (see brain.Jarvis._request) with a model running in Ollama."""
+    """Answers Jarvis's requests (Anthropic-style message blocks, see brain.Jarvis._request) with a model running in Ollama."""
 
     def __init__(self, post=None, start=None, lines=None):
         self._post = post or _post
@@ -298,9 +302,13 @@ class LocalBrain:
                on_text=None) -> Answer:
         """One step. ``on_text`` hears the answer as it is written (the app shows it growing), "" when the step
         turns out to be an action rather than words for the owner."""
-        if not isinstance(system, str):
-            system = "\n\n".join(_get(b, "text", "") for b in system)
-        chat = to_messages(system + SMALL_RULES, messages)
+        # The prompt's first block (persona, memories) stays the same from step to step; what changes (the clock)
+        # goes with the newest message, so Ollama reuses the work it did on everything before it.
+        parts = [system] if isinstance(system, str) else [_get(b, "text", "") for b in system]
+        chat = to_messages(parts[0] + SMALL_RULES, messages)
+        tail = "\n\n".join(p for p in parts[1:] if p)
+        if tail:
+            chat[-1] = {**chat[-1], "content": (chat[-1].get("content") or "") + "\n\n" + tail}
         images = any("images" in m for m in chat)
         name = choose(model, tools, images)
         if not name and self._wake():
@@ -308,12 +316,13 @@ class LocalBrain:
         if not name:
             raise RuntimeError(NOT_READY)
         model = name
+        # Thinking makes a laptop model slower but much smarter: on the hard steps only (Jarvis._request). Its
+        # thoughts count towards the words it may write, so a thinking step gets room for both.
+        think = effort in ("high", "xhigh", "max")
         body = {
             "model": model, "stream": False, "messages": chat,
-            "options": {**OPTIONS, "num_predict": min(max_tokens, 4096), "num_ctx": NUM_CTX},
-            "keep_alive": KEEP_LOADED,
-            # Thinking makes a laptop model slower but much smarter: on the hard steps only (brain._ask_local).
-            "think": effort in ("high", "xhigh", "max"),
+            "options": {**OPTIONS, "num_predict": min(max_tokens, 16384 if think else 4096), "num_ctx": num_ctx()},
+            "keep_alive": KEEP_LOADED, "think": think,
         }
         declared = to_tools(tools)
         if declared:
@@ -322,7 +331,11 @@ class LocalBrain:
             body["stream"] = True
         for _ in range(4):
             try:
-                return from_reply(self._streamed(body, on_text) if on_text else self._post("/api/chat", body), model)
+                answer = from_reply(self._streamed(body, on_text) if on_text else self._post("/api/chat", body), model)
+                if answer.stop_reason == "max_tokens" and not answer.content and body.get("think"):
+                    body["think"] = False  # it thought until the end and said nothing: once more, straight to it
+                    continue
+                return answer
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace") if hasattr(exc, "read") else str(exc)
                 # Not every model can think or use tools: ask again without what it can't do.

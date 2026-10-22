@@ -14,6 +14,8 @@ from ..tools import ToolRegistry, obj
 # Where things are, so the model finds the right file without reading everything.
 MAP = {
     "jarvis/brain.py": "the brain: PERSONA (your instructions and personality) and the tool loop",
+    "jarvis/local.py": "how you think: the models in Ollama on this computer, which one takes each step",
+    "jarvis/localmodels.py": "Settings > Мозък: installing Ollama, downloading and adding models, the slider",
     "jarvis/router.py": "the three levels: commands answered without AI (rules), quick model, full agent",
     "jarvis/hub.py": "the app's server: API, accounts, live events, settings (EXTRA_SETTINGS)",
     "jarvis/web/index.html": "the whole app screen (HTML, CSS, JavaScript), including Jarvis mode (hud*), На живо, Памет",
@@ -177,18 +179,18 @@ def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "The doctor: when something of yours is not working (a brain that does not answer, the phone, the voice, "
         "the browser, a scheduled job, \"Няма връзка\"), check everything at once and say in the owner's words what "
-        "works, what does not and how to fix it: the brains and their keys (resting, used up for the day), the "
-        "desktop, voice and browser packages, the phone over adb, the folders and free space, the scheduled jobs "
-        "(and ones that waste the free requests), the failures of the last day, and the version. Nothing is changed "
-        "and no key is shown. Then fix what you can yourself (save a key, connect the phone, delete a wasteful job) "
-        "and tell the owner only what needs them.",
-        obj({"network?": ("boolean", "Also ask every brain whether it answers right now (default true)")}),
+        "works, what does not and how to fix it: Ollama and the models on this computer, the desktop, voice and "
+        "browser packages, the phone over adb, the folders and free space, the scheduled jobs (and ones that run "
+        "often for nothing), the failures of the last day, and the version. Nothing is changed and no key is shown. "
+        "Then fix what you can yourself (start Ollama, connect the phone, delete a useless job) and tell the owner "
+        "only what needs them.",
+        obj({}),
     )
-    def run_doctor(network: bool = True):
+    def run_doctor():
         from .. import doctor
 
         owner_only()
-        return doctor.report(doctor.examine(ctx, network=bool(network)))
+        return doctor.report(doctor.examine(ctx))
 
     @registry.tool(
         "What you did lately, with numbers: requests, steps, tasks done, reminders and jobs fired, messages answered, "

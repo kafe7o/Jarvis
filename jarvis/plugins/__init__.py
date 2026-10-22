@@ -41,6 +41,7 @@ GROUP_OVERRIDES = {"request_approval": "core", "ask_owner": "core", "make_plan":
                    **{name: "agent" for name in ("read_own_code", "upgrade_self", "undo_upgrade", "list_upgrades", "update_jarvis",
                                                  "audit_myself")}, "work_report": "core", "run_doctor": "core",
                    "connections": "core", "save_setting": "agent", "local_models": "system", "watch_video": "system",
+                   "translate_text": "web", "emag_cheapest": "web", "learn": "agent", "review_myself": "agent",
                    **{f"vault_{name}": "memory" for name in ("note", "write", "read", "search", "list", "done")}}
 
 

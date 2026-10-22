@@ -3,7 +3,7 @@
 Reading a window lists its buttons, links, fields, tabs and text by name, the way a screen reader sees them,
 and a click goes to the middle of the element itself. That works in any program and in any browser, including
 the owner's own one (Avast, Chrome, Edge) with their logins, and it is far more reliable than guessing
-coordinates on a screenshot: the free brains often get pixels wrong (a click at y=891 on a 768-pixel screen).
+coordinates on a screenshot: small models often get pixels wrong (a click at y=891 on a 768-pixel screen).
 """
 
 from __future__ import annotations

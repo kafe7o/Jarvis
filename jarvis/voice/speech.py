@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import os
 import re
@@ -23,7 +24,8 @@ class Transcriber:
         from faster_whisper import WhisperModel
 
         self.language = language
-        self.model = WhisperModel(model, device="auto", compute_type="int8")
+        # on the processor by default: the graphics card's memory is the brain's (JARVIS_WHISPER_DEVICE=cuda to change)
+        self.model = WhisperModel(model, device=os.environ.get("JARVIS_WHISPER_DEVICE") or "cpu", compute_type="int8")
 
     def __call__(self, audio: np.ndarray) -> str:
         samples = audio.astype(np.float32) / 32768.0
@@ -33,6 +35,12 @@ class Transcriber:
     def file(self, path: str) -> str:
         segments, _ = self.model.transcribe(path, language=self.language, vad_filter=True, beam_size=1)
         return " ".join(seg.text.strip() for seg in segments).strip()
+
+
+@functools.lru_cache(maxsize=2)
+def shared(model: str = "small", language: str | None = "bg") -> Transcriber:
+    """One Whisper per model and language, loaded once: loading it again for every recording costs seconds."""
+    return Transcriber(model, language)
 
 
 def clean_for_speech(text: str) -> str:

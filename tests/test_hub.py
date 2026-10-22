@@ -253,10 +253,10 @@ def test_a_remote_task_can_pick_the_brain_for_itself(settings, ctx, registry, tm
     monkeypatch.setattr(hub, "ask", lambda text, user, chat: seen.append((text, brain.CHOSEN.get())) or "Готово.")
     where = remote.folder(tmp_path)
     where.mkdir()
-    (where / "groq.txt").write_text("модел: groq\nвиж имейлите", encoding="utf-8")
-    remote.run_one(hub, where / "groq.txt")
-    assert seen == [("виж имейлите", "groq")] and brain.CHOSEN.get() is None
-    assert "Модел: groq" in (where / "groq.answer.txt").read_text(encoding="utf-8")
+    (where / "quick.txt").write_text("модел: qwen3:4b\nвиж имейлите", encoding="utf-8")
+    remote.run_one(hub, where / "quick.txt")
+    assert seen == [("виж имейлите", "qwen3:4b")] and brain.CHOSEN.get() is None
+    assert "Модел: qwen3:4b" in (where / "quick.answer.txt").read_text(encoding="utf-8")
 
 
 def test_voice_tab_lists_voices_and_plays_the_picked_one(settings, ctx, registry, monkeypatch):

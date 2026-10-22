@@ -283,8 +283,7 @@ textarea.input.core { resize: vertical; min-height: 140px; line-height: 1.5; }
 .stat b { display: block; font-size: 22px; font-weight: 600; margin-top: 4px; }
 .stat small { color: var(--muted); font-size: 12px; }
 .bars { display: flex; align-items: flex-end; gap: 4px; height: 110px; padding-top: 6px; }
-.bars div { flex: 1; min-width: 6px; background: linear-gradient(var(--accent), rgba(79,209,255,.35)); border-radius: 3px 3px 0 0; min-height: 2px; }
-.bars div.free { background: rgba(61,220,151,.55); }
+.bars div { flex: 1; min-width: 6px; background: rgba(61,220,151,.55); border-radius: 3px 3px 0 0; min-height: 2px; }
 .bars-x { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; margin-top: 4px; }
 .mrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .mrow:first-of-type { border-top: 0; }
@@ -387,7 +386,6 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
 .hud-open:hover { background: rgba(79,209,255,.16); box-shadow: 0 0 16px var(--glow); }
 @media (max-width: 560px) { .hud-open span:last-child { display: none; } }
 :root { --hud: #4fd1ff; --hud-rgb: 79, 209, 255; }
-:root[data-brain="local"] { --hud: #e6edf5; --hud-rgb: 230, 237, 245; }
 #hud { position: fixed; inset: 0; z-index: 60; color: #dff6ff; font-family: var(--mono); overflow: hidden;
   background: radial-gradient(900px 700px at 50% 45%, rgba(var(--hud-rgb), .10), transparent 60%), #02050b; --lvl: 0; }
 #hud.hidden { display: none; }
@@ -468,7 +466,7 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
 .hud-spark { display: flex; align-items: flex-end; gap: 4px; height: 40px; margin: 12px 0 6px; }
 .hud-spark div { flex: 1; min-height: 2px; background: rgba(var(--hud-rgb), .55); box-shadow: 0 0 6px rgba(var(--hud-rgb), .35); }
 .hud-spark div:last-child { background: var(--hud); }
-.hud-cost { font-size: 11px; line-height: 1.5; color: rgba(var(--hud-rgb), .75); }
+.hud-usage { font-size: 11px; line-height: 1.5; color: rgba(var(--hud-rgb), .75); }
 /* bottom left, under the protocol (at most 7 lines) */
 .hud-mem { position: absolute; left: 24px; bottom: 92px; width: 260px; font-size: 12px; cursor: pointer; }
 .hud-mem h6 { margin: 0 0 8px; font-size: 11px; letter-spacing: .35em; color: rgba(var(--hud-rgb), .6); font-weight: 500; }
@@ -758,7 +756,7 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
 <div id="hud" class="hidden" data-state="idle" data-look="orb" role="dialog" aria-label="Jarvis режим">
   <div class="grid"></div><div class="scan"></div>
   <div class="hud-top">
-    <div class="hud-brand">J.A.R.V.I.S.<small id="hudBrain">НА ЛИНИЯ</small></div>
+    <div class="hud-brand">J.A.R.V.I.S.<small id="hudBrain">НА ЛИНИЯ · ЛАПТОП</small></div>
     <div class="hud-clock" id="hudClock"></div>
     <button class="icon-btn" id="hudClose" title="Затвори (Esc)"><svg class="i"><use href="#i-x"/></svg></button>
   </div>
@@ -795,11 +793,11 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
     <div class="hud-skills" id="hudSkills"></div>
     <div class="hud-today hidden" id="hudToday">
       <h6>ДНЕС</h6>
-      <div class="hud-levels" title="Колко отговора на кое ниво: командите без AI и бързите не харчат кредити">
+      <div class="hud-levels" title="Колко отговора на кое ниво днес">
         <div><b id="hudL1">0</b><small>без AI</small></div><div><b id="hudL2">0</b><small>бързи</small></div><div><b id="hudL3">0</b><small>агент</small></div>
       </div>
       <div class="hud-spark" id="hudSpark" title="Заявки към AI през последните 7 дни"></div>
-      <div class="hud-cost" id="hudCost"></div>
+      <div class="hud-usage" id="hudUsage"></div>
     </div>
   </div>
   <video id="hudCam" class="hud-cam hidden" autoplay muted playsinline></video>
@@ -1016,7 +1014,6 @@ async function start() {
   $("speakBtn").classList.toggle("on", state.speak);
   $("memBtn").classList.toggle("hidden", me.user.role !== "owner");  // the memory is the owner's
   $("hudMemBtn").classList.toggle("hidden", me.user.role !== "owner");
-  setBrain(me.brain);
   loadBrainBtn();
   greet();
   await loadChats();
@@ -1508,8 +1505,7 @@ function finishConfirm(holder, text) {
 
 // ---------- Jarvis mode: full-screen voice HUD ----------
 // Says "Джарвис…" (or anything right after he spoke), answers aloud, takes "да/не" for permissions,
-// sees the shared screen or camera, and glows in the colour of the brain he is running on.
-const BRAINS = { local: "ЛАПТОП" };
+// and sees the shared screen or camera.
 const WAKE = /(?<!\p{L})(?:хей\s+)?(?:джарвис|джарвиз|жарвис|дарвис|чарвис|джервис|джарви|jarvis|jervis)(?!\p{L})[\s,.!?]*/iu;
 const STOP = /(?<!\p{L})(?:стоп|спри|тихо|млъкни|достатъчно|stop)(?!\p{L})/iu;
 const SAY_NO = /(?<!\p{L})(?:не|недей|откажи|отказвам|отказ|спри|no)(?!\p{L})/iu;
@@ -1522,19 +1518,11 @@ const ANDROID = /Android/i.test(navigator.userAgent);
 const hud = { open: false, listening: false, rec: null, awake: false, awakeUntil: 0, deafUntil: 0, busy: false, speaking: false,
               speech: 0, audio: null, ctx: null, micAnalyser: null, speechAnalyser: null, mic: null, screen: null,
               screenVideo: null, cam: null, confirm: null, lvl: 0, buf: null, pendingChat: null, dirty: false, steps: [],
-              look: "orb", rgb: [0, 229, 255], jobs: new Map(), done: [], asked: 0, said: "", quiet: null, lastSound: 0 };
+              look: "orb", rgb: [79, 209, 255], jobs: new Map(), done: [], asked: 0, said: "", quiet: null, lastSound: 0 };
 // What he says at once when a request needs the full agent: no AI, so it is instant and costs nothing.
 const ACKS = ["Заемам се, сър.", "Веднага, сър.", "Започвам, сър.", "Дадено, сър.", "Разбрано, сър."];
 try { hud.look = localStorage.getItem("jarvisLook") || "orb"; } catch (e) {}
 
-function setBrain(key) {
-  state.brain = key || "local";
-  if (BRAINS[state.brain]) document.documentElement.dataset.brain = state.brain;
-  else delete document.documentElement.dataset.brain;
-  $("hudBrain").textContent = "НА ЛИНИЯ · " + (BRAINS[state.brain] || "ДРУГ");
-  const rgb = getComputedStyle(document.documentElement).getPropertyValue("--hud-rgb").split(",").map(Number);
-  if (rgb.length === 3 && rgb.every((v) => !isNaN(v))) hud.rgb = rgb;
-}
 const words = (s) => s.trim().split(/\s+/).filter(Boolean).length;
 const stopTracks = (stream) => { if (stream) stream.getTracks().forEach((t) => t.stop()); };
 
@@ -1939,7 +1927,7 @@ const SKILLS = [
   { label: "Подреди паметта", text: "Подреди паметта: прочети новите бележки в raw, разпредели ги в wiki по теми (обнови или създай бележки), обнови wiki/_master-index.md и маркирай обработените с vault_done. Накрая ми кажи накратко какво подреди." },
   { label: "Отговаряй вместо мен", text: "отговаряй вместо мен" },
   { label: "Намери клиенти", ask: "Намери клиенти без сайт (кои и къде): " },
-  { label: "Седмичен преглед", text: "Седмичен преглед: какво свършихме тази седмица, какво остава, какво предстои следващата седмица, колко струваше и трите най-важни неща за фокус. Запиши го в паметта (output)." },
+  { label: "Седмичен преглед", text: "Седмичен преглед: какво свършихме тази седмица, какво остава, какво предстои следващата седмица, колко заявки и трите най-важни неща за фокус. Запиши го в паметта (output)." },
 ];
 $("hudSkills").innerHTML = SKILLS.map((s, i) => `<button class="hud-skill" data-i="${i}">${esc(s.label)}</button>`).join("");
 $("hudSkills").addEventListener("click", (e) => {
@@ -1963,7 +1951,7 @@ async function hudStats() {
   ["1", "2", "3"].forEach((k) => { $("hudL" + k).textContent = levels[k] || 0; });
   const days = u.days.slice(-7), top = Math.max(...days.map((d) => d.requests), 1);
   $("hudSpark").innerHTML = days.map((d) => `<div title="${esc(d.day)}: ${d.requests} заявки" style="height:${Math.max(5, Math.round(100 * d.requests / top))}%"></div>`).join("");
-  $("hudCost").textContent = `Днес: ${u.today.requests} заявки към мозъка на лаптопа · ${u.week.requests} за 7 дни`;
+  $("hudUsage").textContent = `Днес: ${u.today.requests} заявки към мозъка на лаптопа · ${u.week.requests} за 7 дни`;
   $("hudToday").classList.remove("hidden");
 }
 
@@ -1980,7 +1968,7 @@ async function openHud() {
   hud.open = true; hud.dirty = false; hud.steps = []; hud.work = null; hud.awakeUntil = 0;
   $("hud").classList.remove("hidden");
   $("hudYou").textContent = ""; $("hudAnswer").innerHTML = ""; $("hudLog").innerHTML = "<h6>ПРОТОКОЛ</h6>";
-  setBrain(state.brain); setLook(hud.look);
+  setLook(hud.look);
   hudClock(); hud.clock = setInterval(hudClock, 1000);
   try {
     hud.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2295,7 +2283,7 @@ function liveSteps(run, colors) {
       <div class="w">${who}${esc(label)}${s.detail ? `<small title="${esc(s.detail)}">${esc(s.detail)}</small>` : ""}</div>${timer(s.since, s.ended)}</div>`;
   }).join("");
   const none = run.state === "working" ? (run.level === 2 ? "Отговаря направо, без инструменти…" : "Мисли…")
-    : run.level === 2 ? "Отговори направо, без инструменти и без да харчи кредити за тях." : "Без стъпки.";
+    : run.level === 2 ? "Отговори направо, без инструменти." : "Без стъпки.";
   return `<div class="lv-card"><h6>СТЪПКИ</h6><div class="lv-steps">${rows || `<div class="lv-none">${none}</div>`}</div></div>`;
 }
 
@@ -2679,7 +2667,7 @@ function tabProfile() {
   $("tabBody").innerHTML = `
     <div class="section">
       <h5>Твоят профил</h5><p class="sub">${esc(me.email)} · ${owner ? "Собственик" : "Акаунт"}</p>
-      <div class="field"><label>Как да се обръща към теб Jarvis</label><input class="input" id="pfName" value="${esc(me.name)}"></div>
+      <div class="field"><label>Твоето име в приложението</label><input class="input" id="pfName" value="${esc(me.name)}"></div>
       <div class="row-end"><span class="hint" id="pfMsg"></span><button class="btn primary small" id="pfSave">Запази</button></div>
     </div>
     ${owner ? `
@@ -2915,14 +2903,18 @@ async function tabBrain(view) {
     const p = (v.pulls || {})[m.id || m.name];
     if (p && !p.done) return `<span class="badge">${esc(p.status)} ${p.percent}%</span>`;
     if (!m.installed) return `<button class="btn primary small" ${act("download", m.id)}>Изтегли</button>`;
-    return (v.chosen === m.id ? `<span class="badge ok">Мисли с него</span>` : `<button class="btn primary small" ${act("use", m.id)}>Избери</button>`)
+    const id = m.id || "";
+    const badge = /embed/i.test(id) ? `<span class="badge">ползва се за паметта</span>`
+      : v.chosen === id ? `<span class="badge ok">${v.scale && v.scale.auto ? "Авто го избира" : "Мисли с него"}</span>`
+      : `<button class="btn primary small" ${act("use", id)}>Избери</button>`;
+    return badge
       + `<button class="btn ghost small" ${act("delete", m.id)}>${icon("trash")}</button>`;
   };
   const ollama = v.ollama ? `Ollama ${esc(v.ollama)} работи.`
     : v.installed_ollama ? `Ollama е инсталиран, но не е пуснат. <button class="btn primary small" ${act("start")}>Пусни го</button>`
     : `Първо трябва Ollama (безплатната програма, която пуска моделите). <button class="btn primary small" ${act("install_ollama")}>Инсталирай Ollama</button>`;
   $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>${ollama}<br>Компютърът: ${esc(hw.gpu || "няма NVIDIA видеокарта")}${hw.vram ? `, ${hw.vram} GB видеопамет` : ""}, ${hw.ram} GB RAM, ${hw.disk} GB свободно място.
+    <div class="note">${icon("info")}<div>${ollama}<br>Компютърът: ${esc(hw.gpu || "видеокарта: не е открита")}${hw.vram ? `, ${hw.vram} GB видеопамет` : ""}, ${hw.ram} GB RAM, ${hw.disk} GB свободно място.
       <br>Мисли с: <b>${esc(v.chosen || "още няма модел: изтегли или добави един долу")}</b>${v.quick ? ` (кратките отговори на ${esc(v.quick)})` : ""}.
       Всичко става на лаптопа: без ключове, без лимит и без интернет.</div></div>
     ${v.scale && v.scale.stops.length ? brainSlider(v.scale) : ""}
@@ -3059,7 +3051,7 @@ async function tabUsage() {
     </div>
     <div class="section">
       <h5>Заявки по дни</h5>
-      <div class="bars">${u.days.map((d) => `<div class="free" title="${day(d.day)}: ${d.requests} заявки"
+      <div class="bars">${u.days.map((d) => `<div title="${day(d.day)}: ${d.requests} заявки"
         style="height:${Math.round(100 * d.requests / topReq)}%"></div>`).join("")}</div>
       <div class="bars-x"><span>${day(u.days[0].day)}</span><span>днес</span></div>
     </div>
@@ -3085,13 +3077,14 @@ function whereLink(where) {
   return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(first)}</a>${esc(String(where).slice(String(where).indexOf(first) + first.length))}`;
 }
 // A yes/no setting is a switch and "how much to think" a list; their value still goes through the hidden input.
-const EFFORTS = [["low", "малко (най-бързо)"], ["medium", "средно"], ["high", "много"], ["xhigh", "най-много (препоръчано)"], ["max", "максимум (бавно)"]];
+// How much the model thinks; the default ("", which is xhigh) thinks on the hard steps only.
+const EFFORTS = [["", "Мисли при трудните стъпки (препоръчано)"], ["low", "Без мислене (най-бързо)"], ["max", "Мисли на всяка стъпка (бавно)"]];
 function choiceField(f, name, hint) {
   const yesNo = /1 = да, 0 = не/.test(hint);
   if (f.key === "JARVIS_EFFORT") return `
       <div class="field"><label title="${esc(f.key)}">${esc(name.replace(/:.*$/, ""))}</label>
-        <select class="input" data-into="${esc(f.key)}">${[["", "по подразбиране (най-много)"], ...EFFORTS].map(([v, t]) =>
-          `<option value="${v}"${f.value === v ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>
+        <select class="input" data-into="${esc(f.key)}">${EFFORTS.map(([v, t]) =>
+          `<option value="${v}"${(["low", "max"].includes(f.value) ? f.value : "") === v ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>
         <input type="hidden" data-k="${esc(f.key)}" value="${esc(f.value)}"></div>`;
   const opts = yesNo ? [["1", "Да"], ["0", "Не"]] : null;
   if (!opts) return null;
@@ -3147,7 +3140,13 @@ function wireSettings(sections, reload) {
       if (f.secret ? inp.value !== "" : inp.value !== f.value) values[f.key] = inp.value;
     });
     if (!Object.keys(values).length) { sec.querySelector(".msg").textContent = "Няма промени."; return; }
-    try { await api("/api/settings", { values }); toast("Запазено. Важи веднага; нови ключове за услуги искат рестарт."); reload(); }
+    try {
+      await api("/api/settings", { values });
+      if ("JARVIS_STT" in values || "JARVIS_SILENCE" in values) {  // the app's own listening reads these from /api/me
+        const me = await api("/api/me"); state.silence = me.silence; state.stt = me.stt || ""; state.sttFallback = false;
+      }
+      toast("Запазено. Важи веднага; нови ключове за услуги искат рестарт."); reload();
+    }
     catch (err) { sec.querySelector(".msg").textContent = err.message; }
   }));
 }
@@ -3172,7 +3171,7 @@ async function tabConnections() {
   const items = sections.map((s, i) => [s, i]);
   const on = items.filter(([s]) => s.ready), off = items.filter(([s]) => !s.ready);
   $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>Ключовете се пазят само на този компютър (във файла .env). Свържи само това, което ползваш. Мозъкът е на лаптопа и няма нужда от ключ (Настройки > Мозък).</div></div>
+    <div class="note">${icon("info")}<div>Ключовете се пазят само на този компютър (във файла .env). Свържи само това, което ползваш.</div></div>
     ${on.length ? `<h4 class="group">Свързани <span class="hint">${on.length}</span></h4>${on.map(([s, i]) => settingsCard(s, i)).join("")}` : ""}
     <h4 class="group">Може да свържеш <span class="hint">${off.length}</span></h4>
     ${off.map(([s, i]) => settingsCard(s, i)).join("")}

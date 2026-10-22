@@ -71,7 +71,7 @@ def run_one(hub, task: Path) -> Path:
     elif owner is None:
         answer, error = "Няма собственик в Jarvis.", True
     else:
-        # one chat per task: the answers of earlier tasks must not steer this one (a free brain once carried an
+        # one chat per task: the answers of earlier tasks must not steer this one (a brain once carried an
         # old task's phone call into a search for apps)
         title = f"{CHAT}: {task.stem.removesuffix('.again')}"
         chat = next((c for c in hub.accounts.chats(owner.id) if c["title"] == title), None)

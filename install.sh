@@ -17,6 +17,8 @@ pip install -U pip
 pip install -e ".[all]"
 python -m playwright install chromium
 
+command -v ollama >/dev/null || echo "Мозъкът иска Ollama: https://ollama.com/download (после Настройки > Мозък тегли моделите)."
+
 jarvis setup
 echo
-echo "Пусни го с:  . .venv/bin/activate && jarvis serve"
+echo "Пусни го с:  . .venv/bin/activate && jarvis app"

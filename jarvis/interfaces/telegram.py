@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import tempfile
 import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -42,6 +44,7 @@ class Bot:
                 batch = self.call("getUpdates", offset=self.offset, timeout=60)
             except Exception as exc:
                 log.warning("getUpdates failed: %s", exc)
+                time.sleep(5)  # no internet: wait instead of asking again at once, over and over
                 continue
             for upd in batch:
                 self.offset = upd["update_id"] + 1
@@ -103,10 +106,14 @@ def run(shared=None) -> None:
         if msg.get("voice"):
             try:
                 if transcriber is None:
-                    from ..voice.speech import Transcriber
+                    from ..voice.speech import shared
 
-                    transcriber = Transcriber(settings.whisper_model, settings.language)
-                text = transcriber.file(bot.download(msg["voice"]["file_id"]))
+                    transcriber = shared(settings.whisper_model, settings.language)
+                heard = bot.download(msg["voice"]["file_id"])
+                try:
+                    text = transcriber.file(heard)
+                finally:
+                    os.unlink(heard)
                 bot.send(f"🎙 {text}")
             except Exception as exc:
                 bot.send(f"Не успях да разпозная гласовото съобщение: {exc}")

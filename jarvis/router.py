@@ -1,4 +1,4 @@
-"""Three levels of answering, so that simple things cost nothing (the routing idea from the owner's video).
+"""Three levels of answering, so that simple things are instant (the routing idea from the owner's video).
 
 1. Commands, with no AI at all: the time and date, the weather, music and videos, media keys and volume,
    opening sites and programs (also on the phone), locking the computer, reminders, greetings, spending and
@@ -632,10 +632,6 @@ DEED = rx(r"(?:^|\s)(?:да |го |ги |ми |me |it )?(?:оправ|напра
 # "направи ли го", "стана ли", "готово ли е": a question whether the work got done, answered by checking, not from memory.
 DONE_Q = rx(r"(?:^|\s)(?:направи|стана|готов[оаи]?|готово е|успя|свърши|сработи|оправи|прати|изпрати|записа|запази|"
             r"намери|пусна|включи|работи|върви|мина|има)(?: го| я| ги)? ли(?=\s|$|[?,.!])")
-
-
-def asks_if_done(text: str) -> bool:
-    return bool(DONE_Q.search(clean(text)))
 
 
 def quick(text: str) -> bool:

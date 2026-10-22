@@ -2,7 +2,7 @@
 
 From a video of an assistant that answers Instagram messages by itself. Here it stays the owner's call:
 Jarvis watches the phone's notifications (WhatsApp, Viber, Messenger, Instagram, Telegram, Signal, SMS)
-over adb, with no AI and no cost while nothing new comes in. For each new message the cheapest model
+over adb, with no AI and no cost while nothing new comes in. For each new message the small model
 writes a short reply in the owner's style (JARVIS_REPLY_STYLE and the replies they approved before), and
 the app asks "send it?". Only after their "да" does Jarvis open the message from the notification on the
 phone, type the reply and press Send, like the owner would. Group chats, codes and ads are left alone.

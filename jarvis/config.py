@@ -102,7 +102,6 @@ class Settings:
     telegram_owner_id: str | None = field(default_factory=lambda: _env("TELEGRAM_OWNER_ID"))
 
     # Voice
-    wake_word: str = field(default_factory=lambda: _env("JARVIS_WAKE_WORD", "jarvis"))
     whisper_model: str = field(default_factory=lambda: _env("JARVIS_WHISPER_MODEL", "small"))
     tts_voice: str = field(default_factory=lambda: _env("JARVIS_TTS_VOICE", "bg-BG-BorislavNeural"))
 
