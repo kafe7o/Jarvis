@@ -115,7 +115,13 @@ def build(store, vault: Path | None) -> dict:
 
 def _notes(vault: Path) -> list[dict]:
     out = []
-    for path in sorted(vault.rglob("*.md"))[:3000]:
+    def newest_first(path: Path) -> float:
+        try:
+            return -path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    for path in sorted(vault.rglob("*.md"), key=newest_first)[:3000]:  # a huge vault shows its newest notes
         rel = path.relative_to(vault).as_posix()
         if rel.startswith((".", "raw/_done/")) or rel == "README.md" or not path.is_file():
             continue

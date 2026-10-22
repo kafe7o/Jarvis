@@ -1,4 +1,4 @@
-"""Tool registry: plugins register Python functions that Claude can call.
+"""Tool registry: plugins register Python functions that the brain can call.
 
 A tool marked ``confirm=True`` never runs until the user approves that exact
 call (who, what, how much). Tools marked ``local=True`` can skip the prompt when
@@ -16,7 +16,7 @@ from typing import Any, Callable, Protocol
 
 @dataclass
 class Image:
-    """Return this from a tool to let Claude see a picture (e.g. a screenshot)."""
+    """Return this from a tool to let the brain see a picture (e.g. a screenshot)."""
 
     data: bytes
     media_type: str = "image/png"

@@ -68,9 +68,9 @@ def frames(path: str, count: int = FRAMES) -> tuple[bytes, float, int]:
 def speech(path: str) -> str:
     """What is said in the video, in its own language ("" when there is nothing to hear or no Whisper)."""
     try:
-        from ..voice.speech import Transcriber
+        from ..voice.speech import shared
 
-        return Transcriber("small", None).file(path)
+        return shared("small", None).file(path)
     except ImportError:
         return ""
     except Exception as exc:  # a video with no sound track

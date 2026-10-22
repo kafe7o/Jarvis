@@ -34,7 +34,7 @@ and act for them in the real world through your tools: phone calls and SMS, e-ma
 reminders, calendar, web search, files, programs and the shell.
 
 How you work:
-- The owner's standing order for every task, on whichever brain you run: work as fast, as smart and as \
+- The owner's standing order for every task: work as fast, as smart and as \
 logically as possible. Think the task through once, take the most direct path, act right away with your tools, \
 check the result, then report it in a sentence or two. No detours, no filler.
 - {language_rule} Address the user as "{user}". Be concise, warm and dryly witty, like Jarvis \
@@ -160,7 +160,8 @@ If the user declines, accept it and do not retry.
 - Look up phone numbers and e-mail addresses with the contacts tools before asking the user.
 - Store lasting facts about the user (preferences, people, plans) with the remember tool, without \
 being asked, and use what you already know.
-- If a tool says a service is not configured, tell the user which keys to add to .env.
+- If a tool says a service is not configured, call connections and save what the owner gives you with \
+save_setting, or say in one line what is missing.
 - Never invent results; if something fails, say what failed."""
 
 LANGUAGE_NAMES = {"bg": "Bulgarian", "en": "English", "de": "German", "ru": "Russian"}
@@ -548,7 +549,7 @@ class Jarvis:
         """One request to the brain on this computer. ``model``, ``effort`` and ``tools`` default to the settings
         and the tools this person may use that the request is about; the quick lane passes low effort and no tools."""
         s = self.settings
-        model = as_local(model or CHOSEN.get() or s.model)
+        model = as_local(model or CHOSEN.get() or "local")
         effort = effort or (TURN.get() or {}).get("effort") or s.effort
         max_tokens = max_tokens or s.max_tokens
         if allowed is None and user is not None:
@@ -657,7 +658,7 @@ class Jarvis:
     def reflect_later(self, request: str, steps: list, answer: str, conversation: str) -> None:
         """Learn from a task that had failed steps, or from the owner correcting you: one short look back with
         the quick brain, in the background so the answer is not delayed, and a lesson in LESSONS.md if there is one."""
-        if time.time() - self._reflected < 60:  # at most one a minute: the free brains count every request
+        if time.time() - self._reflected < 60:  # at most one a minute: each one keeps the laptop's model busy
             return
         self._reflected = time.time()
         threading.Thread(target=self.reflect, args=(request, steps, answer, conversation), name="jarvis-reflect",
@@ -717,7 +718,7 @@ class Jarvis:
         return self._halts["*"], self._halts[getattr(user, "id", None)]
 
     def _messages(self, conversation: str, text: str, limit: int = 40, hint: str = "") -> list:
-        """The conversation so far plus the new message, in the alternating form the APIs need. ``hint`` is a
+        """The conversation so far plus the new message, in the alternating form the model needs. ``hint`` is a
         note for the brain that goes with the message (the notices) and is not part of the saved conversation."""
         messages: list = []
         for row in self.store.history(conversation, limit):
@@ -814,7 +815,7 @@ class Jarvis:
                            weather_now=weather)
 
     def quick_answer(self, text: str, conversation: str, user=None, hint: str = "") -> str | None:
-        """Level 2: one short request to the cheapest model, without tools. None when it needs the full agent."""
+        """Level 2: one short request to the small model, without tools. None when it needs the full agent."""
         s = self.settings
         guest = user is not None and not user.is_owner
         system = (QUICK_PROMPT.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
@@ -829,7 +830,7 @@ class Jarvis:
         return answer
 
     def count(self, level: int) -> None:
-        """Which level answered, for the app's "Разход" tab."""
+        """Which level answered, for the app's "Статистика" tab."""
         try:
             self.store.insert("routes", tier=level)
         except Exception:
@@ -895,9 +896,9 @@ class Jarvis:
         ask_groups = user.ask_groups() if user is not None else None
         if groups is not None:
             allowed = (set(groups) if allowed is None else allowed & set(groups)) | {"core"}
-        # Fixed for the whole turn (thinking blocks are bound to it). The cache breakpoint sits before the
-        # clock, so tools, personality and memories are cached from one message to the next.
-        tools = None  # every tool this person may use (a free brain gets the ones the request is about)
+        # The clock is a block of its own: the laptop brain puts it with the newest message, so everything before it
+        # is reused from one step to the next (local.LocalBrain.create).
+        tools = None  # every tool this person may use (select_tools sends the ones the request is about)
         asked = recent_text(messages)  # the memories about this request go in (relevant_facts)
         brief = self._base_prompt(user, asked)
         if web:
@@ -905,7 +906,7 @@ class Jarvis:
             guest = user is not None and not user.is_owner
             brief = WEB_PERSONA.format(user=user.name if guest else self.settings.user_name,
                                        language_rule=language_rule(self.settings.language)) + self._about(user, asked)
-        system = [{"type": "text", "text": brief + persona, "cache_control": {"type": "ephemeral"}},
+        system = [{"type": "text", "text": brief + persona},
                   {"type": "text", "text": self._clock().strip()}]
         TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "on_step": on_step, "depth": depth,
                   "effort": effort})
@@ -935,9 +936,7 @@ class Jarvis:
                 verified = None
             texts = fresh or texts
 
-            if response.stop_reason == "refusal":
-                return "Съжалявам, не мога да помогна с това."
-            if response.stop_reason not in ("tool_use", "pause_turn"):
+            if response.stop_reason != "tool_use":
                 if not repeated and not acted and previous and same_answer(" ".join(texts), previous):
                     repeated = True  # "Спрях, както каза" again, to a new question: answer the question
                     messages.append({"role": "assistant", "content": response.content or [{"type": "text", "text": "…"}]})
@@ -973,8 +972,6 @@ class Jarvis:
                     continue
                 break
             messages.append({"role": "assistant", "content": response.content})
-            if response.stop_reason == "pause_turn":
-                continue
 
             results = []
             failed = []

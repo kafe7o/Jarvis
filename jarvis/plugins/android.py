@@ -268,7 +268,7 @@ def register(registry: ToolRegistry, ctx) -> None:
 
     @registry.tool(
         "Control an Android phone or Android/Google TV fully, like the owner's own hands. Actions: "
-        "read_screen (everything on the screen as text with tap coordinates: faster and cheaper than look) · "
+        "read_screen (everything on the screen as text with tap coordinates: faster than look) · "
         "tap_text (tap the button/item whose label is text) · look (screenshot you can see) · tap (x, y) · "
         "swipe (x, y, x2, y2) · type (text, any language incl. Cyrillic, into the focused field) · key (name: "
         + ", ".join(KEYS) + ") · open_app (app name or package) · apps (installed apps) · open_url · "

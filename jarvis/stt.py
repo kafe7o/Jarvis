@@ -17,13 +17,13 @@ EXT = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a", "audio/mpeg
 
 
 def local(data: bytes, mime: str, language: str, model: str = "small") -> str:
-    from .voice.speech import Transcriber
+    from .voice.speech import shared
 
     with tempfile.NamedTemporaryFile(suffix="." + EXT.get(mime.split(";")[0], "webm"), delete=False) as f:
         f.write(data)
         path = f.name
     try:
-        return Transcriber(model, language or None).file(path)
+        return shared(model, language or None).file(path)
     finally:
         os.unlink(path)
 

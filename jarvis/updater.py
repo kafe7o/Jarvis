@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 
 REPO = "https://github.com/kafe7o/Jarvis/archive/refs/heads/{branch}.zip"
-# A private repository is read through the API with the owner's GitHub token (Settings > Връзки > GITHUB_TOKEN).
+# A private repository is read through the API with the owner's GitHub token (Settings > Поведение > GITHUB_TOKEN).
 API = "https://api.github.com/repos/kafe7o/Jarvis"
 BRANCHES = ["main", "claude/jarvis-full-o9l6do"]
 KEEP = {".env", ".venv", ".git"}

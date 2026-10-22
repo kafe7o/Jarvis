@@ -32,7 +32,7 @@ class Answer:
     content: Reply
     stop_reason: str
     model: str | None = None
-    usage: dict | None = None  # tokens, for the app's "Разход" tab (see usage.py)
+    usage: dict | None = None  # tokens, for the app's "Статистика" tab (see usage.py)
 
 
 CALL_ARGS = ("arguments", "parameters", "input", "args")

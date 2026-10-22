@@ -1,4 +1,4 @@
-"""Three levels of answering, so that simple things cost nothing (the routing idea from the owner's video).
+"""Three levels of answering, so that simple things are instant (the routing idea from the owner's video).
 
 1. Commands, with no AI at all: the time and date, the weather, music and videos, media keys and volume,
    opening sites and programs (also on the phone), locking the computer, reminders, greetings, spending and

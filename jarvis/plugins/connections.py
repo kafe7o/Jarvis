@@ -24,7 +24,7 @@ def known_fields() -> list[tuple[str, str, list[tuple[str, str]]]]:
 
 
 def page_of(where: str) -> str:
-    """The address in a "where to get it" note: "console.groq.com/keys > Create API Key" -> https://console.groq.com/keys."""
+    """The address in a "where to get it" note: "dashboard.stripe.com/apikeys > Create key" -> https://dashboard.stripe.com/apikeys."""
     first = re.split(r"\s*(?:>|/\s|\(| и )", where or "", maxsplit=1)[0].strip()
     if "." in first and " " not in first and not first.startswith("@"):
         return first if first.startswith("http") else "https://" + first

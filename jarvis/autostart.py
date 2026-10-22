@@ -1,4 +1,6 @@
-"""Start Jarvis automatically at login (`jarvis daemon`) on Linux, macOS and Windows."""
+"""Start Jarvis automatically at login: on Windows the same as the desktop icon (`jarvis app`, kept alive by the
+keeper, which also updates him and sets up Ctrl+Alt+J) but without opening the window; on Linux and macOS
+`jarvis daemon`, which systemd and launchd keep alive themselves."""
 
 from __future__ import annotations
 
@@ -46,7 +48,7 @@ def install(workdir: Path) -> str:
         script.write_text(
             'Set sh = CreateObject("WScript.Shell")\n'
             f'sh.CurrentDirectory = "{workdir}"\n'
-            f'sh.Run """{pythonw if pythonw.exists() else python}"" -m jarvis daemon", 0, False\n',
+            f'sh.Run """{pythonw if pythonw.exists() else python}"" -m jarvis app --no-window", 0, False\n',
             encoding="utf-8",
         )
         return f"Автостарт: {script}"

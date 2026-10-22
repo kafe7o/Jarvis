@@ -6,7 +6,7 @@ import sys
 
 from ..app import build, start_background
 
-TOOL_LABELS = {"web_search": "търся в интернет", "web_fetch": "чета страница"}
+TOOL_LABELS = {"google_search": "търся в интернет", "open_page": "чета страница"}
 
 
 def console_confirm(summary: str) -> bool:

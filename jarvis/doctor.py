@@ -39,10 +39,9 @@ def finding(state: str, what: str, hint: str = "") -> dict:
     return {"state": state, "what": what, "hint": hint}
 
 
-def brains(ctx, network: bool = True) -> list[dict]:
+def brains(ctx) -> list[dict]:
     """The brain on this computer: is Ollama installed and running, which model thinks, which takes the plain
-    answers, and is there one that finds memories by meaning. Ollama is asked even without ``network``: it runs on
-    this computer."""
+    answers, and is there one that finds memories by meaning."""
     from . import local, localmodels
 
     try:
@@ -53,13 +52,14 @@ def brains(ctx, network: bool = True) -> list[dict]:
         if localmodels.ollama_program():
             return [finding(BAD, "Мозък (Ollama)", "инсталиран е, но не е пуснат: Настройки > Мозък > „Пусни го“")]
         return [finding(BAD, "Мозък (Ollama)", "не е инсталиран: Настройки > Мозък > „Инсталирай Ollama“")]
-    chosen = local.pick(getattr(ctx.settings, "local_model", "") or None)
+    fixed = getattr(ctx.settings, "local_model", "") or None
+    chosen = local.pick(fixed)
     if not chosen:
         return [finding(BAD, "Мозък", f"Ollama {running} работи, но няма модел: изтегли от Настройки > Мозък")]
-    quick = local.quick_partner(chosen)
+    quick = None if fixed else local.quick_partner(chosen)  # a model picked on the slider takes every step
     out = [finding(OK, "Мозък", f"мисли с {chosen} на този компютър (Ollama {running})"
                    + (f"; кратките отговори на {quick}" if quick else ""))]
-    if not quick and local.QWEN35.search(chosen) and "9b" in chosen.lower():
+    if not fixed and not quick and local.QWEN35.search(chosen) and "9b" in chosen.lower():
         out.append(finding(WARN, "Бърз модел", "няма 4B до 9B: с Qwen 3.5 4B кратките отговори стават няколко пъти по-бързо"))
     if not local.embedder():
         out.append(finding(WARN, "Памет по смисъл", "няма малкия модел за търсене по смисъл (Настройки > Мозък)"))
@@ -133,7 +133,7 @@ def folders(settings) -> list[dict]:
 
 def jobs(store, now: datetime | None = None) -> list[dict]:
     """The scheduled jobs: how many, and ones that run often for nothing (a self-improvement loop Jarvis set
-    himself burns the free requests every half hour and answers "Готово." with nothing done)."""
+    himself keeps the laptop busy every half hour and answers "Готово." with nothing done)."""
     from .plugins.tasks import JOB
     from .routines import MARK
 
@@ -147,7 +147,7 @@ def jobs(store, now: datetime | None = None) -> list[dict]:
         low = text.lower()
         if any(w in low for w in BUSY_JOB) and (r["repeat"] or "").strip():
             out.append(finding(WARN, f"Задача #{r['id']} „{text[:50]}“",
-                               f"повтаря се ({r['repeat']}) и харчи безплатните заявки, без да свърши нещо; "
+                               f"повтаря се ({r['repeat']}) и държи лаптопа зает, без да свърши нещо; "
                                f"изтрий я: „изтрий задачата {r['id']}“ или от Задачи по график"))
     return out
 
@@ -178,10 +178,10 @@ def version(root: Path | None = None) -> list[dict]:
     return [finding(OK, "Версия", installed[:12] if installed else "неизвестна (инсталирана ръчно); „jarvis update“ взима последната")]
 
 
-def examine(ctx, network: bool = True) -> list[dict]:
+def examine(ctx) -> list[dict]:
     """Every check, each wrapped so one that crashes still leaves the rest."""
     out: list[dict] = []
-    checks = [lambda: brains(ctx, network), packages, phone, lambda: folders(ctx.settings),
+    checks = [lambda: brains(ctx), packages, phone, lambda: folders(ctx.settings),
               lambda: jobs(ctx.store), lambda: failures(ctx.store), version]
     for check in checks:
         try:

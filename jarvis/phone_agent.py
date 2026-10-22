@@ -128,7 +128,7 @@ class PhoneBrain:
         data = self.post("/api/chat", {
             "model": model, "stream": False, "think": False, "format": REPLY_SCHEMA, "keep_alive": local.KEEP_LOADED,
             "messages": [{"role": "system", "content": self.system(sess)}, *messages],
-            "options": {**local.OPTIONS, "num_predict": 400, "num_ctx": local.NUM_CTX}})
+            "options": {**local.OPTIONS, "num_predict": 400, "num_ctx": local.num_ctx()}})
         try:
             reply = json.loads((data.get("message") or {}).get("content") or "")
         except ValueError:

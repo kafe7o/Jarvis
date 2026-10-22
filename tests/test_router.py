@@ -92,7 +92,7 @@ def test_which_questions_go_to_the_quick_model():
 @pytest.fixture
 def routed(settings):
     settings.router = True
-    settings.model = "claude-opus-5-5"
+    settings.model = "local:qwen3:4b"
     return settings
 
 
@@ -203,7 +203,7 @@ def test_the_laptop_brain_answers_with_its_tools(settings, ctx, registry, monkey
     assert first["model"] == "qwen3:4b" and first["options"]["num_ctx"] == local.NUM_CTX
     assert "remember" in {t["function"]["name"] for t in first["tools"]}
     assert second["messages"][-2]["tool_calls"][0]["function"]["name"] == "remember"
-    assert second["messages"][-1] == {"role": "tool", "tool_name": "remember", "content": "Remembered (id 1)."}
+    assert second["messages"][-1]["content"].startswith("Remembered (id 1).")  # the clock rides on the newest message
     assert ctx.store.query("SELECT fact FROM facts")[0]["fact"] == "без захар"
     last = ctx.store.query("SELECT model, input FROM usage ORDER BY id")[0]
     assert last == {"model": "local:qwen3:4b", "input": 900}

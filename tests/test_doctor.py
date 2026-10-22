@@ -59,9 +59,22 @@ def test_the_tool_is_the_owners_and_one_broken_check_does_not_hide_the_rest(sett
     TURN.set(None)  # the owner's own request, whatever an earlier test left in this thread
     ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(True))
     monkeypatch.setattr(doctor, "phone", lambda: 1 / 0)
-    monkeypatch.setattr(doctor, "brains", lambda ctx, network: [doctor.finding(doctor.OK, "Мозък", "мисли с q")])
-    out, err = registry.run("run_doctor", {"network": False}, Approver())
+    monkeypatch.setattr(doctor, "brains", lambda ctx: [doctor.finding(doctor.OK, "Мозък", "мисли с q")])
+    out, err = registry.run("run_doctor", {}, Approver())
     assert not err, out
     assert "Една проверка не мина — ZeroDivisionError" in out and "Версия" in out and "Папка с данни" in out
     assert "Мозък — мисли с q" in out and "Задачи по график" in out
     assert "k" * 10 not in out  # no key is ever printed
+
+
+def test_a_model_fixed_on_the_slider_has_no_quick_partner(ctx, monkeypatch):
+    from jarvis import local, localmodels
+
+    monkeypatch.setattr(localmodels, "version", lambda: "0.12")
+    monkeypatch.setattr(local, "pick", lambda wanted=None: wanted or "qwen3.5:9b")
+    monkeypatch.setattr(local, "quick_partner", lambda name: "qwen3.5:4b")
+    monkeypatch.setattr(local, "embedder", lambda: "qwen3-embedding:0.6b")
+    ctx.settings.local_model = "qwen3.5:9b"
+    assert "кратките" not in doctor.brains(ctx)[0]["hint"]
+    ctx.settings.local_model = ""
+    assert "кратките отговори на qwen3.5:4b" in doctor.brains(ctx)[0]["hint"]

@@ -634,3 +634,10 @@ def test_a_cloud_brain_left_in_the_settings_means_the_laptop(monkeypatch):
     monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": ["qwen3.5:4b"]})
     assert as_local("qwen3.5:4b") == "local:qwen3.5:4b" and as_local("qwen3.5") == "local:qwen3.5"
     assert as_local("gemini-3.5-flash") == "local" and as_local(None) == "local"
+
+
+def test_every_tool_is_in_a_group_an_account_can_be_given(registry):
+    from jarvis import accounts
+
+    groups = {g[0] for g in accounts.GROUPS} | {"core"}
+    assert {n: t.group for n, t in registry.tools.items() if t.group not in groups} == {}
