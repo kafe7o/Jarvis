@@ -84,7 +84,7 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .auto-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .scale.auto .scale-track, .scale.auto .scale-names { opacity: .45; }
 .scale-now { font-size: 14px; margin-top: 6px; } .scale-now b { color: var(--text); } .scale-now span { color: var(--muted); }
-.field label { font-size: 13px; color: var(--muted); }
+.field label { font-size: 13.5px; color: var(--text); }
 .input { width: 100%; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; padding: 11px 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,209,255,.15); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 10px; padding: 10px 16px; font-weight: 600; transition: filter .15s, background .15s, border-color .15s; white-space: nowrap; }
@@ -216,6 +216,26 @@ header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-spa
 .sheet .content header { display: flex; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .sheet .content header h4 { flex: 1; margin: 0; font-size: 16px; }
 #tabBody { flex: 1; overflow-y: auto; padding: 20px; }
+details.fold { padding: 0; }
+details.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+  font-size: 15px; font-weight: 600; border-radius: var(--radius); }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary:hover { background: var(--panel2); }
+details.fold > summary::after { content: ""; margin-left: auto; flex: none; width: 7px; height: 7px; border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; }
+details.fold[open] > summary::after { transform: rotate(45deg); }
+details.fold[open] > summary { border-bottom: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; margin-bottom: 14px; }
+.fold-body { padding: 0 16px 16px; }
+h4.group { margin: 22px 2px 10px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  display: flex; gap: 8px; align-items: baseline; }
+h4.group:first-child { margin-top: 0; }
+h4.group .hint { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.field.choice { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.seg.choose { flex-wrap: wrap; }
+.seg.choose button.on { background: rgba(79,209,255,.15); color: var(--accent); }
+.badge { white-space: nowrap; }
+.field label .fhint { display: block; font-size: 12px; color: var(--faint); margin-top: 2px; line-height: 1.4; }
+.section .sub a { color: var(--accent); }
 .section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
 .section h5 { margin: 0 0 4px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .section .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
@@ -2607,13 +2627,15 @@ function closeDrawer() { $("app").classList.remove("drawer"); }
 const TABS = [
   { id: "profile", label: "Профил", icon: "user", group: "Ти", sub: "Името ти, имейлът и паролата за вход" },
   { id: "perms", label: "Разрешения", icon: "shield", group: "Ти", sub: "Какво може да прави Jarvis без да пита" },
-  { id: "activity", label: "Задачи", icon: "list", owner: true, group: "Jarvis", sub: "Какво работи сега и какво е свършил" },
-  { id: "routines", label: "Рутини", icon: "clock", owner: true, group: "Jarvis", sub: "Работа, която прави сам в избран час" },
+  { id: "brain", label: "Мозък", icon: "pulse", owner: true, group: "Jarvis", sub: "Кой мозък мисли, ключовете и таваните за харчене" },
+  { id: "general", label: "Поведение", icon: "gear", owner: true, group: "Jarvis", sub: "Как се обръща към теб, колко свободно работи, отговори вместо теб" },
   { id: "soul", label: "Личност", icon: "spark", owner: true, group: "Jarvis", sub: "Как говори, какво знае за теб и какво е научил" },
   { id: "voice", label: "Глас", icon: "speaker", owner: true, group: "Jarvis", sub: "Чуй гласовете и избери как да звучи Jarvis" },
-  { id: "usage", label: "Разход", icon: "chart", owner: true, group: "Jarvis", sub: "Колко заявки прави и към кои мозъци" },
+  { id: "activity", label: "Задачи", icon: "list", owner: true, group: "Работа", sub: "Какво работи сега и какво е свършил" },
+  { id: "routines", label: "Рутини", icon: "clock", owner: true, group: "Работа", sub: "Работа, която прави сам в избран час" },
+  { id: "usage", label: "Разход", icon: "chart", owner: true, group: "Работа", sub: "Колко заявки прави и към кои мозъци" },
   { id: "models", label: "Модели", icon: "gauge", owner: true, group: "Система", sub: "Мозъци на лаптопа: тегли, добави от Downloads, избери" },
-  { id: "connections", label: "Връзки", icon: "plug", owner: true, group: "Система", sub: "Мозъкът, ключовете и услугите" },
+  { id: "connections", label: "Връзки", icon: "plug", owner: true, group: "Система", sub: "Телефон, имейл, Telegram и другите услуги" },
   { id: "accounts", label: "Акаунти", icon: "users", owner: true, group: "Система", sub: "Хората, които ползват Jarvis" },
   { id: "devices", label: "Устройства", icon: "devices", owner: true, group: "Система", sub: "Телефон, телевизор и други компютри" },
 ];
@@ -2645,7 +2667,7 @@ async function showTab(id) {
   $("tabSub").textContent = tab.sub || "";
   $("tabBody").scrollTop = 0;
   $("tabBody").innerHTML = `<div class="hint">Зареждам…</div>`;
-  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, voice: tabVoice, models: tabModels, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
+  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, voice: tabVoice, models: tabModels, brain: tabBrain, general: tabGeneral, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
   catch (err) { $("tabBody").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
 }
 
@@ -2769,7 +2791,7 @@ async function tabVoice() {
   const now = known ? v.voices.find((x) => x.id === v.current) : { id: v.current, name: v.current, about: "написан ръчно" };
   $("tabBody").innerHTML = `
     <div class="note">${icon("info")}<div>Сега Jarvis говори с: <b>${esc(now.name)}</b> (${esc(now.about)}). Натисни „Чуй“, за да чуеш глас, и „Избери“, за да го сложиш. Важи веднага.
-      ${v.eleven ? "<br>Докато ElevenLabs ключът е в Връзки, говори ElevenLabs. Гласът, който избереш долу, е резервен: чуваш го, когато минутите в ElevenLabs свършат." : ""}</div></div>
+      ${v.eleven ? "<br>Докато има ElevenLabs ключ (долу, в „Още“), говори ElevenLabs. Гласът, който избереш долу, е резервен: чуваш го, когато минутите в ElevenLabs свършат." : ""}</div></div>
     <div class="section">
       ${v.voices.map((x) => `
         <div class="voice-row${x.id === v.current ? " on" : ""}">
@@ -2781,7 +2803,8 @@ async function tabVoice() {
           </div>
         </div>`).join("")}
       <p class="sub">Многоезичните гласове четат и български, с лек акцент, а английския като роден. Двата български са без акцент.</p>
-    </div>`;
+    </div>
+    <div id="voiceMore"></div>`;
   $("tabBody").querySelectorAll("button[data-hear]").forEach((b) => b.addEventListener("click", async () => {
     if (voicePlayer) voicePlayer.pause();
     const label = b.innerHTML;
@@ -2809,6 +2832,9 @@ async function tabVoice() {
       tabVoice();
     } catch (err) { b.disabled = false; toast(err.message, "Глас", "warn"); }
   }));
+  const more = await settingsOf("voice");  // silence, hearing, ElevenLabs: folded under the voices
+  $("voiceMore").innerHTML = more.map((s, i) => settingsCard(s, i, { badge: false, title: "Още: тишина, как те чува, ElevenLabs", whereText: "ElevenLabs ключ се взима от" })).join("");
+  wireSettings(more, tabVoice);
 }
 
 // The brains on the laptop (Модели): Ollama, the graphics card, the light models to download, a .gguf file already
@@ -2952,7 +2978,7 @@ async function tabUsage() {
   const day = (iso) => new Date(iso + "T12:00").toLocaleDateString("bg-BG", { day: "numeric", month: "short" });
   const freeToday = u.gemini.reduce((n, g) => n + g.today, 0);
   $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>Jarvis работи на безплатни мозъци (Gemini, Groq, NVIDIA, OpenRouter). Gemini има дневен лимит, който се подновява всеки ден около 10:00. „Пусни…“, „колко е часът“, „времето утре“, „напомни ми в 18:00…“ минават без AI. Платен е само Claude и само ако сам го избереш (таванът е във Връзки → Пестене).</div></div>
+    <div class="note">${icon("info")}<div>Jarvis работи на безплатни мозъци (Gemini, Groq, NVIDIA, OpenRouter). Gemini има дневен лимит, който се подновява всеки ден около 10:00. „Пусни…“, „колко е часът“, „времето утре“, „напомни ми в 18:00…“ минават без AI. Платен е само Claude и само ако сам го избереш (таванът е в Мозък → Пестене).</div></div>
     <div class="stats">
       <div class="stat"><small>Заявки днес</small><b>${u.today.requests}</b><small>платено: ${usd(u.today.cost)}</small></div>
       <div class="stat"><small>Последните 7 дни</small><b>${u.week.requests}</b><small>заявки · платено: ${usd(u.week.cost)}</small></div>
@@ -3055,42 +3081,141 @@ function pickBrain(f) {
   </select>`;
 }
 
-async function tabConnections() {
-  const sections = (await api("/api/settings")).sections;
-  $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>Ключовете се пазят само на този компютър (във файла .env). Попълни само това, което ползваш. ${state.restartable ? "След промяна натисни „Рестартирай“." : "След промяна рестартирай Jarvis."}</div></div>
-    ${sections.map((s, i) => `
-      <div class="section" data-i="${i}">
-        <h5>${esc(s.title)} <span class="badge ${s.ready ? "ok" : "no"}">${s.ready ? "свързано" : "не е настроено"}</span></h5>
-        <p class="sub">${s.where ? esc(s.where) : "&nbsp;"}</p>
-        ${s.scale && s.scale.stops.length > 1 ? brainSlider(s.scale) : ""}
-        ${s.fields.map((f) => `
-          <div class="field"><label>${esc(f.label)} <code class="k">${esc(f.key)}</code></label>
-            ${f.options ? pickBrain(f) : ""}
-            <input class="input" data-k="${esc(f.key)}" type="${f.secret ? "password" : "text"}" autocomplete="${f.secret ? "new-password" : "off"}" name="jv-${esc(f.key)}"
-              ${f.options && (!f.value || f.options.some((o) => o.value === f.value)) ? `style="display:none"` : ""}
-              value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + ") — пиши, за да смениш" : "Не е въведено") : f.options ? "Напиши модел, напр. groq:llama-3.1-8b-instant или groq, openrouter" : ""}"></div>`).join("")}
-        <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>
-      </div>`).join("")}
-    ${state.restartable ? `<div class="row-end"><span class="hint" id="updMsg"></span><button class="btn ghost" id="update">Обнови сега</button><button class="btn ghost" id="restart">Рестартирай Jarvis</button></div>` : ""}`;
-  $("tabBody").querySelectorAll(".scale").forEach((el) => wireScale(el, sections[Number(el.closest(".section").dataset.i)].scale, tabConnections));
-  $("tabBody").querySelectorAll("select[data-pick]").forEach((sel) => sel.addEventListener("change", () => {
+// Settings kept in .env, shown as cards (Мозък, Поведение, Връзки, Глас): a card says what it is and whether it
+// is set; a click opens it to change. Field labels lose their technical names (they show on hover) and their
+// "(…)" part becomes a small hint under the name.
+const openCards = new Set();
+function splitLabel(label) {
+  const m = String(label).match(/^(.*?)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)\s*$/);
+  return m && m[1] ? [m[1], m[2]] : [label, ""];
+}
+function whereLink(where) {
+  const first = String(where || "").split(/\s*(?:>|\(| и )/)[0].trim();
+  if (!first.includes(".") || first.includes(" ") || first.startsWith("@")) return esc(where || "");
+  const url = first.startsWith("http") ? first : "https://" + first;
+  return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(first)}</a>${esc(String(where).slice(String(where).indexOf(first) + first.length))}`;
+}
+// A yes/no setting is a switch and "how much to think" a list; their value still goes through the hidden input.
+const EFFORTS = [["low", "малко (най-бързо)"], ["medium", "средно"], ["high", "много"], ["xhigh", "най-много (препоръчано)"], ["max", "максимум (бавно)"]];
+function choiceField(f, name, hint) {
+  const yesNo = /1 = да, 0 = не/.test(hint);
+  if (f.key === "JARVIS_EFFORT") return `
+      <div class="field"><label title="${esc(f.key)}">${esc(name.replace(/:.*$/, ""))}</label>
+        <select class="input" data-into="${esc(f.key)}">${[["", "по подразбиране (най-много)"], ...EFFORTS].map(([v, t]) =>
+          `<option value="${v}"${f.value === v ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>
+        <input type="hidden" data-k="${esc(f.key)}" value="${esc(f.value)}"></div>`;
+  const opts = yesNo ? [["1", "Да"], ["0", "Не"]] : null;
+  if (!opts) return null;
+  const rest = yesNo ? hint.replace(/;?\s*1 = да, 0 = не\s*;?/, "").trim() : "";
+  return `
+      <div class="field choice"><label title="${esc(f.key)}">${esc(name)}${rest ? `<span class="fhint">${esc(rest)}</span>` : ""}</label>
+        <div class="seg choose">${opts.map(([v, t]) => `<button type="button" data-v="${v}" class="${f.value === v ? "on" : ""}">${esc(t)}</button>`).join("")}</div>
+        <input type="hidden" data-k="${esc(f.key)}" value="${esc(f.value)}"></div>`;
+}
+function settingsFields(s) {
+  return s.fields.map((f) => {
+    const [name, hint] = splitLabel(f.label);
+    const choice = f.secret ? null : choiceField(f, name, hint);
+    if (choice) return choice;
+    return `
+      <div class="field"><label title="${esc(f.key)}">${esc(name)}${hint ? `<span class="fhint">${esc(hint)}</span>` : ""}</label>
+        ${f.options ? pickBrain(f) : ""}
+        <input class="input" data-k="${esc(f.key)}" type="${f.secret ? "password" : "text"}" autocomplete="${f.secret ? "new-password" : "off"}" name="jv-${esc(f.key)}"
+          ${f.options && (!f.value || f.options.some((o) => o.value === f.value)) ? `style="display:none"` : ""}
+          value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + "), пиши, за да смениш" : "Не е въведено") : f.options ? "Напиши модел, напр. groq:llama-3.1-8b-instant или groq, openrouter" : ""}"></div>`;
+  }).join("");
+}
+function settingsCard(s, i, opts = {}) {
+  const state_ = s.ready ? (opts.okText || "свързано") : (opts.noText || "не е настроено");
+  const body = `
+    ${s.where ? `<p class="sub">${opts.plain ? esc(s.where) : `${opts.whereText || "Откъде:"} ${whereLink(s.where)}`}</p>` : ""}
+    ${s.scale && s.scale.stops.length > 1 ? brainSlider(s.scale) : ""}
+    ${settingsFields(s)}
+    <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>`;
+  if (opts.plain) return `<div class="section" data-i="${i}"><h5>${esc(opts.title || s.title)}</h5>${body}</div>`;
+  const open = opts.open || openCards.has(s.title);
+  return `
+    <details class="section fold" data-i="${i}" data-title="${esc(s.title)}"${open ? " open" : ""}>
+      <summary>${esc(opts.title || s.title)}${opts.badge === false ? "" : `<span class="badge ${s.ready ? "ok" : "no"}">${esc(state_)}</span>`}</summary>
+      <div class="fold-body">${body}</div>
+    </details>`;
+}
+function wireSettings(sections, reload) {
+  const body = $("tabBody");
+  body.querySelectorAll("details.fold").forEach((d) => d.addEventListener("toggle", () => {
+    if (d.open) openCards.add(d.dataset.title); else openCards.delete(d.dataset.title);
+  }));
+  body.querySelectorAll("select[data-into]").forEach((sel) => sel.addEventListener("change", () => {
+    sel.parentElement.querySelector("input[data-k]").value = sel.value;
+  }));
+  body.querySelectorAll(".seg.choose").forEach((seg) => seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    seg.parentElement.querySelector("input[data-k]").value = b.dataset.v;
+  }));
+  body.querySelectorAll(".scale").forEach((el) => wireScale(el, sections[Number(el.closest("[data-i]").dataset.i)].scale, reload));
+  body.querySelectorAll("select[data-pick]").forEach((sel) => sel.addEventListener("change", () => {
     const inp = sel.parentElement.querySelector("input[data-k]");
     const other = sel.value === "__other";
     inp.style.display = other ? "" : "none";
     if (other) inp.focus(); else inp.value = sel.value;
   }));
-  $("tabBody").querySelectorAll("button[data-save]").forEach((b) => b.addEventListener("click", async () => {
-    const sec = b.closest(".section"), s = sections[Number(b.dataset.save)];
+  body.querySelectorAll("button[data-save]").forEach((b) => b.addEventListener("click", async () => {
+    const sec = b.closest("[data-i]"), s = sections[Number(b.dataset.save)];
     const values = {};
     sec.querySelectorAll("input[data-k]").forEach((inp) => {
       const f = s.fields.find((x) => x.key === inp.dataset.k);
       if (f.secret ? inp.value !== "" : inp.value !== f.value) values[f.key] = inp.value;
     });
     if (!Object.keys(values).length) { sec.querySelector(".msg").textContent = "Няма промени."; return; }
-    try { await api("/api/settings", { values }); toast("Запазено. Важи веднага; нови ключове за услуги искат рестарт."); tabConnections(); }
+    try { await api("/api/settings", { values }); toast("Запазено. Важи веднага; нови ключове за услуги искат рестарт."); reload(); }
     catch (err) { sec.querySelector(".msg").textContent = err.message; }
   }));
+}
+async function settingsOf(tab) {
+  const all = (await api("/api/settings")).sections;
+  return all.filter((s) => s.tab === tab);
+}
+
+// Мозък: the slider and the main/backup brain on top, the brains' keys folded below, the caps and models last.
+async function tabBrain() {
+  const sections = await settingsOf("brain");
+  const main = sections.findIndex((s) => s.title === "Мозък");
+  const keys = sections.map((s, i) => [s, i]).filter(([s]) => s.fields.some((f) => /_API_KEY$/.test(f.key)));
+  const rest = sections.map((s, i) => [s, i]).filter(([s], i) => i !== main && !keys.some(([, k]) => k === i));
+  const ready = keys.filter(([s]) => s.ready).length;
+  $("tabBody").innerHTML = `
+    ${main >= 0 ? settingsCard(sections[main], main, { plain: true, title: "Кой мозък мисли" }) : ""}
+    <h4 class="group">Ключове за мозъците <span class="hint">${ready} от ${keys.length} са сложени</span></h4>
+    ${keys.map(([s, i]) => settingsCard(s, i, { title: s.title.split(": ").pop(), okText: "има ключ", noText: "няма ключ", whereText: "Ключ се взима от" })).join("")}
+    <h4 class="group">Още</h4>
+    ${rest.map(([s, i]) => settingsCard(s, i, { badge: false, title: s.title === "Пестене" ? "Пестене и модели по доставчик" : s.title })).join("")}
+    <p class="sub">Мозъците на лаптопа (Ollama) са в Настройки > Модели.</p>`;
+  wireSettings(sections, tabBrain);
+}
+
+// Поведение: how Jarvis addresses the owner, how freely he works, replies in the owner's name.
+async function tabGeneral() {
+  const sections = await settingsOf("general");
+  const order = ["Как да се обръща към теб", "Поведение", "Съобщения"];
+  const titles = { "Поведение": "Как работи", "Съобщения": "Отговори вместо теб" };
+  const list = sections.map((s, i) => [s, i]).sort(([a], [b]) => order.indexOf(a.title) - order.indexOf(b.title));
+  $("tabBody").innerHTML = list.map(([s, i]) => settingsCard(s, i, { plain: true, title: titles[s.title] || s.title })).join("");
+  wireSettings(sections, tabGeneral);
+}
+
+// Връзки: the services Jarvis works with, the connected ones first; each opens to change its keys.
+async function tabConnections() {
+  const sections = await settingsOf("service");
+  const items = sections.map((s, i) => [s, i]);
+  const on = items.filter(([s]) => s.ready), off = items.filter(([s]) => !s.ready);
+  $("tabBody").innerHTML = `
+    <div class="note">${icon("info")}<div>Ключовете се пазят само на този компютър (във файла .env). Свържи само това, което ползваш. Мозъците и техните ключове са в Настройки > Мозък.</div></div>
+    ${on.length ? `<h4 class="group">Свързани <span class="hint">${on.length}</span></h4>${on.map(([s, i]) => settingsCard(s, i)).join("")}` : ""}
+    <h4 class="group">Може да свържеш <span class="hint">${off.length}</span></h4>
+    ${off.map(([s, i]) => settingsCard(s, i)).join("")}
+    ${state.restartable ? `<h4 class="group">Jarvis</h4><div class="section"><div class="row-end"><span class="hint" id="updMsg">След нов ключ за услуга рестартирай Jarvis.</span><button class="btn ghost" id="update">Обнови сега</button><button class="btn ghost" id="restart">Рестартирай Jarvis</button></div></div>` : ""}`;
+  wireSettings(sections, tabConnections);
   const waitBack = async () => {
     for (let i = 0; i < 80; i++) { await sleep(750); try { await fetch("/api/me"); location.reload(); return; } catch (e) {} }
   };

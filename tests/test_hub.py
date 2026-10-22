@@ -292,3 +292,13 @@ def test_elevenlabs_can_be_heard_in_the_voice_tab(settings, ctx, registry, monke
     assert call(port, "/api/tts", {"text": "Здравей", "voice": "elevenlabs"}) == (200, "eleven-mp3")
     assert json.loads(call(port, "/api/voices")[1])["eleven"] is True
     assert next(s for s in hub.settings_view() if s["title"] == "Глас")["ready"]
+
+
+def test_settings_are_split_into_tidy_tabs():
+    from jarvis.hub import EXTRA_SETTINGS, settings_tab
+    from jarvis.setup_wizard import STEPS
+
+    tabs = {title: settings_tab(title, [k for k, _l in fields]) for title, _w, fields in STEPS + EXTRA_SETTINGS}
+    assert tabs["Мозък"] == tabs["Пестене"] == tabs["Мозъкът: Gemini (безплатен)"] == "brain"
+    assert tabs["Поведение"] == tabs["Съобщения"] == tabs["Как да се обръща към теб"] == "general"
+    assert tabs["Глас"] == "voice" and tabs["Telegram"] == tabs["Обаждания и SMS"] == "service"
