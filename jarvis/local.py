@@ -1,13 +1,14 @@
-"""A brain on this computer (Ollama): free, with no daily limit, and it works without internet.
+"""Jarvis's brain: models running on this computer in Ollama. Free, with no daily limit, no keys, and it works
+without internet; nothing the owner says leaves the laptop.
 
-Settings > Модели installs Ollama and downloads the models (localmodels.py); a .gguf file already in Downloads is
-added with one button. Jarvis finds it by itself and uses it when the free Gemini requests for the day are used up, when Claude's
-daily spending cap is reached, or always with JARVIS_MODEL=local. It is slower and simpler than the cloud
-brains, so it gets the most useful tools only (LOCAL_TOOLS) to keep its prompt small.
+Settings > Мозък installs Ollama and downloads the models (localmodels.py); a .gguf file in Documents/Jarvis Models
+(or Downloads) is added with one button. The best installed model does the work (Qwen 3.5 9B first), the small one
+beside it (4B) the plain answers; JARVIS_LOCAL_MODEL names another.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -17,20 +18,13 @@ import urllib.error
 import urllib.request
 import uuid
 
-from .gemini import Answer, Block, Reply, _get, _images_of, _text_of, written_call
+from .answers import KEEP_FULL, Answer, Block, Reply, _get, _images_of, _text_of, shorten, written_call
 from .tools import normalize_schema
 
 log = logging.getLogger("jarvis.local")
 
 # Models that answer well in Bulgarian and can use tools, best first; any other installed model also works.
 PREFERRED = ["huihui_ai/qwen3.5-abliterated", "qwen3.5", "qwen3", "gemma3", "llama3.2", "llama3.1", "mistral", "phi4"]
-LOCAL_TOOLS = {
-    "remember", "recall", "find_contact", "add_task", "list_tasks", "complete_task", "add_reminder",
-    "list_reminders", "list_events", "open_target", "list_dir", "read_file", "find_files", "system_status",
-    "media_control", "set_volume", "lock_computer", "play_youtube", "weather", "android", "phone_call", "phone_sms",
-    "request_approval", "run_shell", "vault_search", "vault_note", "open_page", "google_search", "read_window",
-    "click_text", "look_at_screen", "control_input", "translate_text", "web_browser", "local_models",
-}
 # Told to a laptop model on top of Jarvis's prompt: a small model keeps to these better than to long prose.
 SMALL_RULES = """
 
@@ -41,9 +35,12 @@ something you did not call a tool for.
 and try a different way; do not repeat the same call.
 3. When the task is done, check the result (read it back or look at the screen) before you say it is done.
 4. Answer briefly in the owner's language. If you do not know, say so; do not invent facts, names or numbers."""
-# Qwen's own settings for agent work (thinking or not); a longer context than Ollama's default, which silently cut
-# Jarvis's prompt and tools, so the model forgot the task. Qwen 3.5 keeps most of its context cheaply.
+# Qwen's own settings for agent work (thinking or not).
 OPTIONS = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0}
+# How much the model reads at once. Ollama's default silently cut Jarvis's prompt and tools, so the model forgot the
+# task; his prompt and tools alone are about 13,000 tokens. One size for every step: a new size reloads the model.
+# Qwen 3.5 keeps most of its context cheaply (about 1 GB for 32,000 tokens on the 9B).
+NUM_CTX = int(os.environ.get("JARVIS_LOCAL_CTX") or 32768)
 KEEP_LOADED = "30m"  # loading a 9B model into the graphics card takes seconds: it stays there between steps
 _seen: dict = {"at": 0.0, "models": []}
 
@@ -71,6 +68,10 @@ def models(timeout: float = 0.8) -> list[str]:
 
 def available() -> bool:
     return bool(models())
+
+
+NOT_READY = ("Мозъкът на лаптопа (Ollama) не работи или няма изтеглен модел. Отвори Настройки > Мозък: там се "
+             "инсталира Ollama и се тегли модел.")
 
 
 def pick(wanted: str | None = None) -> str | None:
@@ -107,7 +108,7 @@ _vectors: dict[str, list[float]] = {}  # text -> its meaning as numbers, kept wh
 
 
 def embedder() -> str | None:
-    """The installed model that turns text into meaning (Settings > Модели > „Памет по смисъл“), if any."""
+    """The installed model that turns text into meaning (Settings > Мозък > „Памет по смисъл“), if any."""
     return next((n for n in models() if "embed" in n.lower()), None)
 
 
@@ -140,10 +141,14 @@ def similar(query: str, texts: list[str], top: int = 8, post=None) -> list[int]:
 
 
 def to_messages(system: str, messages: list) -> list[dict]:
-    """Claude-format messages -> Ollama chat messages."""
+    """Claude-format messages -> Ollama chat messages. The tool results of the latest KEEP_FULL rounds go in full,
+    older ones cut short and without their pictures (answers.shorten), so a long task fits the model's context."""
     out = [{"role": "system", "content": system}]
     names: dict[str, str] = {}  # tool_use id -> tool name
-    for message in messages:
+    rounds = [i for i, m in enumerate(messages) if m["role"] == "user" and not isinstance(m["content"], str)
+              and any(_get(b, "type") == "tool_result" for b in m["content"])]
+    old = set(rounds[:-KEEP_FULL])
+    for index, message in enumerate(messages):
         content = message["content"]
         blocks = [content] if isinstance(content, str) else list(content)
         if message["role"] == "assistant":
@@ -166,11 +171,13 @@ def to_messages(system: str, messages: list) -> list[dict]:
             if kind == "text":
                 text.append(b if isinstance(b, str) else _get(b, "text", ""))
             elif kind == "image":
-                import base64
-
                 images += [base64.b64encode(data).decode() for _mime, data in _images_of([b])]
             elif kind == "tool_result":
-                result = _text_of(_get(b, "content"))
+                result, pictures = _text_of(_get(b, "content")), _images_of(_get(b, "content"))
+                if index in old:
+                    result, pictures = shorten(result, len(pictures)), []
+                if pictures:  # a screenshot a tool took: the model sees it with the result
+                    images += [base64.b64encode(data).decode() for _mime, data in pictures]
                 out.append({"role": "tool", "tool_name": names.get(_get(b, "tool_use_id"), "tool"),
                             "content": ("ERROR: " if _get(b, "is_error") else "") + result})
         if text or images:
@@ -184,7 +191,7 @@ def to_messages(system: str, messages: list) -> list[dict]:
 def to_tools(tools: list) -> list[dict]:
     return [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),
                                               "parameters": normalize_schema(t.get("input_schema"))}}
-            for t in tools if "input_schema" in t and t["name"] in LOCAL_TOOLS]
+            for t in tools if "input_schema" in t]
 
 
 def from_reply(data: dict, model: str) -> Answer:
@@ -214,18 +221,34 @@ def from_reply(data: dict, model: str) -> Answer:
     return Answer(blocks, stop, "local:" + model, usage)
 
 
+def choose(model: str, tools: list) -> str | None:
+    """The installed model for one step: ``model`` is "local", "local:<name>" or a name. A plain answer (no tools)
+    goes to the small model beside it (4B beside 9B, much faster)."""
+    name = pick((model.partition(":")[2] if is_local(model) else model) or None)
+    if name and not tools:
+        name = quick_partner(name) or name
+    return name
+
+
 class LocalBrain:
     """Answers Claude-format requests (see brain.Jarvis._request) with a model running in Ollama."""
 
-    def __init__(self, post=None):
+    def __init__(self, post=None, start=None):
         self._post = post or _post
+        self._start = start
 
     def create(self, *, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> Answer:
+        name = choose(model, tools)
+        if not name and self._wake():
+            name = choose(model, tools)
+        if not name:
+            raise RuntimeError(NOT_READY)
+        model = name
         if not isinstance(system, str):
             system = "\n\n".join(_get(b, "text", "") for b in system)
         body = {
             "model": model, "stream": False, "messages": to_messages(system + SMALL_RULES, messages),
-            "options": {**OPTIONS, "num_predict": min(max_tokens, 4096), "num_ctx": 16384 if tools else 8192},
+            "options": {**OPTIONS, "num_predict": min(max_tokens, 4096), "num_ctx": NUM_CTX},
             "keep_alive": KEEP_LOADED,
             # Thinking makes a laptop model slower but much smarter: on the hard steps only (brain._ask_local).
             "think": effort in ("high", "xhigh", "max"),
@@ -249,7 +272,21 @@ class LocalBrain:
                     body.pop("tools")
                 else:
                     raise RuntimeError(f"The local brain (Ollama, {model}) failed: {detail}") from exc
+            except urllib.error.URLError as exc:  # Ollama stopped in the middle (closed, or the laptop slept)
+                raise RuntimeError(NOT_READY) from exc
         raise RuntimeError(f"The local brain (Ollama, {model}) did not answer.")
+
+    def _wake(self) -> bool:
+        """Ollama installed but not running (after a restart, before its tray app starts): start it once."""
+        from . import localmodels
+
+        try:
+            started = (self._start or localmodels.start_ollama)()
+        except Exception:
+            return False
+        if started:
+            _seen["at"] = 0.0  # ask it again for its models
+        return started
 
 
 def _post(path: str, body: dict, timeout: float = 600) -> dict:

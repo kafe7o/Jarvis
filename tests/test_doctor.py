@@ -17,28 +17,23 @@ def test_the_report_puts_problems_first_and_ends_with_a_verdict():
     assert doctor.report([doctor.finding(doctor.OK, "Всичко")]).startswith("Всичко важно работи.")
 
 
-def test_without_keys_the_doctor_says_where_each_free_brain_comes_from(settings, ctx, registry):
-    ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(True))
-    found = {f["what"]: f for f in doctor.brains(ctx, network=False)}
-    assert found["Мозък Gemini"]["state"] == doctor.WARN and "aistudio" in found["Мозък Gemini"]["hint"]
-    assert "build.nvidia.com" in found["Мозък NVIDIA"]["hint"] and "console.groq.com" in found["Мозък Groq"]["hint"]
-    assert found["Мозък Claude"]["state"] == doctor.OK and "по твое желание" in found["Мозък Claude"]["hint"]
-    assert found["Нито един безплатен мозък не може да отговори сега"]["state"] == doctor.BAD
+def test_the_doctor_says_what_the_laptop_brain_lacks(settings, ctx, monkeypatch):
+    from jarvis import local, localmodels
 
-
-def test_a_key_that_is_set_counts_even_when_the_brain_rests(settings, ctx, registry, monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    monkeypatch.setenv("NVIDIA_API_KEY", "k")
-    ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(True))
-    monkeypatch.setattr(ctx.jarvis.gemini, "models", lambda model, agent=False: [] if "flash" in model else ["x"])
-    monkeypatch.setattr(ctx.jarvis.free_apis["nvidia"], "models", lambda model: [])
-    found = {f["what"]: f for f in doctor.brains(ctx, network=True)}
-    assert found["Мозък Gemini"]["state"] == doctor.WARN and "квота" in found["Мозък Gemini"]["hint"]
-    assert found["Мозък NVIDIA"]["state"] == doctor.WARN and "почива" in found["Мозък NVIDIA"]["hint"]
-    monkeypatch.setattr(ctx.jarvis.gemini, "models", lambda model, agent=False: [model])
-    found = {f["what"]: f for f in doctor.brains(ctx, network=True)}
-    assert found["Мозък Gemini"]["state"] == doctor.OK
-    assert "Нито един безплатен мозък не може да отговори сега" not in found
+    monkeypatch.setattr(localmodels, "version", lambda: "")
+    monkeypatch.setattr(localmodels, "ollama_program", lambda: None)
+    assert doctor.brains(ctx)[0]["state"] == doctor.BAD and "Инсталирай Ollama" in doctor.brains(ctx)[0]["hint"]
+    monkeypatch.setattr(localmodels, "ollama_program", lambda: "C:/ollama.exe")
+    assert "Пусни го" in doctor.brains(ctx)[0]["hint"]
+    monkeypatch.setattr(localmodels, "version", lambda: "0.40.8")
+    assert "няма модел" in doctor.brains(ctx)[0]["hint"]
+    monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": ["huihui_ai/qwen3.5-abliterated:9b"]})
+    found = {f["what"]: f for f in doctor.brains(ctx)}
+    assert found["Мозък"]["state"] == doctor.OK and "qwen3.5-abliterated:9b" in found["Мозък"]["hint"]
+    assert found["Бърз модел"]["state"] == found["Памет по смисъл"]["state"] == doctor.WARN
+    monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": [
+        "huihui_ai/qwen3.5-abliterated:9b", "huihui_ai/qwen3.5-abliterated:4B", "qwen3-embedding:0.6b"]})
+    assert [f["state"] for f in doctor.brains(ctx)] == [doctor.OK]
 
 
 def test_a_self_improvement_loop_jarvis_scheduled_is_flagged_as_waste(ctx, registry):
@@ -64,8 +59,9 @@ def test_the_tool_is_the_owners_and_one_broken_check_does_not_hide_the_rest(sett
     TURN.set(None)  # the owner's own request, whatever an earlier test left in this thread
     ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(True))
     monkeypatch.setattr(doctor, "phone", lambda: 1 / 0)
+    monkeypatch.setattr(doctor, "brains", lambda ctx, network: [doctor.finding(doctor.OK, "Мозък", "мисли с q")])
     out, err = registry.run("run_doctor", {"network": False}, Approver())
     assert not err, out
     assert "Една проверка не мина — ZeroDivisionError" in out and "Версия" in out and "Папка с данни" in out
-    assert "Мозък Gemini" in out and "Задачи по график" in out
+    assert "Мозък — мисли с q" in out and "Задачи по график" in out
     assert "k" * 10 not in out  # no key is ever printed

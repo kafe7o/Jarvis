@@ -23,8 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 from xml.sax.saxutils import escape
 
-import anthropic
-
+from . import local
 from .plugins import NotConfigured
 
 log = logging.getLogger("jarvis.phone")
@@ -90,11 +89,12 @@ def start_agent_call(ctx, to: str, goal: str, language: str = "bg-BG") -> str:
 
 
 class PhoneBrain:
-    """Generates Jarvis's next line in a phone conversation."""
+    """Generates Jarvis's next line in a phone conversation, with the quick model on this computer (a phone call
+    cannot wait for thinking), answering in the JSON shape REPLY_SCHEMA."""
 
-    def __init__(self, ctx, client: anthropic.Anthropic | None = None):
+    def __init__(self, ctx, post=None):
         self.ctx = ctx
-        self.client = client or anthropic.Anthropic()
+        self.post = post or local._post
 
     def system(self, sess: CallSession) -> str:
         user = self.ctx.settings.user_name
@@ -122,17 +122,20 @@ class PhoneBrain:
                 messages[-1]["content"] += "\n" + turn["text"]
             else:
                 messages.append({"role": role, "content": turn["text"]})
-        response = self.client.messages.create(
-            model=self.ctx.settings.model,
-            max_tokens=2000,
-            system=self.system(sess),
-            messages=messages,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": REPLY_SCHEMA}},
-        )
-        if response.stop_reason == "refusal":
+        model = local.choose("local:" + self.ctx.settings.local_model if self.ctx.settings.local_model else "local", [])
+        if not model:
+            raise RuntimeError(local.NOT_READY)
+        data = self.post("/api/chat", {
+            "model": model, "stream": False, "think": False, "format": REPLY_SCHEMA, "keep_alive": local.KEEP_LOADED,
+            "messages": [{"role": "system", "content": self.system(sess)}, *messages],
+            "options": {**local.OPTIONS, "num_predict": 400, "num_ctx": local.NUM_CTX}})
+        try:
+            reply = json.loads((data.get("message") or {}).get("content") or "")
+        except ValueError:
+            reply = None
+        if not isinstance(reply, dict) or not str(reply.get("say") or "").strip():
             return {"say": "Извинете, ще трябва да затворя. Довиждане.", "done": True, "summary": "Разговорът беше прекъснат."}
-        text = next(b.text for b in response.content if b.type == "text")
-        return json.loads(text)
+        return {"say": str(reply["say"]), "done": bool(reply.get("done")), "summary": str(reply.get("summary") or "")}
 
 
 AUDIO: dict[str, bytes] = {}

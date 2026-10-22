@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jarvis import brain, gemini, local, localmodels
+from jarvis import answers, brain, local, localmodels
 
 
 def ollama_has(monkeypatch, *names):
@@ -42,10 +42,27 @@ def test_a_gguf_in_downloads_is_found_but_not_its_vision_part_or_a_small_file(tm
     assert [f["name"] for f in found] == ["qwen3.5-9b-abliterated-q4_k_m"] and found[0]["gb"] == 5.6
 
 
+def test_the_models_have_a_folder_of_their_own(tmp_path, monkeypatch, settings, ctx, registry):
+    from test_hub import call, make_hub
+
+    monkeypatch.setenv("JARVIS_MODELS_DIR", str(tmp_path / "Jarvis Models"))
+    folder = localmodels.models_folder()
+    assert folder.is_dir() and folder == tmp_path / "Jarvis Models"
+    with open(folder / "Qwen3.5-4B-Q4_K_M.gguf", "wb") as f:
+        f.truncate(3_300_000_000)
+    monkeypatch.setattr(localmodels, "version", lambda: "0.40.8")
+    monkeypatch.setattr(localmodels, "hardware", lambda: {"gpu": "", "vram": 0, "ram": 16, "disk": 300})
+    assert localmodels.gguf_files()[0]["name"] == "qwen3.5-4b-q4_k_m"  # found there with no folder named
+    _hub, port = make_hub(settings, ctx, registry, [])
+    view = json.loads(call(port, "/api/local-models")[1])
+    assert view["folder"] == str(folder) and view["files"][0]["path"] == str(folder / "Qwen3.5-4B-Q4_K_M.gguf")
+    assert json.loads(call(port, "/api/local-models", {"action": "open_folder"})[1])["folder"] == str(folder)
+
+
 def test_a_qwen_35_file_gets_ollamas_own_prompt_and_tool_reading():
     spec = localmodels.modelfile(r"C:\Users\Anastas\Downloads\Qwen3.5-9B-abliterated-Q4_K_M.gguf")
     assert spec.startswith("FROM C:\\Users") and "RENDERER qwen3.5" in spec and "PARSER qwen3.5" in spec
-    assert "num_ctx 16384" in spec
+    assert f"num_ctx {local.NUM_CTX}" in spec
     assert "RENDERER" not in localmodels.modelfile("/x/llama-3.2-3b.Q4_K_M.gguf")
     assert "RENDERER" not in localmodels.modelfile("/x/Qwen3.5-9B.gguf", renderer=False)
 
@@ -112,17 +129,18 @@ def test_the_owners_qwen_9b_is_the_laptop_brain_and_its_4b_takes_the_easy_steps(
 
 def test_qwen_35_tool_calls_written_as_text_are_made():
     xml = "<tool_call>\n<function=open_target>\n<parameter=target>\ntaskmgr\n</parameter>\n</function>\n</tool_call>"
-    assert gemini.written_call(xml) == ("open_target", {"target": "taskmgr"})
-    assert gemini.written_call("<function=add_task>\n<parameter=title>\nмляко\n</parameter>\n<parameter=priority>\n2"
+    assert answers.written_call(xml) == ("open_target", {"target": "taskmgr"})
+    assert answers.written_call("<function=add_task>\n<parameter=title>\nмляко\n</parameter>\n<parameter=priority>\n2"
                                "\n</parameter>\n</function>") == ("add_task", {"title": "мляко", "priority": 2})
     tagged = 'Отварям го.\n<tool_call>\n{"name": "open_target", "arguments": {"target": "notepad"}}\n</tool_call>'
-    assert gemini.written_call(tagged) == ("open_target", {"target": "notepad"})
-    assert gemini.written_call("Телефонът е 0888123456.") is None
+    assert answers.written_call(tagged) == ("open_target", {"target": "notepad"})
+    assert answers.written_call("Телефонът е 0888123456.") is None
     reply = local.from_reply({"message": {"content": "<think>hm</think>" + xml}}, "q")
     assert reply.stop_reason == "tool_use" and reply.content[0].name == "open_target"
 
 
-def test_a_laptop_model_gets_qwens_settings_short_rules_and_stays_loaded():
+def test_a_laptop_model_gets_qwens_settings_short_rules_and_stays_loaded(monkeypatch):
+    ollama_has(monkeypatch, "q")
     bodies = []
     brain_ = local.LocalBrain(lambda path, body: bodies.append(body) or {"message": {"content": "Да."}})
     tools = [{"name": "weather", "description": "d", "input_schema": {"type": "object"}}]
@@ -130,7 +148,7 @@ def test_a_laptop_model_gets_qwens_settings_short_rules_and_stays_loaded():
                   max_tokens=100, effort="low")
     body = bodies[0]
     assert body["keep_alive"] == "30m" and body["think"] is False and body["options"]["top_k"] == 20
-    assert body["options"]["num_ctx"] == 16384 and "CALL a tool" in body["messages"][0]["content"]
+    assert body["options"]["num_ctx"] == local.NUM_CTX == 32768 and "CALL a tool" in body["messages"][0]["content"]
     brain_.create(model="q", system="s", messages=[{"role": "user", "content": "x"}], tools=[], max_tokens=100,
                   effort="xhigh")
     assert bodies[1]["think"] is True
@@ -154,15 +172,15 @@ def test_the_laptop_split_between_its_two_models(settings, ctx, registry, monkey
     ollama_has(monkeypatch, "huihui_ai/qwen3.5-abliterated:4B", "huihui_ai/qwen3.5-abliterated:9b")
     settings.model, settings.effort = "local", "xhigh"
     jarvis, bodies = _jarvis(settings, ctx, registry, [{"message": {"content": "Здравей."}}] * 3)
-    jarvis._ask_local("local", "s", [{"role": "user", "content": "здрасти"}], [], 100, "xhigh")
+    jarvis._request([{"role": "user", "content": "здрасти"}], None, "s", set(), tools=[], max_tokens=100)
     assert bodies[-1]["model"] == "huihui_ai/qwen3.5-abliterated:4B" and bodies[-1]["think"] is False
     tools = [{"name": "weather", "description": "d", "input_schema": {"type": "object"}}]
-    jarvis._ask_local("local", "s", [{"role": "user", "content": "времето"}], tools, 100, "xhigh")
+    jarvis._request([{"role": "user", "content": "времето"}], None, "s", set(), tools=tools, max_tokens=100)
     assert bodies[-1]["model"] == "huihui_ai/qwen3.5-abliterated:9b" and bodies[-1]["think"] is False
     failed = [{"role": "user", "content": "времето"},
               {"role": "assistant", "content": [{"type": "tool_use", "id": "1", "name": "weather", "input": {}}]},
               {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "1", "content": "boom", "is_error": True}]}]
-    jarvis._ask_local("local", "s", failed, tools, 100, "xhigh")
+    jarvis._request(failed, None, "s", set(), tools=tools, max_tokens=100)
     assert bodies[-1]["model"] == "huihui_ai/qwen3.5-abliterated:9b" and bodies[-1]["think"] is True
 
 
@@ -180,7 +198,7 @@ def test_the_chat_tool_lists_the_laptop_brains(ctx, registry, monkeypatch):
         "ollama": "0.31.0", "installed_ollama": True, "hardware": {"gpu": "RTX 4050", "vram": 6.0, "ram": 15.4, "disk": 380},
         "models": [dict(localmodels.CATALOG[0], fit="част", installed=True)], "others": [],
         "files": [{"path": "C:/Users/A/Downloads/q.gguf", "name": "q", "gb": 5.6}], "chosen": "x", "quick": None,
-        "main": "auto", "pulls": {}})
+        "pulls": {}})
     output, is_error = registry.run("local_models", {"action": "list"}, lambda s: True)
     assert not is_error and "RTX 4050" in output and "q.gguf" in output and "Qwen 3.5 9B Abliterated" in output
     monkeypatch.setattr(localmodels, "gguf_files", lambda: [{"path": "C:/Users/A/Downloads/q.gguf"}])

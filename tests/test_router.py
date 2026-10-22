@@ -9,10 +9,9 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from google.genai import errors, types
 
-from jarvis import gemini, local, router, usage
-from jarvis.brain import BudgetReached, Jarvis
+from jarvis import local, router, usage
+from jarvis.brain import Jarvis
 from jarvis.routines import ROUTINES
 
 from conftest import Approver, FakeClient, response, text_block, tool_block
@@ -141,60 +140,38 @@ def test_a_reminder_by_voice_is_set_without_ai(routed, ctx, registry):
     assert abs(datetime.fromisoformat(rem["at"]) - (datetime.now() + timedelta(minutes=10))) < timedelta(minutes=2)
 
 
-def test_a_short_question_goes_to_the_cheapest_model_without_tools(routed, ctx, registry, monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+def test_a_short_question_goes_to_the_quick_model_without_tools(routed, ctx, registry, monkeypatch):
     client = FakeClient([response(text_block("Област, от която дори светлината не излиза."))])
     jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=client)
     assert jarvis.ask("какво е черна дупка") == "Област, от която дори светлината не излиза."
     request = client.requests[0]
-    assert request["model"] == "claude-haiku-5-5" and "tools" not in request and request["output_config"] == {"effort": "low"}
+    assert request["tools"] == [] and request["effort"] == "low"  # no tools: the small model beside the main one
     assert levels(ctx)["2"] == 1
 
 
 def test_the_quick_model_hands_over_to_the_agent_when_it_needs_tools(routed, ctx, registry, monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     client = FakeClient([response(text_block("ESCALATE")), response(text_block("Курсът е 1,95583 лева за евро."))])
     jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=client)
     assert jarvis.ask("колко струва еврото в левове") == "Курсът е 1,95583 лева за евро."
-    assert client.requests[1]["model"] == "claude-opus-5-5" and client.requests[1]["tools"]
+    assert client.requests[1]["model"] == "local" and client.requests[1]["tools"]
     assert levels(ctx) == {"1": 0, "2": 0, "3": 1}
-
-
-def test_free_gemini_answers_the_quick_lane_even_when_claude_is_the_brain(routed, ctx, registry, monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "x")
-    jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=FakeClient([]))
-    assert jarvis.fast_model() == gemini.DEFAULT_MODEL
-    routed.fast_model = "claude-haiku-5-5"
-    assert jarvis.fast_model() == "claude-haiku-5-5"
 
 
 def test_think_harder_raises_the_effort_for_one_request(routed, ctx, registry):
     client = FakeClient([response(text_block("План."))])
     jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=client)
     jarvis.ask("помисли добре как да подредя седмицата")
-    assert client.requests[0]["output_config"] == {"effort": "max"}
+    assert client.requests[0]["effort"] == "max"  # thinks, though it is not a hard step
 
 
 def test_spending_is_told_without_ai(routed, ctx, registry):
-    ctx.store.insert("usage", model="claude-opus-5-5", input=100_000, output=10_000)
+    ctx.store.insert("usage", model="local:qwen3.5:9b", input=100_000, output=10_000)
     jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=FakeClient([]))
-    assert jarvis.ask("колко похарчих днес") == ("Днес похарчих 0,60 долара. Отговорих 0 пъти без AI, 0 пъти с бързия "
-                                                 "модел и 0 пъти с пълния агент.")
+    assert jarvis.ask("колко похарчих днес") == ("Не харча нищо: мисля на лаптопа. Днес отговорих 0 пъти без AI, 0 пъти "
+                                                 "с бързия модел и 0 пъти с пълния агент.")
 
 
-# --- the daily cap and the brain on this computer ---------------------------------------------------------
-
-def test_budget_setting():
-    from jarvis.config import Settings
-
-    s = Settings()
-    for value, cap in [("", 1.0), ("2,5", 2.5), ("0", 0.0), ("без", None), ("abc", 1.0)]:
-        s.daily_budget = value
-        assert s.budget() == cap
-    for value, cap in [("", 2.0), ("0,5", 0.5), ("0", 0.0), ("без", None), ("abc", 2.0)]:
-        s.mistral_budget = value
-        assert s.mistral_cap() == cap
-
+# --- the brain on this computer ---------------------------------------------------------------------------
 
 class FakeOllama:
     def __init__(self, replies):
@@ -213,56 +190,46 @@ def ollama_installed(monkeypatch, *names):
     monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": list(names)})
 
 
-def test_after_the_daily_cap_claude_is_not_called(settings, ctx, registry, monkeypatch):
-    from jarvis.hub import friendly_error
-
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    settings.model, settings.daily_budget = "claude-opus-5-5", "0.5"
-    ctx.store.insert("usage", model="claude-opus-5-5", input=100_000, output=10_000)  # $0.60 today
-    client = FakeClient([])
-    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
-    with pytest.raises(BudgetReached) as caught:
-        jarvis.ask("здравей")
-    assert client.requests == [] and "таван" in friendly_error(caught.value)
-
+def test_the_laptop_brain_answers_with_its_tools(settings, ctx, registry, monkeypatch):
     ollama_installed(monkeypatch, "llama3.2:3b", "qwen3:4b")
-    fake = FakeOllama([{"message": {"content": "<think>хм</think>Тук съм, от лаптопа."}, "prompt_eval_count": 900, "eval_count": 9}])
-    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client, local_brain=local.LocalBrain(fake))
-    assert jarvis.ask("здравей") == "Тук съм, от лаптопа."
-    assert fake.bodies[0]["model"] == "qwen3:4b" and client.requests == []
-    last = ctx.store.query("SELECT model FROM usage ORDER BY id DESC LIMIT 1")[0]["model"]
-    assert last == "local:qwen3:4b" and usage.price(last) == (0, 0, 0, 0)
-
-
-def test_when_gemini_is_used_up_the_laptop_brain_answers_with_its_tools(settings, ctx, registry, monkeypatch):
-    settings.model = gemini.DEFAULT_MODEL
-    monkeypatch.setenv("GEMINI_API_KEY", "x")
-    ollama_installed(monkeypatch, "qwen3:4b")
-    daily = errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota",
-                                               "details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}})
-    google = SimpleNamespace(requests=[])
-
-    def generate_content(model, contents, config):
-        google.requests.append(model)
-        raise daily
-
-    google.models = SimpleNamespace(generate_content=generate_content)
     fake = FakeOllama([
-        {"message": {"content": "", "tool_calls": [{"function": {"name": "remember", "arguments": {"topic": "кафе", "fact": "без захар"}}}]}},
-        {"message": {"content": "Запомних."}, "done_reason": "stop"},
+        {"message": {"content": "", "tool_calls": [{"function": {"name": "remember", "arguments": {"topic": "кафе", "fact": "без захар"}}}]},
+         "prompt_eval_count": 900, "eval_count": 9},
+        {"message": {"content": "<think>хм</think>Запомних."}, "done_reason": "stop"},
     ])
-    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]),
-                    gemini_brain=gemini.GeminiBrain(google, wait=lambda s: None), local_brain=local.LocalBrain(fake))
+    jarvis = Jarvis(settings, ctx.store, registry, Approver(), local_brain=local.LocalBrain(fake))
     assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних."
-    assert google.requests == list(dict.fromkeys([gemini.AGENT_MODEL, *gemini.FREE_MODELS]))  # each once, then the laptop
     first, second = fake.bodies
-    assert {t["function"]["name"] for t in first["tools"]} <= local.LOCAL_TOOLS and first["options"]["num_ctx"] == 16384
+    assert first["model"] == "qwen3:4b" and first["options"]["num_ctx"] == local.NUM_CTX
+    assert "remember" in {t["function"]["name"] for t in first["tools"]}
     assert second["messages"][-2]["tool_calls"][0]["function"]["name"] == "remember"
     assert second["messages"][-1] == {"role": "tool", "tool_name": "remember", "content": "Remembered (id 1)."}
     assert ctx.store.query("SELECT fact FROM facts")[0]["fact"] == "без захар"
+    last = ctx.store.query("SELECT model, input FROM usage ORDER BY id")[0]
+    assert last == {"model": "local:qwen3:4b", "input": 900}
 
 
-def test_a_laptop_model_that_cannot_think_or_use_tools_is_asked_again_without():
+def test_without_ollama_he_says_where_to_get_a_brain(settings, ctx, registry):
+    from jarvis.hub import friendly_error
+
+    with pytest.raises(RuntimeError) as caught:
+        Jarvis(settings, ctx.store, registry, Approver(), local_brain=local.LocalBrain(start=lambda: False)).ask("здравей")
+    assert friendly_error(caught.value) == local.NOT_READY and "Настройки > Мозък" in local.NOT_READY
+
+
+def test_old_tool_results_are_cut_short_for_the_small_context():
+    big = "x" * 5000
+    messages = [{"role": "user", "content": "направи го"}]
+    for i in range(6):
+        messages.append({"role": "assistant", "content": [{"type": "tool_use", "id": str(i), "name": "read_file", "input": {}}]})
+        messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": str(i), "content": big}]})
+    sent = [m for m in local.to_messages("s", messages) if m["role"] == "tool"]
+    assert [len(m["content"]) < 2000 for m in sent] == [True, True, False, False, False, False]
+
+
+def test_a_laptop_model_that_cannot_think_or_use_tools_is_asked_again_without(monkeypatch):
+    ollama_installed(monkeypatch, "gemma3:4b")
+
     def refused(text):
         return urllib.error.HTTPError("http://x", 400, "Bad Request", {}, io.BytesIO(text.encode()))
 
@@ -274,15 +241,6 @@ def test_a_laptop_model_that_cannot_think_or_use_tools_is_asked_again_without():
     assert answer.content[0].text == "Добре."
     assert "think" in fake.bodies[0] and "think" not in fake.bodies[1] and "tools" in fake.bodies[1]
     assert "tools" not in fake.bodies[2]
-
-
-def test_switching_to_the_laptop_brain_needs_ollama(settings, ctx, registry, monkeypatch):
-    monkeypatch.setenv("JARVIS_MODEL", settings.model)  # the switch saves it; put it back afterwards
-    output, is_error = registry.run("switch_brain", {"brain": "local"}, lambda s: True)
-    assert is_error and "Settings > Модели" in output
-    ollama_installed(monkeypatch, "qwen3:4b")
-    output, is_error = registry.run("switch_brain", {"brain": "local"}, lambda s: True)
-    assert not is_error and settings.model == "local"
 
 
 # --- the notes vault -------------------------------------------------------------------------------------

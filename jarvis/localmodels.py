@@ -1,4 +1,4 @@
-"""Brains Jarvis downloads onto the laptop himself (Settings > Модели, or "изтегли Qwen 9B" in the chat).
+"""The models Jarvis thinks with, downloaded onto the laptop by himself (Settings > Мозък, or "изтегли Qwen 9B" in the chat).
 
 Ollama runs them. It pulls a model from its own library or straight from Hugging Face as a GGUF file
 ("hf.co/<user>/<repo>:<quant>"), and Jarvis shows the progress. Only light models are offered: the owner's laptop
@@ -113,7 +113,7 @@ _hardware: dict = {}
 
 def hardware() -> dict:
     """The graphics card (NVIDIA), its memory, the RAM and the free disk in GB; 0 where it cannot be told. Asked
-    once a minute at most (the Модели tab asks every 2 s while a model downloads)."""
+    once a minute at most (the Мозък tab asks every 2 s while a model downloads)."""
     if _hardware and time.time() - _hardware["at"] < 60:
         return _hardware["value"]
     value = _measure()
@@ -179,9 +179,9 @@ def pull(model: str) -> str:
     if not re.fullmatch(r"[\w.\-/:]+", model):
         raise ValueError(f"„{model}“ не е име на модел.")
     if not version() and not start_ollama():
-        raise RuntimeError("Ollama не е инсталиран или не е пуснат. Натисни „Инсталирай Ollama“ в Настройки > Модели.")
+        raise RuntimeError("Ollama не е инсталиран или не е пуснат. Натисни „Инсталирай Ollama“ в Настройки > Мозък.")
     if model.startswith("hf.co/") and version_tuple(version()) < HF_GGUF_FROM:
-        raise RuntimeError(f"Ollama {version()} е стар за GGUF от Hugging Face: обнови Ollama (Настройки > Модели > "
+        raise RuntimeError(f"Ollama {version()} е стар за GGUF от Hugging Face: обнови Ollama (Настройки > Мозък > "
                            "„Инсталирай Ollama“ слага най-новия) или избери същия модел от библиотеката на Ollama.")
     with _lock:
         if model in _pulls and not _pulls[model]["done"]:
@@ -256,15 +256,36 @@ def resolve(text: str) -> str | None:
 # template inside such a file prints the calls as text), with Qwen's settings for agent work. An older Ollama that
 # does not know RENDERER/PARSER gets the file's own template instead (import_gguf).
 QWEN35 = ("TEMPLATE {{ .Prompt }}\nRENDERER qwen3.5\nPARSER qwen3.5\n")
-SETTINGS = ("PARAMETER num_ctx 16384\nPARAMETER temperature 0.6\nPARAMETER top_p 0.95\nPARAMETER top_k 20\n"
+SETTINGS = (f"PARAMETER num_ctx {local.NUM_CTX}\nPARAMETER temperature 0.6\nPARAMETER top_p 0.95\nPARAMETER top_k 20\n"
             "PARAMETER min_p 0\n")
 
 
+def models_folder(make: bool = True) -> Path:
+    """The owner's own folder for model files (Documents\\Jarvis Models, or JARVIS_MODELS_DIR): a downloaded .gguf
+    goes here, so the models are in one place instead of mixed with everything else in Downloads."""
+    folder = Path(os.environ.get("JARVIS_MODELS_DIR") or Path.home() / "Documents" / "Jarvis Models").expanduser()
+    if make:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+    return folder
+
+
+def open_folder() -> str:
+    """Show the models folder in Explorer (the owner drags the downloaded files in)."""
+    folder = models_folder()
+    if WINDOWS:
+        os.startfile(folder)  # noqa: S606 (a folder, opened in Explorer)
+    return str(folder)
+
+
 def gguf_files(folders: list[Path] | None = None) -> list[dict]:
-    """The model files (.gguf) in Downloads, on the desktop and in Documents, biggest first. A vision add-on
-    (mmproj) and anything under 300 MB are not a model."""
+    """The model files (.gguf) in the models folder, Downloads, on the desktop and in Documents, biggest first. A
+    vision add-on (mmproj) and anything under 300 MB are not a model."""
     home = Path.home()
-    folders = folders or [home / "Downloads", home / "Desktop", home / "Documents", home / "OneDrive" / "Desktop"]
+    folders = folders or [models_folder(make=False), home / "Downloads", home / "Desktop", home / "Documents",
+                          home / "OneDrive" / "Desktop"]
     found = {}
     for folder in folders:
         try:
@@ -302,7 +323,7 @@ def import_gguf(path: str, run=None) -> str:
         raise ValueError(f"Няма такъв .gguf файл: {path}")
     exe = ollama_program()
     if not exe or (not version() and not start_ollama()):
-        raise RuntimeError("Ollama не е инсталиран или не е пуснат. Натисни „Инсталирай Ollama“ в Настройки > Модели.")
+        raise RuntimeError("Ollama не е инсталиран или не е пуснат. Натисни „Инсталирай Ollama“ в Настройки > Мозък.")
     name = model_tag(file.name)
     with _lock:
         if name in _pulls and not _pulls[name]["done"]:
@@ -332,7 +353,7 @@ def import_gguf(path: str, run=None) -> str:
             log.warning("importing %s failed: %s", file, exc)
             state["error"] = str(exc)
             if "unknown model architecture" in str(exc) or "qwen35" in str(exc):
-                state["error"] += " (обнови Ollama: Настройки > Модели > „Инсталирай Ollama“)"
+                state["error"] += " (обнови Ollama: Настройки > Мозък > „Инсталирай Ollama“)"
         finally:
             state["done"] = True
 
@@ -340,8 +361,8 @@ def import_gguf(path: str, run=None) -> str:
     return f"Добавям {file.name} в Ollama като {name}."
 
 
-def overview(local_model: str = "", main_model: str = "") -> dict:
-    """Everything Settings > Модели shows: Ollama, the hardware, the offered models and the installed ones."""
+def overview(local_model: str = "") -> dict:
+    """Everything Settings > Мозък shows: Ollama, the hardware, the offered models and the installed ones."""
     hw = hardware()
     have = installed()
     names = {m["id"] for m in have}
@@ -355,8 +376,9 @@ def overview(local_model: str = "", main_model: str = "") -> dict:
     files = [dict(f, fit=fit(f["gb"], hw)) for f in gguf_files()
              if f["name"] not in names and f["name"] + ":latest" not in names]
     return {"ollama": version(), "installed_ollama": bool(ollama_program()), "hardware": hw, "models": offered,
+            "folder": str(models_folder()),
             "others": others, "files": files, "chosen": chosen or "", "quick": local.quick_partner(chosen) if chosen else None,
-            "main": main_model, "pulls": progress(), "setup_url": OLLAMA_SETUP}
+            "pulls": progress(), "setup_url": OLLAMA_SETUP}
 
 
 def install_ollama(fetch=None, run=None) -> str:

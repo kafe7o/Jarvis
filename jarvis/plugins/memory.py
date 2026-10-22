@@ -20,7 +20,7 @@ def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "Search remembered facts by keyword. Empty query lists everything. Several words: all of them must match, "
         "in any order (e.g. 'Краси телефон'). The newest facts come first. With the memory model on the laptop "
-        "(Settings > Модели) the facts closest in meaning come too, even without a shared word.",
+        "(Settings > Мозък) the facts closest in meaning come too, even without a shared word.",
         obj({"query?": ("string", "Keyword(s)")}),
     )
     def recall(query: str = ""):  # Jarvis wrote this improvement for himself on the owner's laptop (upgrade 9)

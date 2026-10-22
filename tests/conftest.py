@@ -30,15 +30,13 @@ def response(*blocks, stop="end_turn"):
 
 
 class FakeClient:
-    """Stands in for anthropic.Anthropic; returns scripted responses and records requests."""
+    """Stands in for the brain on the laptop (local.LocalBrain); returns scripted responses and records requests."""
 
     def __init__(self, responses):
         self.responses = list(responses)
         self.requests = []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
-        self.messages = SimpleNamespace(create=self._create)
 
-    def _create(self, **kwargs):
+    def create(self, **kwargs):
         self.requests.append(kwargs)
         return self.responses.pop(0)
 
@@ -46,8 +44,7 @@ class FakeClient:
 @pytest.fixture
 def settings(tmp_path, monkeypatch):
     for var in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "STRIPE_API_KEY", "JARVIS_PUBLIC_URL",
-                "GROQ_API_KEY", "JARVIS_GROQ_MODEL", "GEMINI_API_KEY", "JARVIS_MODEL",
-                "NVIDIA_API_KEY", "JARVIS_NVIDIA_MODEL", "OPENROUTER_API_KEY", "JARVIS_OPENROUTER_MODEL", "JARVIS_AUTO_REPLY", "JARVIS_REPLY_STYLE", "JARVIS_SILENCE"]:
+                "JARVIS_MODEL", "JARVIS_LOCAL_MODEL", "JARVIS_AUTO_REPLY", "JARVIS_REPLY_STYLE", "JARVIS_SILENCE"]:
         monkeypatch.setenv(var, "")  # remembered first, so what a test sets is undone after it
         monkeypatch.delenv(var)
     monkeypatch.setenv("JARVIS_PHONE_NEURAL", "0")

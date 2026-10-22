@@ -11,13 +11,6 @@ import sys
 from pathlib import Path
 
 STEPS = [
-    ("Мозъкът: Claude (платен)", "console.anthropic.com > API Keys", [("ANTHROPIC_API_KEY", "Claude API ключ")]),
-    ("Мозъкът: Gemini (безплатен)", "aistudio.google.com/apikey > Create API key", [("GEMINI_API_KEY", "Gemini API ключ")]),
-    ("Бърз безплатен мозък: Groq", "console.groq.com/keys > Create API Key (без карта)", [("GROQ_API_KEY", "Groq API ключ")]),
-    ("Силен и бърз мозък: Mistral (платен на дума след безплатния месец)", "console.mistral.ai > API Keys > Create new key",
-     [("MISTRAL_API_KEY", "Mistral API ключ")]),
-    ("Безплатни силни модели: NVIDIA", "build.nvidia.com > Get API Key (без карта)", [("NVIDIA_API_KEY", "NVIDIA API ключ")]),
-    ("Безплатни модели: OpenRouter", "openrouter.ai/keys > Create API Key", [("OPENROUTER_API_KEY", "OpenRouter API ключ")]),
     ("Как да се обръща към теб", "", [("JARVIS_USER_NAME", "Обръщение (напр. сър, шефе, Анастас)")]),
     ("Обаждания и SMS", "twilio.com > Console (купи номер)", [
         ("TWILIO_ACCOUNT_SID", "Account SID"), ("TWILIO_AUTH_TOKEN", "Auth Token"),
@@ -130,7 +123,8 @@ def run() -> None:
     print(shortcut(Path.cwd()))
     if input("Да създам ли сега твоя акаунт за приложението (имейл и парола)? [да/не]: ").strip().lower().startswith("д"):
         subprocess.run([sys.executable, "-m", "jarvis", "owner"], check=False)
-    print("\nГотово. Отвори Jarvis от иконата на работния плот или с `jarvis app`.")
+    print("\nГотово. Отвори Jarvis от иконата на работния плот или с `jarvis app`.\n"
+          "Мозъкът му е на лаптопа: в приложението отвори Настройки > Мозък и изтегли модел (или сложи .gguf в Documents\\Jarvis Models и натисни „Добави“).")
 
 
 if __name__ == "__main__":  # pragma: no cover
