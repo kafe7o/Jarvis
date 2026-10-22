@@ -716,3 +716,16 @@ def test_the_vault_keeps_each_day_and_what_jarvis_knows_and_reads_it_back(settin
 def test_what_jarvis_remembers_lands_in_the_vault_too(registry, settings):
     out, err = registry.run("remember", {"topic": "кола", "fact": "Кара синя Тойота"}, Approver())
     assert not err and "синя Тойота" in (settings.vault / "wiki" / "Кола.md").read_text(encoding="utf-8")
+
+
+def test_how_is_your_memory_is_answered_at_once_with_real_numbers(settings, ctx, registry):
+    from conftest import FakeClient, response, system_text, text_block
+    from jarvis import router
+    from jarvis.brain import Jarvis
+
+    assert router.quick("Джарвис, как си с паметта и уменията")
+    ctx.store.insert("facts", topic="кола", fact="Кара синя Тойота")
+    client = FakeClient([response(text_block("Помня 1 нещо за теб, сър."))])
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=client)
+    assert jarvis.quick_answer("как си с паметта и уменията", "main") == "Помня 1 нещо за теб, сър."
+    assert "1 remembered facts" in system_text(client.requests[-1])
