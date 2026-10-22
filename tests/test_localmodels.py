@@ -416,3 +416,46 @@ def test_the_slider_saves_a_model_or_auto(tmp_path, monkeypatch, settings, ctx, 
     assert json.loads(call(port, "/api/brain")[1])["at"] == 0
     call(port, "/api/local-models", {"action": "auto"})
     assert json.loads(call(port, "/api/brain")[1])["auto"] is True
+
+
+def test_a_screenshot_is_described_by_the_model_with_eyes_and_the_thinking_model_keeps_the_task(monkeypatch):
+    ollama_has(monkeypatch, "ornith-1.5-9b-q4_k_m:latest", "gemma-4-e4b:latest")
+    monkeypatch.setattr(local, "_abilities", {"ornith-1.5-9b-q4_k_m:latest": ["completion", "tools"],
+                                               "gemma-4-e4b:latest": ["completion", "vision", "tools"]})
+    monkeypatch.setattr(local, "_described", {})
+    asked = []
+
+    def post(path, body):
+        asked.append(body)
+        if body["model"] == "gemma-4-e4b:latest":
+            return {"message": {"content": "YouTube is open; the search box is at the top."}}
+        return {"message": {"content": "Готово."}, "done_reason": "stop"}
+
+    shot = {"type": "tool_result", "tool_use_id": "t1",
+            "content": [{"type": "text", "text": "Screenshot"},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}]}
+    messages = [{"role": "user", "content": "пусни най-новото видео на Хараламби Добрев"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "look_at_screen", "input": {}}]},
+                {"role": "user", "content": [shot]}]
+    brain = local.LocalBrain(post)
+    for _ in range(2):  # the next step does not ask the eyes again
+        brain.create(model="local", system="s", messages=messages, tools=[{"name": "x", "input_schema": {}}],
+                     max_tokens=100, effort="low")
+    seer = [b for b in asked if b["model"] == "gemma-4-e4b:latest"]
+    assert len(seer) == 1 and "Хараламби" in seer[0]["messages"][1]["content"]
+    thinking = [b for b in asked if b["model"] == "ornith-1.5-9b-q4_k_m:latest"]
+    assert len(thinking) == 2 and not any("images" in m for m in thinking[0]["messages"])
+    assert any("search box is at the top" in m["content"] for m in thinking[0]["messages"])
+
+
+def test_a_photo_the_owner_sends_with_a_question_goes_to_the_model_with_eyes(monkeypatch):
+    ollama_has(monkeypatch, "ornith-1.5-9b-q4_k_m:latest", "gemma-4-e4b:latest")
+    monkeypatch.setattr(local, "_abilities", {"ornith-1.5-9b-q4_k_m:latest": ["completion", "tools"],
+                                               "gemma-4-e4b:latest": ["completion", "vision", "tools"]})
+    asked = []
+    post = lambda path, body: asked.append(body) or {"message": {"content": "Котка."}, "done_reason": "stop"}
+    photo = [{"type": "text", "text": "какво е това?"},
+             {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "aGk="}}]
+    local.LocalBrain(post).create(model="local", system="s", messages=[{"role": "user", "content": photo}],
+                                  tools=[{"name": "x", "input_schema": {}}], max_tokens=100, effort="low")
+    assert [b["model"] for b in asked] == ["gemma-4-e4b:latest"]

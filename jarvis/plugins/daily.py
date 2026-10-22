@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -96,6 +97,34 @@ def find_video(query: str) -> tuple[str, str] | None:
     return found[1], json.loads(f'"{title[1]}"') if title else query
 
 
+def newest_video(query: str) -> tuple[str, str] | None:
+    """(video id, title) of the newest upload of the channel ``query`` names („най-новото видео на Хараламби
+    Добрев“): the channel from YouTube's search (a channel result, else the first video's channel), its newest
+    video from the channel's own feed. Without a channel: the newest video for the words."""
+    page = fetch("https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query, "hl": "bg"}),
+                 cookie="SOCS=CAI; CONSENT=YES+cb")
+    channel = re.search(r'"channelRenderer":\{"channelId":"(UC[\w-]{22})"', page)
+    if not channel:
+        first = re.search(r'"videoRenderer":\{"videoId":"[\w-]{11}"', page)
+        channel = first and re.search(r'"browseId":"(UC[\w-]{22})"', page[first.end():first.end() + 8000])
+    if channel:
+        try:
+            feed = fetch(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel[1]}")
+            entry = re.search(r"<yt:videoId>([\w-]{11})</yt:videoId>.*?<title>(.*?)</title>", feed, re.S)
+            if entry:
+                return entry[1], html.unescape(entry[2])
+        except OSError:
+            pass
+    # "sp=CAI%3D" sorts YouTube's results by upload date
+    page = fetch("https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query, "sp": "CAI=", "hl": "bg"}),
+                 cookie="SOCS=CAI; CONSENT=YES+cb")
+    found = re.search(r'"videoRenderer":\{"videoId":"([\w-]{11})"', page)
+    if not found:
+        return None
+    title = re.search(r'"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"', page[found.end():found.end() + 4000])
+    return found[1], json.loads(f'"{title[1]}"') if title else query
+
+
 def translate(text: str, to: str, timeout: float = 8) -> str:
     """``text`` in the language ``to`` (e.g. 'en') through Google Translate's free endpoint, without a key."""
     url = "https://translate.googleapis.com/translate_a/single?" + urllib.parse.urlencode(
@@ -160,28 +189,33 @@ def register(registry: ToolRegistry, ctx) -> None:
         return said
 
     @registry.tool(
-        "Play a song, music or video from YouTube right away: finds the best match and starts it in the browser "
-        "on this computer, or in the YouTube app on the phone or TV (device).",
-        obj({"query": ("string", "What to play, e.g. 'AC/DC Back in Black' or 'лофи музика за работа'"),
-             "device?": ("string", "Android device name (e.g. 'phone' or 'tv'); empty = this computer")}),
+        "Play a song, music or video from YouTube right away: finds the best match and starts it in the owner's "
+        "browser on this computer (faster and surer than clicking through YouTube with the mouse). newest=true plays "
+        "the latest upload of a channel or person („най-новото видео на X“). Only when the owner names the phone or "
+        "TV, device plays it there.",
+        obj({"query": ("string", "What to play, e.g. 'AC/DC Back in Black', or the channel for newest"),
+             "newest?": ("boolean", "The channel's newest video instead of the best match"),
+             "device?": ("string", "Only if the owner said phone or TV: 'phone' or 'tv'; empty = this computer")}),
     )
-    def play_youtube(query: str, device: str | None = None):
+    def play_youtube(query: str, device: str | None = None, newest: bool = False):
         try:
-            found = find_video(query)
+            found = newest_video(query) if newest else find_video(query)
         except Exception:
             found = None
         if found:
             url, said = f"https://www.youtube.com/watch?v={found[0]}", f"Playing “{found[1]}”"
         else:  # YouTube's page changed or is unreachable: show the results instead
-            url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query})
+            url = "https://www.youtube.com/results?" + urllib.parse.urlencode(
+                {"search_query": query, **({"sp": "CAI="} if newest else {})})
             said = "Opened the YouTube results (could not pick the first video)"
+        note = ""
         if device:
             from .android import adb, devices_from_env
 
             serial = devices_from_env().get(device)
-            if not serial:
-                raise ValueError(f"Unknown device '{device}'.")
-            adb(serial, "shell", f"am start -a android.intent.action.VIEW -d {shlex.quote(url)}")
-            return f"{said} on the {device}: {url}"
+            if serial:
+                adb(serial, "shell", f"am start -a android.intent.action.VIEW -d {shlex.quote(url)}")
+                return f"{said} on the {device}: {url}"
+            note = f" (no device '{device}' is connected, so on this computer)"
         where = browsers.open_url(url)
-        return f"{said} in {where}: {url}"
+        return f"{said} in {where}{note}: {url}"

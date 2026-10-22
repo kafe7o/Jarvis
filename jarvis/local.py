@@ -49,6 +49,11 @@ def num_ctx() -> int:
         return int(os.environ.get("JARVIS_LOCAL_CTX") or NUM_CTX)
     except ValueError:
         return NUM_CTX
+DESCRIBE = """You are the eyes of an assistant that cannot see pictures. Describe this picture for it in plain \
+text: which program or page is open, the visible words on buttons, links, fields, menus and messages, and where \
+each is (top/bottom/left/right; pixel coordinates when you can tell). Say first what matters for the task. Only \
+what is really there; under 200 words."""
+_described: dict[str, str] = {}  # a picture (by its start, end and size) -> what the eyes said about it
 KEEP_LOADED = "30m"  # loading a 9B model into the graphics card takes seconds: it stays there between steps
 _seen: dict = {"at": 0.0, "models": []}
 
@@ -315,6 +320,15 @@ class LocalBrain:
             name = choose(model, tools, images)
         if not name:
             raise RuntimeError(NOT_READY)
+        shot = images and not next(m for m in reversed(chat) if m.get("images")).get("content")
+        thinker = choose(model, tools, False) if shot and tools else name
+        if thinker and thinker != name:
+            # A screenshot (it comes with no words) and the model that thinks can't see: the one with eyes says what
+            # it shows, and the thinking model keeps every step (a screenshot used to hand the next four steps of a
+            # task to the weaker model, and swap the two in the graphics card each time). A photo the owner sends
+            # with a question still goes to the model with eyes.
+            chat = self._described(chat, name)
+            name = thinker
         model = name
         # Thinking makes a laptop model slower but much smarter: on the hard steps only (Jarvis._request). Its
         # thoughts count towards the words it may write, so a thinking step gets room for both.
@@ -352,6 +366,46 @@ class LocalBrain:
             except urllib.error.URLError as exc:  # Ollama stopped in the middle (closed, or the laptop slept)
                 raise RuntimeError(NOT_READY) from exc
         raise RuntimeError(f"The local brain (Ollama, {model}) did not answer.")
+
+    def _described(self, chat: list[dict], seer: str) -> list[dict]:
+        """``chat`` with its pictures turned into words by ``seer``: the newest picture described for the task at
+        hand, the older ones only marked (each picture is described once, then remembered)."""
+        task = next((m["content"][:600] for m in reversed(chat) if m["role"] == "user" and m.get("content")
+                     and not m.get("images")), "")
+        newest = max((i for i, m in enumerate(chat) if m.get("images")), default=-1)
+        out = []
+        for i, m in enumerate(chat):
+            pictures = m.get("images")
+            if not pictures:
+                out.append(m)
+                continue
+            m = {k: v for k, v in m.items() if k != "images"}
+            if i == newest:
+                said = [self._describe(p, task, m.get("content") or "", seer) for p in pictures]
+                m["content"] = (m.get("content") or "") + "".join(f"\n[What the picture shows, seen by {seer}: {s}]"
+                                                                 for s in said)
+            else:
+                m["content"] = (m.get("content") or "") + "\n[an earlier picture]"
+            out.append(m)
+        return out
+
+    def _describe(self, picture: str, task: str, context: str, seer: str) -> str:
+        key = f"{len(picture)}:{picture[:200]}:{picture[-200:]}"
+        if key not in _described:
+            body = {"model": seer, "stream": False, "think": False, "keep_alive": "2m",
+                    "options": {**OPTIONS, "num_predict": 600, "num_ctx": 8192},
+                    "messages": [{"role": "system", "content": DESCRIBE},
+                                 {"role": "user", "content": f"The task: {task}\n{context[:1500]}", "images": [picture]}]}
+            try:
+                said = re.sub(r"<think>.*?</think>", "", (self._post("/api/chat", body).get("message") or {})
+                              .get("content") or "", flags=re.S).strip()
+            except (urllib.error.URLError, OSError, ValueError) as exc:
+                log.warning("%s could not describe a picture: %s", seer, exc)
+                said = ""
+            if len(_described) > 50:
+                _described.clear()
+            _described[key] = said or "(the picture could not be read)"
+        return _described[key]
 
     def _streamed(self, body: dict, on_text) -> dict:
         """Ollama's answer piece by piece, put together as one reply; the words so far go to ``on_text`` a few times
