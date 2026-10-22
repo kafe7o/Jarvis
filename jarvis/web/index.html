@@ -1399,6 +1399,7 @@ function handleEvent(ev) {
     state.pending.el.querySelector(".draft").textContent = ev.text;
     scrollDown();
   }
+  if (ev.kind === "listen" && document.hasFocus() && !$("mic").classList.contains("rec")) $("mic").click();  // Ctrl+Alt+J
   if (ev.kind === "notify") { toast(ev.text, "Jarvis"); systemNotify("Jarvis", ev.text); }
   if (ev.kind === "chats") loadChats();
   if (ev.kind === "confirm") showConfirm(ev);

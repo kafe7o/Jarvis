@@ -217,6 +217,13 @@ def app(window: bool = True) -> None:
         holder["hub"] = Hub(ctx, token, port, restartable=True)
         holder["hub"].serve()
         start_background(ctx)
+    from . import hotkey
+
+    def summoned() -> None:  # Ctrl+Alt+J: the window in front (or opened), listening
+        if hotkey.bring_up(open_window, url):
+            holder["hub"].events.add("listen")
+
+    hotkey.start(summoned)
     if settings.telegram_token and settings.telegram_owner_id:
         from .interfaces import telegram
 
