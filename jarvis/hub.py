@@ -736,6 +736,8 @@ class Hub:
                     self.save_settings({"JARVIS_LOCAL_MODEL": ""})
             elif action == "use":
                 self.save_settings({"JARVIS_LOCAL_MODEL": model})
+            elif action == "auto":  # Авто: no model fixed, Jarvis picks one for every step
+                self.save_settings({"JARVIS_LOCAL_MODEL": ""})
             elif action == "open_folder":
                 localmodels.open_folder()
         except (ValueError, RuntimeError, OSError) as exc:
@@ -1002,6 +1004,10 @@ class Hub:
 
         if p == "/api/local-models":  # Settings > Мозък: Ollama, the hardware, download / add / pick / delete
             return 200, self.local_models(b if m == "POST" else {})
+        if p == "/api/brain" and m == "GET":  # the brain slider next to the message box: faster or smarter, Авто
+            from . import localmodels
+
+            return 200, localmodels.scale(self.ctx.settings.local_model)
         if p == "/api/settings":
             if m == "POST":
                 self.save_settings(b.get("values") or {})
