@@ -194,7 +194,10 @@ def fit(gb: float, hw: dict) -> str:
         return "част във видеокартата, част в RAM: върви, по-бавно"
     if not vram and gb <= ram / 2:
         return "без видеокарта, на процесора: бавен"
-    return "твърде голям за този компютър"
+    return TOO_BIG
+
+
+TOO_BIG = "твърде голям за този компютър"
 
 
 def pull(model: str) -> str:
@@ -365,7 +368,7 @@ def import_gguf(path: str, run=None) -> str:
     if not file.is_file() or file.suffix.lower() != ".gguf":
         raise ValueError(f"Няма такъв .gguf файл: {path}")
     gb, hw = round(file.stat().st_size / 1e9, 1), hardware()
-    if hw.get("ram") and fit(gb, hw) == "твърде голям за този компютър":
+    if hw.get("ram") and fit(gb, hw) == TOO_BIG:
         raise ValueError(f"{file.name} е {gb} GB: не се побира в паметта на този компютър. Изтегли го като Q4_K_M "
                          "(около 5-6 GB за 9B), F16/BF16 файловете са за много по-големи видеокарти.")
     exe = ollama_program()
@@ -416,6 +419,7 @@ def friendly(model_id: str) -> str:
     stem = model_id.split("/")[-1].removesuffix(":latest").replace(":", " ")
     stem = re.sub(r"[-_ .](i?q\d[\w]*|f16|bf16|f32|gguf)$", "", stem, flags=re.I)
     stem = re.sub(r"[-_ ](it|instruct)$", "", stem, flags=re.I)
+    stem = re.sub(r"^(qwen)[-_ ]?(\d)", r"\1 \2", stem, flags=re.I)  # "qwen3.5-4b" -> "Qwen 3.5 4B", like the catalog
     words = [w.upper() if re.fullmatch(r"\d+(\.\d+)?[bm]|e\d+b|a\d+b", w, re.I) else w[:1].upper() + w[1:]
              for w in re.split(r"[-_ ]+", stem) if w]
     return " ".join(words)[:40] or model_id
@@ -425,11 +429,13 @@ def scale(local_model: str = "") -> dict:
     """The brain slider: the models on this laptop from the fastest (smallest) to the smartest (biggest), the one in
     use, and whether Авто is on (no model fixed: Jarvis picks one for every step, local.choose)."""
     hw = hardware()
-    have = sorted((m for m in installed() if "embed" not in m["id"].lower()), key=lambda m: m["gb"])
+    wanted = (local_model or "").strip()
+    # a model too big for this computer stays in the list below (to delete it), not on the slider
+    have = sorted((m for m in installed() if "embed" not in m["id"].lower()
+                   and (fit(m["gb"], hw) != TOO_BIG or wanted in (m["id"], m["id"].split(":")[0]))), key=lambda m: m["gb"])
     best = local.pick() if have else None
     stops = [{"value": m["id"], "name": friendly(m["id"]), "model": m["id"], "gb": m["gb"],
               "about": f"{m['gb']} GB, {fit(m['gb'], hw)}", "recommended": m["id"] == best} for m in have]
-    wanted = (local_model or "").strip()
     at = next((i for i, s in enumerate(stops) if wanted and (s["value"] == wanted or s["value"].split(":")[0] == wanted)), -1)
     return {"stops": stops, "at": at, "model": wanted or best or "", "auto": not wanted}
 
@@ -450,7 +456,7 @@ def overview(local_model: str = "") -> dict:
              if f["name"] not in names and f["name"] + ":latest" not in names]
     return {"ollama": version(), "installed_ollama": bool(ollama_program()), "hardware": hw, "models": offered,
             "folder": str(models_folder()),
-            "others": others, "files": files, "chosen": chosen or "", "quick": local.quick_partner(chosen) if chosen and not local_model else None,
+            "others": others, "files": files, "chosen": chosen or "", "chosen_name": friendly(chosen) if chosen else "", "quick": local.quick_partner(chosen) if chosen and not local_model else None,
             "pulls": progress(), "setup_url": OLLAMA_SETUP, "scale": scale(local_model)}
 
 

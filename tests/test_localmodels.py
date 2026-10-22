@@ -382,10 +382,20 @@ def test_the_brain_slider_goes_from_the_fastest_model_to_the_smartest(monkeypatc
     monkeypatch.setattr(localmodels, "hardware", lambda: {"gpu": "RTX 4050", "vram": 6, "ram": 16, "disk": 300})
     ollama_has(monkeypatch, *[m["id"] for m in have])
     sc = localmodels.scale("")
-    assert [x["name"] for x in sc["stops"]] == ["Qwen3.5 4B", "Ornith 1.5 9B"]  # the memory model is no brain
+    assert [x["name"] for x in sc["stops"]] == ["Qwen 3.5 4B", "Ornith 1.5 9B"]  # the memory model is no brain
     assert sc["auto"] and sc["at"] == -1 and sc["stops"][1]["recommended"]
     fixed = localmodels.scale("qwen3.5-4b-q4_k_m:latest")
     assert not fixed["auto"] and fixed["at"] == 0
+
+
+def test_a_model_too_big_for_the_laptop_is_not_on_the_slider_unless_it_is_the_chosen_one(monkeypatch):
+    have = [{"id": "qwen3.5-4b-q4_k_m:latest", "gb": 2.7}, {"id": "qwen3.5-9b-abliterated-f16:latest", "gb": 17.9}]
+    monkeypatch.setattr(localmodels, "installed", lambda: have)
+    monkeypatch.setattr(localmodels, "hardware", lambda: {"gpu": "RTX 4050", "vram": 6, "ram": 15.4, "disk": 300})
+    ollama_has(monkeypatch, *[m["id"] for m in have])
+    assert [x["gb"] for x in localmodels.scale("")["stops"]] == [2.7]
+    chosen = localmodels.scale("qwen3.5-9b-abliterated-f16:latest")
+    assert [x["gb"] for x in chosen["stops"]] == [2.7, 17.9] and chosen["at"] == 1
 
 
 def test_a_model_fixed_on_the_slider_takes_every_step(monkeypatch):

@@ -184,12 +184,21 @@ header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-spa
 .scale-range::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
 .scale-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--glow); }
 .scale-names { position: relative; height: 66px; margin: 2px 30px 0; }
+.scale-names.up { height: 52px; margin: 8px 30px -4px; }
+.scale-names.up button { top: auto; bottom: 0; }
 .scale-names button { position: absolute; transform: translateX(-50%); background: none; border: 0; padding: 0; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 1px; color: var(--muted); font: inherit;
-  text-align: center; width: 104px; line-height: 1.2; }
+  text-align: center; line-height: 1.2; }
+.scale-names button.first { transform: translateX(-13px); align-items: flex-start; text-align: left; }
+.scale-names button.last { transform: translateX(calc(-100% + 13px)); align-items: flex-end; text-align: right; }
 .scale-names b { font-size: 13px; font-weight: 600; } .scale-names small { font-size: 11px; color: var(--faint); }
 .scale-names button.on { color: var(--text); } .scale-names button.on small { color: var(--muted); }
 .scale-names em { font-style: normal; font-size: 11px; color: var(--accent); }
+@media (max-width: 600px) {  /* a phone: shorter names, the sizes stay in the line under the slider */
+  .scale-names b { font-size: 11.5px; font-weight: 500; } .scale-names small { display: none; }
+  .scale-names.up { height: 34px; } .scale-names { height: 50px; } .scale-track { margin-left: 22px; margin-right: 22px; }
+  .scale-names, .scale-names.up { margin-left: 22px; margin-right: 22px; }
+}
 .auto-btn { font: inherit; font-size: 12px; font-weight: 600;
   padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); color: var(--muted); cursor: pointer; }
 .auto-btn:hover { border-color: var(--accent); color: var(--text); }
@@ -2837,13 +2846,18 @@ function brainSlider(sc) {
   const n = sc.stops.length, rec = sc.stops.findIndex((x) => x.recommended);
   const at = sc.at >= 0 ? sc.at : Math.max(rec, 0);
   const left = (i) => n > 1 ? `calc(13px + (100% - 26px) * ${i / (n - 1)})` : "50%";
+  // More than four models: every other name goes above the track, so each name has twice the room.
+  const split = n > 4, room = n > 1 ? (split ? 2 : 1) / (n - 1) : 1;
+  const name = (x, i) => `<button type="button" data-stop="${i}" style="left:${left(i)};width:min(150px, calc((100% - 26px) * ${room} - 8px))"
+      class="${i === at && sc.at >= 0 ? "on" : ""}${n > 1 && i === 0 ? " first" : ""}${n > 1 && i === n - 1 ? " last" : ""}"><b>${esc(x.name)}</b><small>${x.gb} GB</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`;
+  const row = (keep, cls) => `<div class="scale-names${cls}">${sc.stops.map((x, i) => keep(i) ? name(x, i) : "").join("")}</div>`;
   return `<div class="scale${sc.auto ? " auto" : ""}">
     <div class="scale-top"><span>По-бърз</span><button type="button" class="auto-btn${sc.auto ? " on" : ""}" aria-pressed="${sc.auto}">Авто${sc.auto ? ": вкл." : ""}</button><span>По-умен</span></div>
+    ${split ? row((i) => i % 2 === 0, " up") : ""}
     <div class="scale-track"><div class="rail"></div>
       <div class="dots">${sc.stops.map((x, i) => `<i class="${i === rec ? "rec" : ""}"></i>`).join("")}</div>
       <input type="range" class="scale-range" min="0" max="${Math.max(n - 1, 0)}" step="1" value="${at}" aria-label="Мозък: по-бърз или по-умен"></div>
-    <div class="scale-names">${sc.stops.map((x, i) => `<button type="button" data-stop="${i}" style="left:${left(i)}"
-      class="${i === at && sc.at >= 0 ? "on" : ""}"><b>${esc(x.name)}</b><small>${x.gb} GB</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`).join("")}</div>
+    ${row((i) => !split || i % 2 === 1, "")}
     <div class="scale-now">${sc.auto ? `<b>Авто</b> <span>· сам избира модела за всяка стъпка: малкия за кратките отговори, умния за работата, модел с очи за снимките. Премести кръгчето, за да мисли само с един.</span>`
       : sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b>`}</div>
   </div>`;
@@ -2915,7 +2929,7 @@ async function tabBrain(view) {
     : `Първо трябва Ollama (безплатната програма, която пуска моделите). <button class="btn primary small" ${act("install_ollama")}>Инсталирай Ollama</button>`;
   $("tabBody").innerHTML = `
     <div class="note">${icon("info")}<div>${ollama}<br>Компютърът: ${esc(hw.gpu || "видеокарта: не е открита")}${hw.vram ? `, ${hw.vram} GB видеопамет` : ""}, ${hw.ram} GB RAM, ${hw.disk} GB свободно място.
-      <br>Мисли с: <b>${esc(v.chosen || "още няма модел: изтегли или добави един долу")}</b>${v.quick ? ` (кратките отговори на ${esc(v.quick)})` : ""}.
+      <br>Мисли с: <b>${esc(v.chosen_name || v.chosen || "още няма модел: изтегли или добави един долу")}</b>${v.quick ? ` (кратките отговори на ${esc(v.quick)})` : ""}.
       Всичко става на лаптопа: без ключове, без лимит и без интернет.</div></div>
     ${v.scale && v.scale.stops.length ? brainSlider(v.scale) : ""}
     <div class="section"><h5>Папката с моделите</h5>
