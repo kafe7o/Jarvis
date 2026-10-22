@@ -69,3 +69,35 @@ def test_setup_env_round_trip(tmp_path):
     path = tmp_path / ".env"
     write_env(path, {"ANTHROPIC_API_KEY": "sk-1", "EMPTY": ""})
     assert read_env(path) == {"ANTHROPIC_API_KEY": "sk-1"}
+
+
+def test_cyrillic_output_survives_a_pipe_in_the_system_code_page(monkeypatch):
+    """The owner's new laptop (English Windows, cp1252): the Jarvis the keeper runs printed "Jarvis работи" into
+    the log pipe and died with UnicodeEncodeError on every start. The console is put in UTF-8 first."""
+    import io
+    import sys
+
+    from jarvis.__main__ import utf8_console
+
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", stream)
+    utf8_console()
+    print("Jarvis работи: http://localhost:8770/")
+    stream.flush()
+    assert "Jarvis работи".encode("utf-8") in raw.getvalue()
+
+
+def test_the_wizard_takes_keys_and_passwords_unseen():
+    from jarvis.setup_wizard import ask
+
+    typed = []
+    unseen = lambda prompt: typed.append(("secret", prompt)) or " abc123 "
+    seen = lambda prompt: typed.append(("plain", prompt)) or "Анастас"
+    assert ask("GROQ_API_KEY", "Ключ", "", read=seen, read_secret=unseen) == "abc123"
+    assert ask("JARVIS_USER_NAME", "Име", "", read=seen, read_secret=unseen) == "Анастас"
+    assert [kind for kind, _p in typed] == ["secret", "plain"]
+    assert ask("GMAIL_APP_PASSWORD", "Парола", "kafe7o+secret", read=seen, read_secret=unseen) == "abc123"
+    assert typed[-1][1].endswith("[kafe…]: ")  # a saved secret shows only its first letters
+    broken = lambda prompt: (_ for _ in ()).throw(OSError("no console"))
+    assert ask("GROQ_API_KEY", "Ключ", "", read=seen, read_secret=broken) == "Анастас"  # falls back to the usual way

@@ -10,6 +10,7 @@ def test_the_keeper_starts_jarvis_again_until_he_is_stopped(tmp_path):
 
     def popen(args, env, **kw):
         started.append((args, env.get(keeper.KEPT)))
+        assert env["PYTHONUTF8"] == "1" and env["PYTHONIOENCODING"] == "utf-8"  # Cyrillic prints survive the pipe
         return SimpleNamespace(wait=lambda: codes.pop(0))
 
     keeper.run(tmp_path, popen=popen, sleep=waits.append)

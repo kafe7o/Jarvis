@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 import re
 import secrets
@@ -82,16 +83,32 @@ def write_env(path: Path, values: dict[str, str]) -> None:
         pass
 
 
+def is_secret(key: str) -> bool:
+    return any(word in key for word in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
+
+
+def ask(key: str, label: str, current: str, read=input, read_secret=getpass.getpass) -> str:
+    """One wizard question. A key, token or password is typed unseen (the owner sends screenshots of this window),
+    and only its first letters are shown when one is already set."""
+    shown = (current[:4] + "…") if current and is_secret(key) else current
+    prompt = f"   {label}" + (f" [{shown}]" if shown else "") + ": "
+    try:
+        return ((read_secret if is_secret(key) else read)(prompt) or "").strip()
+    except (EOFError, KeyboardInterrupt):
+        raise
+    except Exception:  # a console where unseen typing does not work: ask the usual way
+        return (read(prompt) or "").strip()
+
+
 def run() -> None:
     path = Path.cwd() / ".env"
     values = read_env(path)
-    print("Настройка на J.A.R.V.I.S. Натисни Enter, за да пропуснеш или запазиш текущото.\n")
+    print("Настройка на J.A.R.V.I.S. Натисни Enter, за да пропуснеш или запазиш текущото.\n"
+          "Ключовете и паролите не се показват, докато ги пишеш (поставяш ги и натискаш Enter).\n")
     for title, where, fields in STEPS:
         print(f"── {title}" + (f"  ({where})" if where else ""))
         for key, label in fields:
-            current = values.get(key, "")
-            shown = (current[:4] + "…") if current and ("KEY" in key or "TOKEN" in key or "SECRET" in key or "PASSWORD" in key) else current
-            answer = input(f"   {label}" + (f" [{shown}]" if shown else "") + ": ").strip()
+            answer = ask(key, label, values.get(key, ""))
             if answer:
                 values[key] = answer
         print()
