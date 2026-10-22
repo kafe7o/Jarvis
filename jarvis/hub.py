@@ -133,10 +133,14 @@ class EventLog:
         self.boot = f"{os.getpid()}-{int(time.time())}"
         self._cond = threading.Condition()
 
-    def add(self, kind: str, to: int | None = None, **data) -> int:
+    def add(self, kind: str, to: int | None = None, replace: bool = False, **data) -> int:
+        """``replace``: the newer one stands for the earlier events of this kind for the same chat and person (the
+        growing answer), so they do not push the other events out."""
         with self._cond:
             event = {"id": next(self._ids), "kind": kind, "time": time.time(), "to": to, **data}
-            self.events = (self.events + [event])[-self.keep:]
+            older = [e for e in self.events if not (replace and e["kind"] == kind and e["to"] == to
+                                                    and e.get("chat") == data.get("chat"))]
+            self.events = (older + [event])[-self.keep:]
             self._cond.notify_all()
             return event["id"]
 
@@ -535,13 +539,19 @@ class Hub:
                 answer = self.ctx.jarvis.ask(
                     text, conversation=conversation, user=user, on_progress=progress,
                     confirmer=lambda summary: self.confirmer(summary, user, chat_id), images=images,
-                    on_step=self.board.reporter(run_id),
+                    on_step=self.board.reporter(run_id), on_text=lambda words: self.partial(to, chat_id, words),
                 )
                 ok = True
                 return answer
             finally:
                 self.busy -= 1
                 self.board.finish(run_id, ok)
+
+    def partial(self, to: int | None, chat: int | None, words: str) -> None:
+        """The answer so far, for the app to show it growing; secrets are hidden here too, before the final check."""
+        from .brain import redact_secrets
+
+        self.events.add("partial", to=to, replace=True, chat=chat, text=redact_secrets(words))
 
     def track(self, who: str, text: str, kind: str = "request", chat: int | None = None,
               to: int | None = None) -> tuple[int, dict]:

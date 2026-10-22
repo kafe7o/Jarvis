@@ -284,11 +284,15 @@ def choose(model: str, tools: list, images: bool = False) -> str | None:
 class LocalBrain:
     """Answers Claude-format requests (see brain.Jarvis._request) with a model running in Ollama."""
 
-    def __init__(self, post=None, start=None):
+    def __init__(self, post=None, start=None, lines=None):
         self._post = post or _post
         self._start = start
+        self._lines = lines or _lines
 
-    def create(self, *, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> Answer:
+    def create(self, *, model: str, system, messages: list, tools: list, max_tokens: int, effort: str,
+               on_text=None) -> Answer:
+        """One step. ``on_text`` hears the answer as it is written (the app shows it growing), "" when the step
+        turns out to be an action rather than words for the owner."""
         if not isinstance(system, str):
             system = "\n\n".join(_get(b, "text", "") for b in system)
         chat = to_messages(system + SMALL_RULES, messages)
@@ -309,9 +313,11 @@ class LocalBrain:
         declared = to_tools(tools)
         if declared:
             body["tools"] = declared
+        if on_text:
+            body["stream"] = True
         for _ in range(4):
             try:
-                return from_reply(self._post("/api/chat", body), model)
+                return from_reply(self._streamed(body, on_text) if on_text else self._post("/api/chat", body), model)
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace") if hasattr(exc, "read") else str(exc)
                 # Not every model can think or use tools: ask again without what it can't do.
@@ -329,6 +335,30 @@ class LocalBrain:
                 raise RuntimeError(NOT_READY) from exc
         raise RuntimeError(f"The local brain (Ollama, {model}) did not answer.")
 
+    def _streamed(self, body: dict, on_text) -> dict:
+        """Ollama's answer piece by piece, put together as one reply; the words so far go to ``on_text`` a few times
+        a second (not a tool call written out as text, and not while the step is calling tools)."""
+        content, thinking, calls, last, shown = [], [], [], {}, 0.0
+        for part in self._lines("/api/chat", body):
+            if part.get("error"):
+                raise RuntimeError(f"The local brain (Ollama, {body['model']}) failed: {part['error']}")
+            message = part.get("message") or {}
+            content.append(message.get("content") or "")
+            thinking.append(message.get("thinking") or "")
+            calls += message.get("tool_calls") or []
+            if part.get("done"):
+                last = part
+                break
+            if not calls and time.time() - shown > STREAM_EVERY:
+                text = re.sub(r"<think>.*?(</think>|$)", "", "".join(content), flags=re.S).strip()
+                if text and text[0] not in "{[<`":
+                    on_text(text)
+                    shown = time.time()
+        if calls or shown and written_call("".join(content)):
+            on_text("")  # this step acts: the words were not the answer
+        return {**last, "message": {"role": "assistant", "content": "".join(content), "thinking": "".join(thinking),
+                                    "tool_calls": calls}}
+
     def _wake(self) -> bool:
         """Ollama installed but not running (after a restart, before its tray app starts): start it once."""
         from . import localmodels
@@ -340,6 +370,18 @@ class LocalBrain:
         if started:
             _seen["at"] = 0.0  # ask it again for its models
         return started
+
+
+STREAM_EVERY = 0.4  # seconds between two looks at the growing answer
+
+
+def _lines(path: str, body: dict, timeout: float = 600):
+    """Ollama's streamed answer, one JSON object a line."""
+    req = urllib.request.Request(url() + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        for line in resp:
+            if line.strip():
+                yield json.loads(line)
 
 
 def _post(path: str, body: dict, timeout: float = 600) -> dict:

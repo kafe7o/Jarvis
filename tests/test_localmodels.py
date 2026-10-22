@@ -327,3 +327,50 @@ def test_ollama_is_tuned_for_a_small_graphics_card(monkeypatch):
     assert localmodels.tune(run=lambda cmd, **kw: ran.append(cmd)) == list(localmodels.TUNING)
     assert ["setx", "OLLAMA_KV_CACHE_TYPE", "q8_0"] in ran
     assert localmodels.tune(run=lambda cmd, **kw: ran.append(cmd)) == []  # once
+
+
+def test_the_answer_is_shown_as_it_is_written(monkeypatch):
+    ollama_has(monkeypatch, "qwen3.5-9b:latest")
+    monkeypatch.setattr(local, "STREAM_EVERY", 0)
+    words = ["Добър ", "вечер, ", "сър."]
+    seen = []
+
+    def lines(path, body):
+        assert body["stream"] is True
+        for w in words:
+            yield {"message": {"content": w}, "done": False}
+        yield {"message": {"content": ""}, "done": True, "done_reason": "stop", "eval_count": 3}
+
+    brain_ = local.LocalBrain(lines=lines)
+    answer = brain_.create(model="local", system="s", messages=[{"role": "user", "content": "hi"}], tools=[],
+                           max_tokens=100, effort="low", on_text=seen.append)
+    assert seen == ["Добър", "Добър вечер,", "Добър вечер, сър."]
+    assert answer.content[0].text == "Добър вечер, сър." and answer.usage["output"] == 3
+
+
+def test_a_step_that_acts_takes_its_words_back(monkeypatch):
+    ollama_has(monkeypatch, "qwen3.5-9b:latest")
+    monkeypatch.setattr(local, "STREAM_EVERY", 0)
+    seen = []
+
+    def lines(path, body):
+        yield {"message": {"content": "Отварям "}, "done": False}
+        yield {"message": {"content": "", "tool_calls": [{"function": {"name": "open_page", "arguments": {"url": "x"}}}]},
+               "done": False}
+        yield {"message": {"content": ""}, "done": True}
+
+    answer = local.LocalBrain(lines=lines).create(model="local", system="s", messages=[{"role": "user", "content": "x"}],
+                                                  tools=[{"name": "open_page", "input_schema": {"type": "object"}}],
+                                                  max_tokens=100, effort="low", on_text=seen.append)
+    assert seen == ["Отварям", ""] and answer.stop_reason == "tool_use"
+
+
+def test_the_growing_answer_keeps_one_event_per_chat():
+    from jarvis.hub import EventLog
+
+    log = EventLog()
+    log.add("progress", chat=1, tool="x")
+    for text in ("a", "ab", "abc"):
+        log.add("partial", replace=True, chat=1, text=text)
+    log.add("partial", replace=True, chat=2, text="z")
+    assert [(e["kind"], e.get("text")) for e in log.events] == [("progress", None), ("partial", "abc"), ("partial", "z")]
