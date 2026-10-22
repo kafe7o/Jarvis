@@ -59,7 +59,7 @@ def brains(ctx, network: bool = True) -> list[dict]:
                 state, hint = BAD, f"не отговаря: {str(exc)[:120]}"
         out.append(finding(state, "Мозък Gemini", hint))
     else:
-        out.append(finding(WARN, "Мозък Gemini", "няма ключ; безплатен от aistudio.google.com/apikey (Настройки > Връзки)"))
+        out.append(finding(WARN, "Мозък Gemini", "няма ключ; безплатен от aistudio.google.com/apikey (Настройки > Мозък)"))
     for key, p in freeapi.PROVIDERS.items():
         if not os.environ.get(p.env):
             out.append(finding(WARN, f"Мозък {p.name}", f"няма ключ; безплатен от {p.site}"))
@@ -104,7 +104,7 @@ def brains(ctx, network: bool = True) -> list[dict]:
         out.append(finding(WARN, "Избран мозък", f"настройката сочи {model}, а ключ няма: безплатен мозък поема вместо него"))
     if not any(f["state"] == OK and f["what"].startswith("Мозък") and "Claude" not in f["what"] for f in out):
         out.append(finding(BAD, "Нито един безплатен мозък не може да отговори сега",
-                           "добави ключ в Настройки > Връзки или изчакай квотите да се върнат"))
+                           "добави ключ в Настройки > Мозък или изчакай квотите да се върнат"))
     return out
 
 
@@ -155,7 +155,7 @@ def folders(settings) -> list[dict]:
     if found:
         out.append(finding(OK, "Браузър за сайтовете", found[0] + (f" (настройка JARVIS_BROWSER={chosen})" if chosen else " (този по подразбиране)")))
     else:
-        out.append(finding(WARN, "Браузър за сайтовете", "не намирам браузър; задай JARVIS_BROWSER в Настройки > Връзки"
+        out.append(finding(WARN, "Браузър за сайтовете", "не намирам браузър; задай браузъра в Настройки > Поведение"
                            + (f" ({chosen} не е намерен)" if chosen else "")))
     vault = Path(settings.vault)
     out.append(finding(OK, "Бележки (vault)", str(vault)) if vault.exists()

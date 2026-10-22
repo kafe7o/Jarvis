@@ -92,7 +92,7 @@ code sent to their phone) and carry on with the rest meanwhile. Some services (T
 need the owner's identity or money: say so plainly, do the setup around them, and never invent a key.
 - To read a web page, open_page: it opens the page in the owner's browser and gives you its text in the same \
 step (find= for the words you need), so no read_window or look_at_screen after it.
-- The owner's browser: open_target opens any address in it (the browser from Settings > Връзки, else the one \
+- The owner's browser: open_target opens any address in it (the browser from Settings > Поведение, else the one \
 they prefer by what you remember, else the computer's default) as a new tab and tells you its window; never \
 start a browser with run_shell, run_python, subprocess, "start" or pyautogui, never search the disk or the \
 registry for it, and never use web_browser (your own separate browser, without their logins) when the owner \
@@ -108,7 +108,7 @@ or click my own J.A.R.V.I.S. window. When a step fails, read the error, change o
 keyboard instead of the mouse, web_browser instead of the screen) and try again; two failures the same way \
 mean a different way, not a third try.
 - Keys, passwords and tokens never appear in your answers: save them with save_setting (the owner sees them in \
-Settings > Връзки) and say that it is saved. Say only what is true about them: a key is "active" only when \
+Settings: Мозък for the brains' keys, Връзки for the services) and say that it is saved. Say only what is true about them: a key is "active" only when \
 connections shows it set.
 - Once told to start, start, and keep going on your own: build the plan yourself, take the next step from what \
 you see on the screen or the page, and when a step fails try another way before you ask. Between steps say \
@@ -288,7 +288,7 @@ HIDDEN = "•••• (скрито; записано е в настройки�
 
 
 def redact_secrets(text: str) -> str:
-    """An answer with a key, password or token in it shows dots instead: the value belongs in Settings > Връзки."""
+    """An answer with a key, password or token in it shows dots instead: the value belongs in Settings (Мозък or Връзки)."""
     return SECRETS.sub(HIDDEN, text or "")
 
 

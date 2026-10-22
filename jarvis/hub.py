@@ -116,21 +116,21 @@ def friendly_error(exc: Exception) -> str:
                 "За да не спирам никога, изтегли мозък на лаптопа: Настройки > Модели.")
     if isinstance(exc, Busy):
         return ("Gemini е претоварен, а другите безплатни мозъци с ключ също не отговориха този път. Опитай пак след "
-                "минута; резервният мозък се избира в Настройки > Връзки > Мозък.")
+                "минута; резервният мозък се избира в Настройки > Мозък.")
     if isinstance(exc, GroqUsedUp):
         return ("Безплатните модели на Groq са заети или изчерпани за момента. Опитай пак след минута, "
                 "или сложи и безплатен Gemini ключ, за да поема той.")
     if "groq" in low and ("key" in low or "401" in low):
-        return "Groq ключът е грешен или липсва. Вземи нов от console.groq.com/keys и го сложи в Настройки > Връзки."
+        return "Groq ключът е грешен или липсва. Вземи нов от console.groq.com/keys и го сложи в Настройки > Мозък."
     if isinstance(exc, FreeUsedUp):
         return ("Безплатните модели са заети или изчерпани за момента. Опитай пак след минута, "
-                "или сложи още един безплатен ключ (Mistral, Gemini, Groq, NVIDIA или OpenRouter) в Настройки > Връзки.")
+                "или сложи още един безплатен ключ (Mistral, Gemini, Groq, NVIDIA или OpenRouter) в Настройки > Мозък.")
     for p in PROVIDERS.values():
         if p.name.lower() in low and ("key" in low or "401" in low):
-            return f"{p.name} ключът е грешен или липсва. Вземи нов от {p.site} и го сложи в Настройки > Връзки."
+            return f"{p.name} ключът е грешен или липсва. Вземи нов от {p.site} и го сложи в Настройки > Мозък."
     if isinstance(exc, BudgetReached):
         return ("Днешният таван за Claude е достигнат, а безплатен мозък няма. Сложи безплатен Gemini или Groq ключ "
-                "(Настройки > Връзки) или вдигни тавана в „Пестене“.")
+                "(Настройки > Мозък) или вдигни тавана в „Пестене“.")
     if "ollama" in low:
         return ("Мозъкът на лаптопа (Ollama) не отговаря. Пусни Ollama или в PowerShell напиши: ollama pull qwen3:4b")
     if type(exc).__module__.startswith("google."):
@@ -140,13 +140,13 @@ def friendly_error(exc: Exception) -> str:
         if "resource_exhausted" in low or "429" in low:
             return "Безплатният лимит на Gemini е изчерпан за момента. Опитай пак след минута."
         if "api key" in low or "api_key" in low or "permission_denied" in low:
-            return "Gemini ключът е грешен. Вземи нов от aistudio.google.com/apikey и го сложи в Настройки > Връзки."
+            return "Gemini ключът е грешен. Вземи нов от aistudio.google.com/apikey и го сложи в Настройки > Мозък."
         return f"Gemini не отговори: {exc}"
     if "credit balance" in low or "billing" in low:
         return ("Няма кредит в Claude акаунта. Безплатно: вземи ключ от aistudio.google.com/apikey и го сложи "
-                "в Настройки > Връзки > Gemini. Jarvis ще мине на Gemini сам.")
+                "в Настройки > Мозък > Gemini. Jarvis ще мине на Gemini сам.")
     if "authentication" in low or "api key" in low or "x-api-key" in low or "api_key" in low:
-        return "Claude ключът липсва или е грешен. Сложи го в Настройки > Връзки."
+        return "Claude ключът липсва или е грешен. Сложи го в Настройки > Мозък."
     if "rate" in low and "limit" in low:
         return "Claude е претоварен в момента. Опитай пак след малко."
     if "connection" in low or "timed out" in low or "timeout" in low:
@@ -458,7 +458,7 @@ def brain_choices(items: list[dict], stored: dict) -> str:
     for item in items:
         item["options"] = options
     ready = [label.split(" (")[0] for value, label, env in shown if env and has(env)]
-    return ("Ключове в .env: " + ", ".join(ready)) if ready else "Няма ключ за безплатен мозък: сложи поне един в Връзки."
+    return ("Ключове в .env: " + ", ".join(ready)) if ready else "Няма ключ за безплатен мозък: сложи поне един долу."
 
 
 # The slider in Settings > Мозък, from the fastest brain to the smartest: (what JARVIS_MODEL becomes, name, what it
@@ -534,6 +534,22 @@ EXTRA_SETTINGS = [
         ("ELEVENLABS_VOICE_ID", "ElevenLabs глас (празно = George, британски мъжки)"),
     ]),
 ]
+
+
+BRAIN_KEYS = {"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "NVIDIA_API_KEY", "OPENROUTER_API_KEY"}
+
+
+def settings_tab(title: str, keys: list[str]) -> str:
+    """Which Settings tab shows a group of settings: "brain" (Мозък: the slider, the brains' keys, the caps),
+    "general" (Поведение), "voice" (Глас) or "service" (Връзки: calls, mail, Telegram and the rest). They were all
+    one tab 8,500 pixels long."""
+    if title in ("Мозък", "Пестене") or BRAIN_KEYS & set(keys):
+        return "brain"
+    if title == "Глас":
+        return "voice"
+    if title in ("Поведение", "Съобщения") or "JARVIS_USER_NAME" in keys:
+        return "general"
+    return "service"
 
 
 def is_secret(key: str) -> bool:
@@ -780,7 +796,8 @@ class Hub:
             if title == "Мозък":
                 where, ready = brain_choices(items, stored), True
                 extra = {"scale": brain_scale(stored)}
-            sections.append({"title": title, "where": where, "fields": items, "ready": ready, **extra})
+            sections.append({"title": title, "where": where, "fields": items, "ready": ready,
+                             "tab": settings_tab(title, [key for key, _l in fields]), **extra})
         return sorted(sections, key=lambda section: section["title"] != "Мозък")  # the brain first, then the keys
 
     def save_settings(self, values: dict) -> None:
@@ -1019,7 +1036,7 @@ class Hub:
             except ValueError as exc:
                 raise HTTPError(413, str(exc))
             except RuntimeError as exc:
-                raise HTTPError(503, "Не мога да разпозная говора: сложи безплатния Groq ключ в Настройки > Връзки "
+                raise HTTPError(503, "Не мога да разпозная говора: сложи безплатния Groq ключ в Настройки > Мозък "
                                      f"или инсталирай гласа (`pip install faster-whisper`). ({exc})")
             return 200, {"text": text}
 
@@ -1031,7 +1048,7 @@ class Hub:
                 from .tts import clean, elevenlabs
 
                 if not os.environ.get("ELEVENLABS_API_KEY"):
-                    raise HTTPError(400, "Няма ElevenLabs ключ в Настройки > Връзки > Глас.")
+                    raise HTTPError(400, "Няма ElevenLabs ключ в Настройки > Глас > Още.")
                 try:
                     return 200, (elevenlabs(clean(str(b.get("text", "")))), "audio/mpeg")
                 except Exception as exc:

@@ -59,7 +59,7 @@ def download() -> zipfile.ZipFile:
         if any(name.endswith("/jarvis/__main__.py") for name in archive.namelist()):
             return archive
     hint = ("" if token() else
-            " Ако хранилището kafe7o/Jarvis е частно, сложи GitHub ключ в Настройки > Връзки (GITHUB_TOKEN).")
+            " Ако хранилището kafe7o/Jarvis е частно, сложи GitHub ключ в Настройки > Поведение (GITHUB_TOKEN).")
     raise SystemExit("Не успях да изтегля Jarvis от GitHub. Провери интернета." + hint)
 
 
