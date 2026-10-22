@@ -408,6 +408,32 @@ def import_gguf(path: str, run=None) -> str:
     return f"Добавям {file.name} в Ollama като {name}."
 
 
+def friendly(model_id: str) -> str:
+    """A short name for the slider: "ornith-1.5-9b-q4_k_m:latest" -> "Ornith 1.5 9B"."""
+    known = next((m["name"] for m in CATALOG if m["id"] == model_id or m["id"] + ":latest" == model_id), None)
+    if known:
+        return known
+    stem = model_id.split("/")[-1].removesuffix(":latest").replace(":", " ")
+    stem = re.sub(r"[-_ .](i?q\d[\w]*|f16|bf16|f32|gguf)$", "", stem, flags=re.I)
+    stem = re.sub(r"[-_ ](it|instruct)$", "", stem, flags=re.I)
+    words = [w.upper() if re.fullmatch(r"\d+(\.\d+)?[bm]|e\d+b|a\d+b", w, re.I) else w[:1].upper() + w[1:]
+             for w in re.split(r"[-_ ]+", stem) if w]
+    return " ".join(words)[:40] or model_id
+
+
+def scale(local_model: str = "") -> dict:
+    """The brain slider: the models on this laptop from the fastest (smallest) to the smartest (biggest), the one in
+    use, and whether Авто is on (no model fixed: Jarvis picks one for every step, local.choose)."""
+    hw = hardware()
+    have = sorted((m for m in installed() if "embed" not in m["id"].lower()), key=lambda m: m["gb"])
+    best = local.pick() if have else None
+    stops = [{"value": m["id"], "name": friendly(m["id"]), "model": m["id"], "gb": m["gb"],
+              "about": f"{m['gb']} GB, {fit(m['gb'], hw)}", "recommended": m["id"] == best} for m in have]
+    wanted = (local_model or "").strip()
+    at = next((i for i, s in enumerate(stops) if wanted and (s["value"] == wanted or s["value"].split(":")[0] == wanted)), -1)
+    return {"stops": stops, "at": at, "model": wanted or best or "", "auto": not wanted}
+
+
 def overview(local_model: str = "") -> dict:
     """Everything Settings > Мозък shows: Ollama, the hardware, the offered models and the installed ones."""
     hw = hardware()
@@ -424,8 +450,8 @@ def overview(local_model: str = "") -> dict:
              if f["name"] not in names and f["name"] + ":latest" not in names]
     return {"ollama": version(), "installed_ollama": bool(ollama_program()), "hardware": hw, "models": offered,
             "folder": str(models_folder()),
-            "others": others, "files": files, "chosen": chosen or "", "quick": local.quick_partner(chosen) if chosen else None,
-            "pulls": progress(), "setup_url": OLLAMA_SETUP}
+            "others": others, "files": files, "chosen": chosen or "", "quick": local.quick_partner(chosen) if chosen and not local_model else None,
+            "pulls": progress(), "setup_url": OLLAMA_SETUP, "scale": scale(local_model)}
 
 
 def install_ollama(fetch=None, run=None) -> str:

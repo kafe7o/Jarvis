@@ -171,6 +171,44 @@ header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-spa
 @keyframes pulse-red { 50% { box-shadow: 0 0 0 6px rgba(255,93,108,.2); } }
 #send { width: 40px; height: 40px; padding: 0; border-radius: 12px; }
 .composer-wrap { position: relative; }
+/* The brain slider (Мозък): the laptop's models from the fastest to the smartest, and Авто */
+.scale { border: 1px solid var(--line2); border-radius: 14px; padding: 14px 16px 10px; margin-bottom: 16px; }
+.scale-top { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--muted); }
+.scale-track { position: relative; height: 34px; margin: 8px 30px 4px; }
+.scale-track .rail { position: absolute; inset: 4px 0; background: var(--line); border-radius: 13px; }
+.scale-track .dots { position: absolute; inset: 0 13px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+.scale-track .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+.scale-track .dots i.rec { width: 3px; height: 14px; border-radius: 2px; }
+.scale-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+.scale-range::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.scale-range::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
+.scale-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--glow); }
+.scale-names { position: relative; height: 66px; margin: 2px 30px 0; }
+.scale-names button { position: absolute; transform: translateX(-50%); background: none; border: 0; padding: 0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; color: var(--muted); font: inherit;
+  text-align: center; width: 104px; line-height: 1.2; }
+.scale-names b { font-size: 13px; font-weight: 600; } .scale-names small { font-size: 11px; color: var(--faint); }
+.scale-names button.on { color: var(--text); } .scale-names button.on small { color: var(--muted); }
+.scale-names em { font-style: normal; font-size: 11px; color: var(--accent); }
+.auto-btn { font: inherit; font-size: 12px; font-weight: 600;
+  padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); color: var(--muted); cursor: pointer; }
+.auto-btn:hover { border-color: var(--accent); color: var(--text); }
+.auto-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.scale.auto .scale-track, .scale.auto .scale-names { opacity: .45; }
+.scale-now { font-size: 14px; margin-top: 6px; } .scale-now b { color: var(--text); } .scale-now span { color: var(--muted); }
+#brainBtn { align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.brain-pop { position: absolute; bottom: calc(100% - 4px); left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 20px));
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 16px; padding: 14px 16px 6px; box-shadow: 0 16px 50px rgba(0,0,0,.5); z-index: 30; }
+.brain-pop h6 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); } .brain-pop h6 b { color: var(--text); }
+.brain-pop .scale { border: 0; padding: 0; margin: 0; }
+@media (max-width: 560px) {
+  #brainName { display: none; }
+  .scale-track { margin: 8px 18px 4px; }
+  .scale-names { margin: 2px 18px 0; height: 52px; }
+  .scale-names button { width: 76px; }
+  .scale-names b { font-size: 12px; }
+  .scale-names small { display: none; }
+}
 .attachments { max-width: 860px; margin: 0 auto 8px; }
 .attachments .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; }
 .attachments .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -702,9 +740,11 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
     </div>
     <div class="composer-wrap">
       <div id="attachments" class="chips attachments hidden"></div>
+      <div id="brainPop" class="brain-pop hidden"></div>
       <form id="composer">
         <textarea id="input" rows="1" placeholder="Кажи на Jarvis…" autocomplete="off"></textarea>
         <input type="file" id="fileInput" multiple hidden>
+        <button type="button" class="icon-btn hidden" id="brainBtn" title="Мозък: по-бърз или по-умен"><svg class="i"><use href="#i-gauge"/></svg><span id="brainName"></span></button>
         <button type="button" class="icon-btn" id="attach" title="Прикачи снимка, видео или файл"><svg class="i"><use href="#i-clip"/></svg></button>
         <button type="button" class="icon-btn" id="mic" title="Говори"><svg class="i"><use href="#i-mic"/></svg></button>
         <button class="btn primary" id="send" title="Изпрати"><svg class="i"><use href="#i-send"/></svg></button>
@@ -977,6 +1017,7 @@ async function start() {
   $("memBtn").classList.toggle("hidden", me.user.role !== "owner");  // the memory is the owner's
   $("hudMemBtn").classList.toggle("hidden", me.user.role !== "owner");
   setBrain(me.brain);
+  loadBrainBtn();
   greet();
   await loadChats();
   const last = store.get("jarvis.chat." + me.user.id, null);
@@ -2802,6 +2843,66 @@ async function tabVoice() {
 // Мозък: the models on the laptop he thinks with: Ollama, the graphics card, the light models to download, a .gguf file already
 // in Downloads to add, and which one Jarvis thinks with. A download shows its progress here.
 let modelsTimer = null;
+// The brain slider (Мозък): the models on this laptop from the fastest to the smartest; letting go fixes that model
+// for every step, Авто lets Jarvis pick one for each step (quick answers, work, pictures).
+function brainSlider(sc) {
+  const n = sc.stops.length, rec = sc.stops.findIndex((x) => x.recommended);
+  const at = sc.at >= 0 ? sc.at : Math.max(rec, 0);
+  const left = (i) => n > 1 ? `calc(13px + (100% - 26px) * ${i / (n - 1)})` : "50%";
+  return `<div class="scale${sc.auto ? " auto" : ""}">
+    <div class="scale-top"><span>По-бърз</span><button type="button" class="auto-btn${sc.auto ? " on" : ""}" aria-pressed="${sc.auto}">Авто${sc.auto ? ": вкл." : ""}</button><span>По-умен</span></div>
+    <div class="scale-track"><div class="rail"></div>
+      <div class="dots">${sc.stops.map((x, i) => `<i class="${i === rec ? "rec" : ""}"></i>`).join("")}</div>
+      <input type="range" class="scale-range" min="0" max="${Math.max(n - 1, 0)}" step="1" value="${at}" aria-label="Мозък: по-бърз или по-умен"></div>
+    <div class="scale-names">${sc.stops.map((x, i) => `<button type="button" data-stop="${i}" style="left:${left(i)}"
+      class="${i === at && sc.at >= 0 ? "on" : ""}"><b>${esc(x.name)}</b><small>${x.gb} GB</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`).join("")}</div>
+    <div class="scale-now">${sc.auto ? `<b>Авто</b> <span>· сам избира модела за всяка стъпка: малкия за кратките отговори, умния за работата, модел с очи за снимките. Премести кръгчето, за да мисли само с един.</span>`
+      : sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b>`}</div>
+  </div>`;
+}
+function scaleText(x) { return `<b>${esc(x.name)}</b> <span>(${esc(x.model)}) · ${esc(x.about)}</span>`; }
+// Moving the knob shows the model; letting go (or clicking a name) saves it, then ``done`` redraws.
+function wireScale(el, sc, done) {
+  const r = el.querySelector(".scale-range"), now = el.querySelector(".scale-now");
+  r.addEventListener("input", () => { now.innerHTML = scaleText(sc.stops[Number(r.value)]); });
+  el.querySelectorAll("button[data-stop]").forEach((b) => b.addEventListener("click", () => {
+    r.value = b.dataset.stop; r.dispatchEvent(new Event("change"));
+  }));
+  const save = async (body, name) => {
+    try { await api("/api/local-models", body); toast(`Мозък: ${name}. Важи от следващата стъпка.`); done(); loadBrainBtn(); }
+    catch (err) { now.textContent = err.message; }
+  };
+  r.addEventListener("change", () => { const x = sc.stops[Number(r.value)]; save({ action: "use", model: x.value }, x.name); });
+  el.querySelector(".auto-btn").addEventListener("click", () => {
+    const rec = sc.stops.find((x) => x.recommended) || sc.stops[0];
+    if (sc.auto) save({ action: "use", model: rec.value }, rec.name); else save({ action: "auto" }, "Авто");
+  });
+}
+// The same slider next to the message box: the button shows the model in use, a click opens the slider.
+async function loadBrainBtn() {
+  if (!state.me || state.me.role !== "owner") return;
+  let sc;
+  try { sc = await api("/api/brain"); } catch (e) { return; }
+  state.brainScale = sc;
+  $("brainBtn").classList.toggle("hidden", !sc.stops.length);
+  $("brainName").textContent = sc.auto ? "Авто" : sc.at >= 0 ? sc.stops[sc.at].name : sc.model;
+  if (!$("brainPop").classList.contains("hidden")) drawBrainPop();
+}
+function drawBrainPop() {
+  $("brainPop").innerHTML = `<h6>Мозък: <b>по-бърз или по-умен</b></h6>${brainSlider(state.brainScale)}`;
+  wireScale($("brainPop").querySelector(".scale"), state.brainScale, () => {});
+}
+$("brainBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const pop = $("brainPop"), open = pop.classList.contains("hidden");
+  pop.classList.toggle("hidden", !open);
+  if (open) drawBrainPop();
+});
+document.addEventListener("click", (e) => {
+  const pop = $("brainPop");
+  if (!pop.classList.contains("hidden") && !pop.contains(e.target) && !$("brainBtn").contains(e.target)) pop.classList.add("hidden");
+});
+
 async function tabBrain(view) {
   clearTimeout(modelsTimer);
   const [v, sections] = await Promise.all([view || api("/api/local-models"), settingsOf("brain")]);
@@ -2824,6 +2925,7 @@ async function tabBrain(view) {
     <div class="note">${icon("info")}<div>${ollama}<br>Компютърът: ${esc(hw.gpu || "няма NVIDIA видеокарта")}${hw.vram ? `, ${hw.vram} GB видеопамет` : ""}, ${hw.ram} GB RAM, ${hw.disk} GB свободно място.
       <br>Мисли с: <b>${esc(v.chosen || "още няма модел: изтегли или добави един долу")}</b>${v.quick ? ` (кратките отговори на ${esc(v.quick)})` : ""}.
       Всичко става на лаптопа: без ключове, без лимит и без интернет.</div></div>
+    ${v.scale && v.scale.stops.length ? brainSlider(v.scale) : ""}
     <div class="section"><h5>Папката с моделите</h5>
       <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><code>${esc(v.folder || "")}</code><button class="btn ghost small" ${act("open_folder")}>Отвори папката</button></div>
       <p class="sub">Тегли .gguf файловете тук (или ги премести от Downloads). Jarvis ги вижда сам и ги добавя с „Добави“.</p></div>
@@ -2842,6 +2944,9 @@ async function tabBrain(view) {
     ${busy.filter(([, p]) => p.error).map(([n, p]) => `<div class="err">${esc(n)}: ${esc(p.error)}</div>`).join("")}
     ${sections.map((x, i) => settingsCard(x, i, { badge: false, title: "Още за мозъка" })).join("")}`;
   wireSettings(sections, () => tabBrain());
+  const sc = $("tabBody").querySelector(".scale");
+  if (sc) wireScale(sc, v.scale, () => tabBrain());
+  loadBrainBtn();
   const run = async (action, model, b) => {
     if (action === "delete" && !confirm(`Да изтрия ли ${model} от лаптопа?`)) return;
     if (b) b.disabled = true;

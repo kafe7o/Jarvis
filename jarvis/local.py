@@ -259,8 +259,11 @@ def choose(model: str, tools: list, images: bool = False) -> str | None:
     - A step with a picture goes to a model that can see (the chosen one if it can, else any installed one that can).
     - A plain answer (no tools) goes to the small model beside it (4B beside 9B, much faster), unless only the big
       one is in memory: on a 6 GB card the two do not fit together, and swapping them costs more than it saves.
-    - A model added from a file that cannot use tools gives way to one that can."""
-    name = pick((model.partition(":")[2] if is_local(model) else model) or None)
+    - A model added from a file that cannot use tools gives way to one that can.
+    A model fixed by the owner ("local:<name>", the brain slider off Авто) takes every step but the pictures it
+    cannot see."""
+    wanted = (model.partition(":")[2] if is_local(model) else model) or None
+    name = pick(wanted)
     if not name:
         return None
     others = [n for n in models() if n != name and "embed" not in n.lower()]
@@ -268,6 +271,8 @@ def choose(model: str, tools: list, images: bool = False) -> str | None:
         seeing = [n for n in others if abilities(n) and "vision" in abilities(n)]
         if seeing:
             return min(seeing, key=lambda n: (tools and not can(n, "tools"), not re.search(r"(?<![\d.])9b", n, re.I)))
+        return name
+    if wanted:  # the owner fixed this model (the brain slider): every step on it, only pictures go elsewhere
         return name
     if not tools:
         partner = quick_partner(name)

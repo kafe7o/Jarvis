@@ -374,3 +374,36 @@ def test_the_growing_answer_keeps_one_event_per_chat():
         log.add("partial", replace=True, chat=1, text=text)
     log.add("partial", replace=True, chat=2, text="z")
     assert [(e["kind"], e.get("text")) for e in log.events] == [("progress", None), ("partial", "abc"), ("partial", "z")]
+
+
+def test_the_brain_slider_goes_from_the_fastest_model_to_the_smartest(monkeypatch):
+    have = [{"id": "ornith-1.5-9b-q4_k_m:latest", "gb": 5.6}, {"id": "qwen3.5-4b-q4_k_m:latest", "gb": 2.7},
+            {"id": "qwen3-embedding:0.6b", "gb": 0.6}]
+    monkeypatch.setattr(localmodels, "installed", lambda: have)
+    monkeypatch.setattr(localmodels, "hardware", lambda: {"gpu": "RTX 4050", "vram": 6, "ram": 16, "disk": 300})
+    ollama_has(monkeypatch, *[m["id"] for m in have])
+    sc = localmodels.scale("")
+    assert [x["name"] for x in sc["stops"]] == ["Qwen3.5 4B", "Ornith 1.5 9B"]  # the memory model is no brain
+    assert sc["auto"] and sc["at"] == -1 and sc["stops"][1]["recommended"]
+    fixed = localmodels.scale("qwen3.5-4b-q4_k_m:latest")
+    assert not fixed["auto"] and fixed["at"] == 0
+
+
+def test_a_model_fixed_on_the_slider_takes_every_step(monkeypatch):
+    ollama_has(monkeypatch, "qwen3.5-9b:latest", "qwen3.5-4b:latest")
+    assert local.choose("local:qwen3.5-9b:latest", []) == "qwen3.5-9b:latest"  # no quick partner when fixed
+    assert local.choose("local", []) == "qwen3.5-4b:latest"  # Авто
+
+
+def test_the_slider_saves_a_model_or_auto(tmp_path, monkeypatch, settings, ctx, registry):
+    from test_hub import call, make_hub
+
+    monkeypatch.setattr(localmodels, "installed", lambda: [{"id": "qwen3.5-4b:latest", "gb": 2.7}])
+    monkeypatch.setattr(localmodels, "version", lambda: "0.40.8")
+    monkeypatch.setattr(localmodels, "hardware", lambda: {"gpu": "", "vram": 0, "ram": 16, "disk": 300})
+    ollama_has(monkeypatch, "qwen3.5-4b:latest")
+    _hub, port = make_hub(settings, ctx, registry, [])
+    call(port, "/api/local-models", {"action": "use", "model": "qwen3.5-4b:latest"})
+    assert json.loads(call(port, "/api/brain")[1])["at"] == 0
+    call(port, "/api/local-models", {"action": "auto"})
+    assert json.loads(call(port, "/api/brain")[1])["auto"] is True
