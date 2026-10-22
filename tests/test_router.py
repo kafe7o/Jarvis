@@ -14,7 +14,7 @@ from jarvis import local, router, usage
 from jarvis.brain import Jarvis
 from jarvis.routines import ROUTINES
 
-from conftest import Approver, FakeClient, response, text_block, tool_block
+from conftest import Approver, FakeClient, response, text_block
 
 NOW = datetime(2026, 10, 8, 15, 0)
 

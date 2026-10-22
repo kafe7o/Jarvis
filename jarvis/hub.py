@@ -172,11 +172,6 @@ class Turns:
         self._cond = threading.Condition()
         self._next = self._now = self._cleared = 0
 
-    @property
-    def ahead(self) -> int:
-        """Requests running or waiting right now."""
-        return self._next - self._now
-
     @contextmanager
     def turn(self):
         """Wait for this request's turn; yields False when "спри" came while it waited (then it is not done)."""
@@ -368,7 +363,6 @@ def save_files(items, home: Path) -> list[Path]:
     """Files attached in the app ({"name", "data": data URL}) are saved under ~/.jarvis/uploads/, so Jarvis can
     read or run them with his normal tools (read_file, run_python...)."""
     import base64
-    from datetime import datetime
 
     saved = []
     folder = Path(home) / "uploads"
@@ -828,6 +822,9 @@ class Hub:
                 return 200, {"ok": True}
 
         if p == "/api/logout" and m == "POST":
+            session = (req.query.get("_session") or [""])[0]
+            if session:  # the login ends on the server too, not only in this browser
+                self.accounts.logout(session)
             req.set_cookie = self.session_cookie("", 0)
             return 200, {"ok": True}
         if p == "/api/me" and m == "POST":
@@ -1123,6 +1120,8 @@ class Hub:
                     local = False
                 query["_ip"] = [ip]
                 user, via = hub.identify(self.headers, query)
+                session = SimpleCookie(self.headers.get("Cookie", "")).get(COOKIE)
+                query["_session"] = [session.value if session else ""]  # for /api/logout
                 try:
                     if method == "POST" and via != "token" and self.headers.get("X-Jarvis") != "1":
                         raise HTTPError(403, "Missing X-Jarvis header.")  # blocks cross-site form posts

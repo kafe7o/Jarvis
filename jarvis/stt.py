@@ -28,14 +28,6 @@ def local(data: bytes, mime: str, language: str, model: str = "small") -> str:
         os.unlink(path)
 
 
-def available() -> bool:
-    try:
-        import faster_whisper  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
 def transcribe(data: bytes, mime: str = "audio/webm", language: str = "bg", model: str = "small") -> str:
     """The words in a short recording, heard by Whisper on this computer. Raises RuntimeError when it cannot."""
     if not data:

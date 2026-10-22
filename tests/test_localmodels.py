@@ -1,7 +1,6 @@
 """The brains on the laptop: downloading and adding them (Settings > Модели) and making a small one smarter."""
 
 import json
-import subprocess
 from types import SimpleNamespace
 
 import pytest

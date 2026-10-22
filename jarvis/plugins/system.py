@@ -330,6 +330,7 @@ def register(registry: ToolRegistry, ctx) -> None:
     )
     def delete_path(path: str):
         p = safe_path(path)
+        roots = [Path(r).expanduser().resolve() for r in [*ctx.settings.allowed_roots, str(Path(ctx.settings.home) / "uploads")]]
         if p in roots:
             raise PermissionError("Refusing to delete an allowed root folder itself.")
         shutil.rmtree(p) if p.is_dir() else p.unlink()

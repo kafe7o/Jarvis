@@ -634,10 +634,6 @@ DONE_Q = rx(r"(?:^|\s)(?:направи|стана|готов[оаи]?|гото�
             r"намери|пусна|включи|работи|върви|мина|има)(?: го| я| ги)? ли(?=\s|$|[?,.!])")
 
 
-def asks_if_done(text: str) -> bool:
-    return bool(DONE_Q.search(clean(text)))
-
-
 def quick(text: str) -> bool:
     """True when a question can go to the quick level (level 2): it asks something to know, not to do."""
     said = clean(text)

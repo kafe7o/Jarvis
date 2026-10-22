@@ -68,10 +68,6 @@ def models(timeout: float = 0.8) -> list[str]:
     return names
 
 
-def available() -> bool:
-    return bool(models())
-
-
 NOT_READY = ("Мозъкът на лаптопа (Ollama) не работи или няма изтеглен модел. Отвори Настройки > Мозък: там се "
              "инсталира Ollama и се тегли модел.")
 

@@ -60,8 +60,12 @@ def test_first_run_creates_owner_then_login(settings, ctx, registry):
     assert web("/api/me")[1]["user"]["name"] == "Анастас"
     # nobody can become owner a second time
     assert web("/api/setup", {"name": "x", "email": "x@example.com", "password": "123456"})[0] == 409
+    stolen = web.cookie
     web("/api/logout", {})
     assert web("/api/chats")[0] == 401
+    web.cookie = stolen  # the old login cookie, kept somewhere: no longer valid on the server either
+    assert web("/api/chats")[0] == 401
+    web.cookie = ""
     assert web("/api/login", {"email": "owner@example.com", "password": "грешна"})[0] == 401
     assert web("/api/login", {"email": "OWNER@example.com", "password": "секрет1"})[0] == 200
     assert web("/api/chats")[0] == 200
