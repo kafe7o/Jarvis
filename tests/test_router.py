@@ -256,7 +256,7 @@ def test_when_gemini_is_used_up_the_laptop_brain_answers_with_its_tools(settings
     assert jarvis.ask("запомни, че пия кафе без захар") == "Запомних."
     assert google.requests == list(dict.fromkeys([gemini.AGENT_MODEL, *gemini.FREE_MODELS]))  # each once, then the laptop
     first, second = fake.bodies
-    assert {t["function"]["name"] for t in first["tools"]} <= local.LOCAL_TOOLS and first["options"]["num_ctx"] == 8192
+    assert {t["function"]["name"] for t in first["tools"]} <= local.LOCAL_TOOLS and first["options"]["num_ctx"] == 16384
     assert second["messages"][-2]["tool_calls"][0]["function"]["name"] == "remember"
     assert second["messages"][-1] == {"role": "tool", "tool_name": "remember", "content": "Remembered (id 1)."}
     assert ctx.store.query("SELECT fact FROM facts")[0]["fact"] == "без захар"
@@ -279,7 +279,7 @@ def test_a_laptop_model_that_cannot_think_or_use_tools_is_asked_again_without():
 def test_switching_to_the_laptop_brain_needs_ollama(settings, ctx, registry, monkeypatch):
     monkeypatch.setenv("JARVIS_MODEL", settings.model)  # the switch saves it; put it back afterwards
     output, is_error = registry.run("switch_brain", {"brain": "local"}, lambda s: True)
-    assert is_error and "winget install Ollama.Ollama" in output
+    assert is_error and "Settings > Модели" in output
     ollama_installed(monkeypatch, "qwen3:4b")
     output, is_error = registry.run("switch_brain", {"brain": "local"}, lambda s: True)
     assert not is_error and settings.model == "local"

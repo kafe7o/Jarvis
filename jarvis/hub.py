@@ -113,7 +113,7 @@ def friendly_error(exc: Exception) -> str:
     if isinstance(exc, UsedUp):
         back = datetime.fromtimestamp(next_reset()).strftime("%H:%M")
         return (f"Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. Връщат се в {back}. "
-                "За да не спирам никога, инсталирай мозъка на лаптопа (Ollama): виж „Пестене“ в Настройки > Връзки.")
+                "За да не спирам никога, изтегли мозък на лаптопа: Настройки > Модели.")
     if isinstance(exc, Busy):
         return ("Gemini е претоварен, а другите безплатни мозъци с ключ също не отговориха този път. Опитай пак след "
                 "минута; резервният мозък се избира в Настройки > Връзки > Мозък.")
@@ -519,7 +519,7 @@ EXTRA_SETTINGS = [
         ("JARVIS_GROQ_MODEL", "Модел в Groq (празно = openai/gpt-oss-120b; другите безплатни се ползват, когато той е зает)"),
         ("JARVIS_NVIDIA_MODEL", "Модел в NVIDIA (празно = най-силният безплатен, напр. Kimi или DeepSeek)"),
         ("JARVIS_OPENROUTER_MODEL", "Модел в OpenRouter (празно = най-силният безплатен с „:free“)"),
-        ("JARVIS_LOCAL_MODEL", "Мозък на лаптопа в Ollama, без лимит (празно = най-добрият инсталиран, напр. qwen3:4b)"),
+        ("JARVIS_LOCAL_MODEL", "Мозък на лаптопа в Ollama, без лимит (по-лесно: Настройки > Модели; празно = най-добрият изтеглен, напр. Qwen 3.5 9B)"),
         ("JARVIS_VAULT", "Папка-памет за бележки (празно = Документи\\Jarvis Vault)"),
     ]),
     ("Съобщения", "", [
@@ -810,6 +810,33 @@ class Hub:
             if getattr(before, f.name) != getattr(after, f.name):
                 setattr(current, f.name, getattr(after, f.name))
 
+    def local_models(self, b: dict) -> dict:
+        from . import localmodels
+
+        settings = self.ctx.settings
+        action, model = b.get("action", ""), str(b.get("model") or "")
+        try:
+            if action == "install_ollama":
+                localmodels.install_ollama()
+            elif action == "start":
+                if not localmodels.start_ollama():
+                    raise HTTPError(400, "Ollama не тръгва. Инсталирай го отново с бутона.")
+            elif action == "download":
+                localmodels.pull(model)
+            elif action == "add_file":
+                localmodels.import_gguf(model)
+            elif action == "delete":
+                localmodels.delete(model)
+                if settings.local_model == model:
+                    self.save_settings({"JARVIS_LOCAL_MODEL": ""})
+            elif action == "use":
+                self.save_settings({"JARVIS_LOCAL_MODEL": model})
+            elif action == "main":  # Jarvis thinks on the laptop only
+                self.save_settings({"JARVIS_MODEL": "local"})
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise HTTPError(400, str(exc))
+        return localmodels.overview(settings.local_model, settings.model)
+
     def stop(self) -> None:
         """`jarvis stop`: this process ends and the keeper does not start it again."""
         from . import keeper
@@ -1070,6 +1097,8 @@ class Hub:
                          "eleven": bool(os.environ.get("ELEVENLABS_API_KEY")),
                          "voices": [{"id": v, "name": n, "about": a} for v, n, a in tts.VOICES]}
 
+        if p == "/api/local-models":  # Settings > Модели: Ollama, the hardware, download / add / pick / delete
+            return 200, self.local_models(b if m == "POST" else {})
         if p == "/api/brain" and m == "GET":  # the brain slider next to the message box (Мозък)
             from .setup_wizard import env_path, read_env
 

@@ -83,10 +83,37 @@ CALL_ARGS = ("arguments", "parameters", "input", "args")
 FENCE = re.compile(r"^```[\w-]*\s*|\s*```$|^<tool_call>\s*|\s*</tool_call>$|^\[TOOL_CALLS\]\s*", re.I)
 
 
+# Qwen 3.5's own way of writing a call (Ollama sometimes passes it on as text instead of making it):
+# <tool_call><function=run_shell><parameter=command>taskmgr</parameter></function></tool_call>
+XML_CALL = re.compile(r"<function=([\w.-]+)>(.*?)</function>", re.S)
+XML_PARAM = re.compile(r"<parameter=([\w.-]+)>\n?(.*?)\n?</parameter>", re.S)
+TAGGED = re.compile(r"<tool_call>(.*?)</tool_call>", re.S)
+JSON_VALUE = re.compile(r"[\[{].*|true|false|null|-?(0|[1-9]\d*)(\.\d+)?", re.S)
+
+
+def xml_call(text: str) -> tuple[str, dict] | None:
+    found = XML_CALL.search(text or "")
+    if not found:
+        return None
+    args = {}
+    for key, value in XML_PARAM.findall(found[2]):
+        try:
+            args[key] = json.loads(value) if JSON_VALUE.fullmatch(value.strip()) else value
+        except ValueError:
+            args[key] = value
+    return found[1], args
+
+
 def written_call(text: str) -> tuple[str, dict] | None:
     """A tool call the model wrote out as its answer instead of making it, e.g. {"name": "run_shell", "arguments":
     {"command": "taskmgr"}} (a weak model does that; the owner once saw it printed in the chat), with or without a
     ```json fence or <tool_call> tags: (name, arguments). None when the text is an answer."""
+    found = xml_call(text)
+    if found:
+        return found
+    tagged = TAGGED.search(text or "")
+    if tagged and tagged.group(0) != (text or "").strip():  # a call tagged after a sentence: the call
+        return written_call(tagged[1])
     body = FENCE.sub("", FENCE.sub("", (text or "").strip())).strip()
     if not body.startswith(("{", "[")):
         return None

@@ -277,7 +277,7 @@ def main(argv: list[str] | None = None) -> None:
     utf8_console()
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
     parser.add_argument("mode", nargs="?", default="chat", choices=["app", "stop", "keeper", "owner", "shortcut", "update", "undo", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
-                                 "enroll-voice", "google-login", "doctor"])
+                                 "enroll-voice", "google-login", "doctor", "backup", "restore"])
     parser.add_argument("text", nargs="*", help="Въпрос за режим ask")
     parser.add_argument("--hub", help="node: адрес на главния Jarvis, напр. http://192.168.1.10:8770")
     parser.add_argument("--name", help="node: име на това устройство, напр. laptop")
@@ -333,6 +333,26 @@ def main(argv: list[str] | None = None) -> None:
         check()
     elif args.mode == "doctor":
         doctor()
+    elif args.mode in ("backup", "restore"):
+        from pathlib import Path
+
+        from . import backup
+        from .setup_wizard import env_path
+
+        if args.mode == "backup":
+            where = backup.backup(settings.home, env_path())
+            print(f"Готово: {where}\nВътре са паметта и ключовете: копирай го на флашка за новия лаптоп, но не го "
+                  "пращай на никого. На новия: jarvis stop, после jarvis restore")
+        else:
+            archive = Path(" ".join(args.text)) if args.text else backup.newest_backup()
+            if archive is None or not archive.is_file():
+                print("Не намирам резервно копие. Сложи Jarvis-backup-....zip в Documents или Downloads, или напиши: "
+                      "jarvis restore \"C:\\път\\до\\файла.zip\"")
+            else:
+                try:
+                    print(backup.restore(archive, settings.home, env_path()))
+                except (RuntimeError, ValueError, OSError) as exc:
+                    print(exc)
     elif args.mode == "ask":
         from .interfaces import cli
 

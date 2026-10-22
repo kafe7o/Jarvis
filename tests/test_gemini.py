@@ -228,7 +228,7 @@ def test_all_free_models_used_up_says_when_they_come_back(settings, ctx, registr
     jarvis, _ = make(settings, ctx, registry, [daily(m) for m in gemini.FREE_MODELS])
     with pytest.raises(gemini.UsedUp) as caught:
         jarvis.ask("здравей")
-    assert "Връщат се в" in friendly_error(caught.value) and "Ollama" in friendly_error(caught.value)
+    assert "Връщат се в" in friendly_error(caught.value) and "Модели" in friendly_error(caught.value)
 
 
 def test_claude_can_take_over_in_the_middle_of_a_gemini_turn(settings, ctx, registry, monkeypatch):

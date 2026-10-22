@@ -19,14 +19,23 @@ def register(registry: ToolRegistry, ctx) -> None:
 
     @registry.tool(
         "Search remembered facts by keyword. Empty query lists everything. Several words: all of them must match, "
-        "in any order (e.g. 'Краси телефон'). The newest facts come first.",
+        "in any order (e.g. 'Краси телефон'). The newest facts come first. With the memory model on the laptop "
+        "(Settings > Модели) the facts closest in meaning come too, even without a shared word.",
         obj({"query?": ("string", "Keyword(s)")}),
     )
     def recall(query: str = ""):  # Jarvis wrote this improvement for himself on the owner's laptop (upgrade 9)
+        from .. import local
+
         words = (query or "").split()
         where = " AND ".join("(casefold(topic) LIKE casefold(?) OR casefold(fact) LIKE casefold(?))" for _ in words) or "1=1"
         params = [p for w in words for p in (f"%{w}%", f"%{w}%")]
-        return store.query(f"SELECT id, topic, fact, created FROM facts WHERE {where} ORDER BY id DESC", params)
+        found = store.query(f"SELECT id, topic, fact, created FROM facts WHERE {where} ORDER BY id DESC", params)
+        if words and len(found) < 3:  # few or none by the words: by meaning
+            every = store.query("SELECT id, topic, fact, created FROM facts ORDER BY id DESC")
+            have = {f["id"] for f in found}
+            close = local.similar(query, [f"{f['topic']}: {f['fact']}" for f in every])
+            found += [every[i] for i in close if every[i]["id"] not in have]
+        return found
 
     @registry.tool("Forget a remembered fact by id.", obj({"fact_id": ("integer", "Fact id")}))
     def forget(fact_id: int):

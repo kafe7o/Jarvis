@@ -1,0 +1,239 @@
+"""The brains on the laptop: downloading and adding them (Settings > Модели) and making a small one smarter."""
+
+import json
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+from jarvis import brain, gemini, local, localmodels
+
+
+def ollama_has(monkeypatch, *names):
+    monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": list(names)})
+
+
+def test_the_owners_words_name_a_model():
+    assert localmodels.resolve("изтегли qwen 9b") == "huihui_ai/qwen3.5-abliterated:9b"
+    assert localmodels.resolve("бързия 4b") == "huihui_ai/qwen3.5-abliterated:4B"
+    assert localmodels.resolve("9b guff от hugging face").startswith("hf.co/")
+    assert localmodels.resolve("pamet po smisal") == "qwen3-embedding:0.6b"
+    assert localmodels.resolve("hf.co/user/repo:Q4_K_M") == "hf.co/user/repo:Q4_K_M"
+    assert localmodels.resolve("gemma3:4b") == "gemma3:4b"
+    assert localmodels.resolve("нещо") is None
+
+
+def test_how_a_model_fits_the_owners_laptop():
+    laptop = {"vram": 6.0, "ram": 15.4}
+    assert "цял" in localmodels.fit(3.3, laptop)
+    assert "част" in localmodels.fit(6.6, laptop)
+    assert "твърде" in localmodels.fit(24, laptop)
+    assert "процесора" in localmodels.fit(3.3, {"vram": 0, "ram": 16})
+
+
+def test_a_gguf_in_downloads_is_found_but_not_its_vision_part_or_a_small_file(tmp_path):
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    for name, size in (("Qwen3.5-9B-abliterated-Q4_K_M.gguf", 5_600_000_000), ("mmproj-f16.gguf", 900_000_000),
+                       ("tiny.gguf", 1000)):
+        with open(downloads / name, "wb") as f:
+            f.truncate(size)
+    found = localmodels.gguf_files([downloads])
+    assert [f["name"] for f in found] == ["qwen3.5-9b-abliterated-q4_k_m"] and found[0]["gb"] == 5.6
+
+
+def test_a_qwen_35_file_gets_ollamas_own_prompt_and_tool_reading():
+    spec = localmodels.modelfile(r"C:\Users\Anastas\Downloads\Qwen3.5-9B-abliterated-Q4_K_M.gguf")
+    assert spec.startswith("FROM C:\\Users") and "RENDERER qwen3.5" in spec and "PARSER qwen3.5" in spec
+    assert "num_ctx 16384" in spec
+    assert "RENDERER" not in localmodels.modelfile("/x/llama-3.2-3b.Q4_K_M.gguf")
+    assert "RENDERER" not in localmodels.modelfile("/x/Qwen3.5-9B.gguf", renderer=False)
+
+
+def test_adding_a_file_falls_back_to_its_own_template_on_an_older_ollama(tmp_path, monkeypatch):
+    file = tmp_path / "Qwen3.5-9B-abliterated-Q4_K_M.gguf"
+    file.write_bytes(b"GGUF")
+    monkeypatch.setattr(localmodels, "ollama_program", lambda: "ollama")
+    monkeypatch.setattr(localmodels, "version", lambda: "0.20.0")
+    monkeypatch.setattr(localmodels.Path, "home", lambda: tmp_path)
+    specs = []
+
+    def run(cmd, **kw):
+        specs.append(open(cmd[-1], encoding="utf-8").read())
+        return SimpleNamespace(returncode=1 if len(specs) == 1 else 0, stderr="unknown command RENDERER", stdout="")
+
+    started = []
+    monkeypatch.setattr(localmodels.threading, "Thread", lambda target, **kw: SimpleNamespace(start=lambda: started.append(target)))
+    assert "qwen3.5-9b-abliterated-q4_k_m" in localmodels.import_gguf(str(file), run=run)
+    started[0]()
+    assert "RENDERER" in specs[0] and "RENDERER" not in specs[1]
+    assert localmodels.progress()["qwen3.5-9b-abliterated-q4_k_m"]["status"] == "готово"
+
+
+def test_a_download_shows_its_progress_and_its_error():
+    localmodels._pulls["m"] = {"status": "", "percent": 0, "done": False, "error": ""}
+    seen = []
+
+    def stream(path, body):
+        assert body == {"model": "m", "stream": True}
+        yield json.dumps({"status": "pulling manifest"})
+        yield json.dumps({"status": "pulling a", "digest": "a", "total": 4_000_000_000, "completed": 1_000_000_000})
+        seen.append(dict(localmodels._pulls["m"]))
+        yield json.dumps({"status": "pulling b", "digest": "b", "total": 1_000_000_000, "completed": 1_000_000_000})
+        seen.append(dict(localmodels._pulls["m"]))
+        yield json.dumps({"status": "success"})
+
+    localmodels._pull("m", post=stream)
+    assert seen[0]["percent"] == 25 and seen[1]["percent"] == 40 and "от 5.0 GB" in seen[1]["status"]
+    assert localmodels._pulls["m"] == {"status": "готово", "percent": 100, "done": True, "error": ""}
+    localmodels._pulls["m"] = {"status": "", "percent": 0, "done": False, "error": ""}
+    localmodels._pull("m", post=lambda p, b: iter([json.dumps({"error": "pull model manifest: file does not exist"})]))
+    assert localmodels._pulls["m"]["done"] and "does not exist" in localmodels._pulls["m"]["error"]
+
+
+def test_a_gguf_from_hugging_face_needs_a_new_enough_ollama(monkeypatch):
+    monkeypatch.setattr(localmodels, "version", lambda: "0.18.2")
+    with pytest.raises(RuntimeError, match="стар"):
+        localmodels.pull("hf.co/mradermacher/Huihui-Qwen3.5-9B-abliterated-i1-GGUF:Q4_K_S")
+    with pytest.raises(ValueError):
+        localmodels.pull("rm -rf /")
+
+
+def test_the_owners_qwen_9b_is_the_laptop_brain_and_its_4b_takes_the_easy_steps(monkeypatch):
+    ollama_has(monkeypatch, "qwen3-embedding:0.6b", "gemma3:4b", "huihui_ai/qwen3.5-abliterated:4B",
+               "huihui_ai/qwen3.5-abliterated:9b")
+    assert local.pick() == "huihui_ai/qwen3.5-abliterated:9b"
+    assert local.quick_partner("huihui_ai/qwen3.5-abliterated:9b") == "huihui_ai/qwen3.5-abliterated:4B"
+    assert local.quick_partner("gemma3:4b") is None
+    ollama_has(monkeypatch, "qwen3-embedding:0.6b", "qwen3.5-9b-abliterated-q4_k_m:latest", "huihui_ai/qwen3.5-abliterated:4B")
+    assert local.pick() == "qwen3.5-9b-abliterated-q4_k_m:latest"  # the file the owner added, not the memory model
+    assert local.quick_partner(local.pick()) == "huihui_ai/qwen3.5-abliterated:4B"
+
+
+def test_qwen_35_tool_calls_written_as_text_are_made():
+    xml = "<tool_call>\n<function=open_target>\n<parameter=target>\ntaskmgr\n</parameter>\n</function>\n</tool_call>"
+    assert gemini.written_call(xml) == ("open_target", {"target": "taskmgr"})
+    assert gemini.written_call("<function=add_task>\n<parameter=title>\nмляко\n</parameter>\n<parameter=priority>\n2"
+                               "\n</parameter>\n</function>") == ("add_task", {"title": "мляко", "priority": 2})
+    tagged = 'Отварям го.\n<tool_call>\n{"name": "open_target", "arguments": {"target": "notepad"}}\n</tool_call>'
+    assert gemini.written_call(tagged) == ("open_target", {"target": "notepad"})
+    assert gemini.written_call("Телефонът е 0888123456.") is None
+    reply = local.from_reply({"message": {"content": "<think>hm</think>" + xml}}, "q")
+    assert reply.stop_reason == "tool_use" and reply.content[0].name == "open_target"
+
+
+def test_a_laptop_model_gets_qwens_settings_short_rules_and_stays_loaded():
+    bodies = []
+    brain_ = local.LocalBrain(lambda path, body: bodies.append(body) or {"message": {"content": "Да."}})
+    tools = [{"name": "weather", "description": "d", "input_schema": {"type": "object"}}]
+    brain_.create(model="q", system="Ти си Jarvis.", messages=[{"role": "user", "content": "x"}], tools=tools,
+                  max_tokens=100, effort="low")
+    body = bodies[0]
+    assert body["keep_alive"] == "30m" and body["think"] is False and body["options"]["top_k"] == 20
+    assert body["options"]["num_ctx"] == 16384 and "CALL a tool" in body["messages"][0]["content"]
+    brain_.create(model="q", system="s", messages=[{"role": "user", "content": "x"}], tools=[], max_tokens=100,
+                  effort="xhigh")
+    assert bodies[1]["think"] is True
+
+
+def _jarvis(settings, ctx, registry, replies):
+    from test_router import Approver, FakeClient
+
+    bodies = []
+
+    def post(path, body):
+        bodies.append(body)
+        return replies.pop(0)
+
+    jarvis = brain.Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]),
+                          local_brain=local.LocalBrain(post))
+    return jarvis, bodies
+
+
+def test_the_laptop_split_between_its_two_models(settings, ctx, registry, monkeypatch):
+    ollama_has(monkeypatch, "huihui_ai/qwen3.5-abliterated:4B", "huihui_ai/qwen3.5-abliterated:9b")
+    settings.model, settings.effort = "local", "xhigh"
+    jarvis, bodies = _jarvis(settings, ctx, registry, [{"message": {"content": "Здравей."}}] * 3)
+    jarvis._ask_local("local", "s", [{"role": "user", "content": "здрасти"}], [], 100, "xhigh")
+    assert bodies[-1]["model"] == "huihui_ai/qwen3.5-abliterated:4B" and bodies[-1]["think"] is False
+    tools = [{"name": "weather", "description": "d", "input_schema": {"type": "object"}}]
+    jarvis._ask_local("local", "s", [{"role": "user", "content": "времето"}], tools, 100, "xhigh")
+    assert bodies[-1]["model"] == "huihui_ai/qwen3.5-abliterated:9b" and bodies[-1]["think"] is False
+    failed = [{"role": "user", "content": "времето"},
+              {"role": "assistant", "content": [{"type": "tool_use", "id": "1", "name": "weather", "input": {}}]},
+              {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "1", "content": "boom", "is_error": True}]}]
+    jarvis._ask_local("local", "s", failed, tools, 100, "xhigh")
+    assert bodies[-1]["model"] == "huihui_ai/qwen3.5-abliterated:9b" and bodies[-1]["think"] is True
+
+
+def test_many_memories_only_the_ones_about_the_request_and_the_newest_go_in():
+    facts = [{"topic": "кола", "fact": "Колата е синя Тойота"}] + [
+        {"topic": f"t{i}", "fact": f"факт номер {i}"} for i in range(60)]
+    shown = brain.relevant_facts(facts, "каква е колата ми?")
+    assert facts[0] in shown and len(shown) == brain.FACTS_NEWEST + 1 and shown[-1] == facts[-1]
+    assert brain.relevant_facts(facts[:30], "нещо") == facts[:30]
+    assert brain.relevant_facts(facts, "iskam da znam kakva e kolata mi")[0] == facts[0]  # typed in Latin letters too
+
+
+def test_the_chat_tool_lists_the_laptop_brains(ctx, registry, monkeypatch):
+    monkeypatch.setattr(localmodels, "overview", lambda *a: {
+        "ollama": "0.31.0", "installed_ollama": True, "hardware": {"gpu": "RTX 4050", "vram": 6.0, "ram": 15.4, "disk": 380},
+        "models": [dict(localmodels.CATALOG[0], fit="част", installed=True)], "others": [],
+        "files": [{"path": "C:/Users/A/Downloads/q.gguf", "name": "q", "gb": 5.6}], "chosen": "x", "quick": None,
+        "main": "auto", "pulls": {}})
+    output, is_error = registry.run("local_models", {"action": "list"}, lambda s: True)
+    assert not is_error and "RTX 4050" in output and "q.gguf" in output and "Qwen 3.5 9B Abliterated" in output
+    monkeypatch.setattr(localmodels, "gguf_files", lambda: [{"path": "C:/Users/A/Downloads/q.gguf"}])
+    monkeypatch.setattr(localmodels, "import_gguf", lambda path: f"adding {path}")
+    output, _ = registry.run("local_models", {"action": "add_file"}, lambda s: True)
+    assert output == "adding C:/Users/A/Downloads/q.gguf"
+
+
+def test_recall_finds_a_memory_by_meaning_with_the_laptops_memory_model(ctx, registry, monkeypatch):
+    ollama_has(monkeypatch, "qwen3-embedding:0.6b", "huihui_ai/qwen3.5-abliterated:9b")
+    monkeypatch.setattr(local, "_vectors", {})
+    meaning = {"колата ми": [1, 0], "кола: карам синя Тойота": [0.9, 0.1], "храна: обичам баница": [0, 1]}
+    monkeypatch.setattr(local, "_post", lambda path, body: {"embeddings": [meaning[t] for t in body["input"]]})
+    ctx.store.insert("facts", topic="кола", fact="карам синя Тойота")
+    ctx.store.insert("facts", topic="храна", fact="обичам баница")
+    output, is_error = registry.run("recall", {"query": "колата ми"}, lambda s: True)
+    assert not is_error and "Тойота" in str(output) and "баница" not in str(output)
+    ollama_has(monkeypatch, "huihui_ai/qwen3.5-abliterated:9b")  # without the memory model: by words only
+    output, _ = registry.run("recall", {"query": "колата ми"}, lambda s: True)
+    assert "Тойота" not in str(output)
+
+
+def test_the_memory_moves_to_the_new_laptop_with_its_keys(tmp_path):
+    import sqlite3
+
+    from jarvis import backup
+    from jarvis.setup_wizard import read_env, write_env
+
+    old = tmp_path / "old" / ".jarvis"
+    (old / "skills").mkdir(parents=True)
+    with sqlite3.connect(old / "jarvis.db") as db:
+        db.execute("CREATE TABLE facts (fact TEXT)")
+        db.execute("INSERT INTO facts VALUES ('пие кафе без захар')")
+    (old / "LESSONS.md").write_text("- урок", encoding="utf-8")
+    (old / "skills" / "mine.py").write_text("x = 1", encoding="utf-8")
+    (old / "jarvis.log").write_text("big", encoding="utf-8")
+    (old / "OllamaSetup.exe").write_bytes(b"MZ")
+    old_env = tmp_path / "old.env"
+    write_env(old_env, {"GEMINI_API_KEY": "g-old", "MISTRAL_API_KEY": "m-old"})
+    archive = backup.backup(old, old_env, tmp_path / "Documents")
+    names = set(__import__("zipfile").ZipFile(archive).namelist())
+    assert {"jarvis.db", "LESSONS.md", "skills/mine.py", "project.env"} <= names and "jarvis.log" not in names
+    assert "OllamaSetup.exe" not in names
+
+    new = tmp_path / "new" / ".jarvis"
+    new.mkdir(parents=True)
+    (new / "jarvis.db").write_bytes(b"")
+    new_env = tmp_path / "new.env"
+    write_env(new_env, {"GEMINI_API_KEY": "g-new"})
+    said = backup.restore(archive, new, new_env)
+    assert "Добавени ключове в .env: 1" in said and ".jarvis-before-restore-" in said
+    with sqlite3.connect(new / "jarvis.db") as db:
+        assert db.execute("SELECT fact FROM facts").fetchone()[0] == "пие кафе без захар"
+    env = read_env(new_env)
+    assert env["GEMINI_API_KEY"] == "g-new" and env["MISTRAL_API_KEY"] == "m-old"  # the new laptop's key stays
+    assert (new / "skills" / "mine.py").exists()
