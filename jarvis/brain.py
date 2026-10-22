@@ -10,11 +10,12 @@ import logging
 import re
 import threading
 import time
+from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
 from typing import Callable
 
-from . import core_files, local, notices, recipes, router, usage, work
+from . import core_files, journal, local, notices, recipes, router, usage, work
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -580,9 +581,9 @@ class Jarvis:
         soul = core_files.read(s.home, "SOUL.md")
         if soul:
             prompt += "\n\nYour personality and standing orders, written by the owner (SOUL.md):\n" + soul
-        about = "" if guest else core_files.read(s.home, "USER.md")
-        if about:
-            prompt += "\n\nAbout the owner, in their own words (USER.md):\n" + about
+        own = "" if guest else core_files.read(s.home, "USER.md")
+        if own:
+            prompt += "\n\nAbout the owner, in their own words (USER.md):\n" + own
         lessons = "" if guest else core_files.read(s.home, "LESSONS.md")
         if lessons:
             prompt += "\n\nLessons you learned from experience (LESSONS.md, your own notes; apply them):\n" + lessons
@@ -593,6 +594,10 @@ class Jarvis:
             if len(shown) < len(facts):
                 prompt += (f"\n({len(facts) - len(shown)} older facts not shown here: about anything else, search them "
                            "with recall before saying you do not know.)")
+        notes = "" if guest or not about.strip() else journal.recall(Path(s.vault), about)
+        if notes:
+            prompt += ("\n\nFrom your notes vault about this (daily/ is what was said each day, wiki/ what you know; "
+                       "vault_read for more):\n" + notes)
         return prompt
 
     def _request(self, messages: list, user=None, system: str | list | None = None, allowed: set | None = None, *,
@@ -630,8 +635,14 @@ class Jarvis:
         """Handle one user message end to end and return Jarvis's final answer (see _answer); then, in the
         background, keep what the owner said about his life (notice)."""
         answer = self._answer(text, conversation, confirmer, user, on_progress, images, route, on_step, insist, on_text)
-        if self.settings.learn and route is not False and (user is None or user.is_owner):
-            self.notice_later(text, answer)
+        if route is not False and (user is None or user.is_owner) and not is_background([{"role": "user", "content": text}]):
+            if journal.on():
+                try:  # the day's note in the vault: what was said, as people keep it in Obsidian
+                    journal.write_down(Path(self.settings.vault), redact_secrets(text), answer)
+                except OSError:
+                    log.warning("could not write the day's note", exc_info=True)
+            if self.settings.learn:
+                self.notice_later(text, answer)
         return answer
 
     def notice_later(self, text: str, answer: str) -> None:
@@ -666,6 +677,10 @@ class Jarvis:
                 continue  # already remembered, in other words
             self.store.insert("facts", topic=topic, fact=fact)
             known.append({"topic": topic, "fact": fact})
+            try:  # and in the vault, the topic's note linked to today's: the owner sees it in Obsidian
+                journal.file_fact(Path(self.settings.vault), topic, fact)
+            except OSError:
+                log.warning("could not file the fact in the vault", exc_info=True)
             kept.append(f"{topic}: {fact}")
         if kept:
             log.info("noticed: %s", "; ".join(kept))

@@ -18,7 +18,7 @@ HUBS = {
     "facts": "Факти", "people": "Хора", "notes": "Бележки", "tasks": "Задачи", "calendar": "Календар",
     "plans": "Планове", "history": "Разговори",
 }
-FOLDERS = {"raw": "Входящи", "wiki": "Знание", "output": "Доклади"}
+FOLDERS = {"raw": "Входящи", "wiki": "Знание", "output": "Доклади", "daily": "Дни"}
 # Which part of the memory each tool works with, and whether it reads or writes it.
 TOOLS = {
     "remember": ("facts", "write"), "recall": ("facts", "read"), "forget": ("facts", "write"),
