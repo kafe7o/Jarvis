@@ -79,13 +79,23 @@ def test_phone_conversation_flow(ctx, monkeypatch):
     assert phone_agent.transcript_for("CA9")[-1] == {"summary": "Масата е запазена за 20:00."}
 
 
-def test_phone_brain_merges_turns_for_the_api(ctx):
-    from conftest import FakeClient, response, text_block
+def test_phone_brain_merges_turns_and_asks_the_laptop_for_json(ctx, monkeypatch):
+    from jarvis import local
 
-    client = FakeClient([response(text_block('{"say": "Ало?", "done": false, "summary": ""}'))])
-    brain = phone_agent.PhoneBrain(ctx, client=client)
+    monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": ["qwen3.5:9b", "qwen3.5:4b"]})
+    sent = []
+
+    def post(path, body):
+        sent.append(body)
+        return {"message": {"content": '{"say": "Ало?", "done": false, "summary": ""}'}}
+
+    brain = phone_agent.PhoneBrain(ctx, post=post)
     sess = phone_agent.CallSession(goal="", language="bg-BG", inbound=True)
     sess.transcript = [{"who": "system", "text": "Caller number: +1"}, {"who": "them", "text": "Ало"}]
-    assert brain.next(sess)["say"] == "Ало?"
-    roles = [m["role"] for m in client.requests[0]["messages"]]
-    assert roles == ["user"]
+    assert brain.next(sess) == {"say": "Ало?", "done": False, "summary": ""}
+    body = sent[0]
+    assert [m["role"] for m in body["messages"]] == ["system", "user"]
+    assert body["model"] == "qwen3.5:4b" and body["format"] == phone_agent.REPLY_SCHEMA and body["think"] is False
+
+    brain = phone_agent.PhoneBrain(ctx, post=lambda path, body: {"message": {"content": "не е JSON"}})
+    assert brain.next(sess)["done"] is True  # a broken answer ends the call politely

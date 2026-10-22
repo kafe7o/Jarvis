@@ -114,7 +114,7 @@ def test_tasks_tab_shows_what_runs_now_and_what_comes_next(settings, ctx, regist
     except urllib.error.HTTPError as exc:
         assert exc.code == 404
     usage = json.loads(call(port, "/api/usage")[1])
-    assert usage["today"] == {"cost": 0, "requests": 0} and len(usage["days"]) == 14
+    assert usage["today"] == {"requests": 0, "tokens": 0} and len(usage["days"]) == 14
 
 
 def test_the_app_gets_its_answer_as_an_event_even_after_the_connection_dropped(settings, ctx, registry):
@@ -152,7 +152,7 @@ def test_tasks_are_done_one_after_another_and_stop_is_heard_at_once(settings, ct
         response(tool_block("slow_job", {}), stop="tool_use"), response(text_block("Първото е готово.")),
         response(text_block("Второто е готово.")),
     ])
-    client = ctx.jarvis.client
+    client = ctx.jarvis.local
     said = []
     first = threading.Thread(target=lambda: said.append(hub.ask("направи първото")))
     first.start()
@@ -299,6 +299,6 @@ def test_settings_are_split_into_tidy_tabs():
     from jarvis.setup_wizard import STEPS
 
     tabs = {title: settings_tab(title, [k for k, _l in fields]) for title, _w, fields in STEPS + EXTRA_SETTINGS}
-    assert tabs["Мозък"] == tabs["Пестене"] == tabs["Мозъкът: Gemini (безплатен)"] == "brain"
+    assert tabs["Мозък"] == "brain" and not any(t.startswith("Мозъкът") for t in tabs)
     assert tabs["Поведение"] == tabs["Съобщения"] == tabs["Как да се обръща към теб"] == "general"
     assert tabs["Глас"] == "voice" and tabs["Telegram"] == tabs["Обаждания и SMS"] == "service"

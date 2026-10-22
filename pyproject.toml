@@ -9,8 +9,6 @@ description = "J.A.R.V.I.S. — a personal AI assistant: voice, calls, SMS, e-ma
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "anthropic>=1.11",
-    "google-genai>=2.0",
     "python-dotenv>=1.0",
 ]
 

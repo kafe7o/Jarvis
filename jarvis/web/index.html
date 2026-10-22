@@ -60,30 +60,9 @@ svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-widt
 .brand-big h1 { margin: 0; font-size: 22px; letter-spacing: .32em; font-weight: 600; padding-left: .32em; }
 .brand-big p { margin: 0; color: var(--muted); font-size: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.scale { border: 1px solid var(--line2); border-radius: 14px; padding: 14px 16px 10px; margin-bottom: 16px; }
-.scale-top { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
-.scale-track { position: relative; height: 34px; margin: 8px 30px 4px; }
-.scale-track .rail { position: absolute; inset: 4px 0; background: var(--line); border-radius: 13px; }
-.scale-track .dots { position: absolute; inset: 0 13px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
-.scale-track .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
-.scale-track .dots i.rec { width: 3px; height: 14px; border-radius: 2px; }
-.scale-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
-.scale-range::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
-.scale-range::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
-.scale-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--glow); }
-.scale-names { position: relative; height: 56px; margin: 2px 30px 0; }
-.scale-names button { position: absolute; transform: translateX(-50%); background: none; border: 0; padding: 0; cursor: pointer;
+
   display: flex; flex-direction: column; align-items: center; gap: 1px; font: inherit; color: var(--muted); white-space: nowrap; }
-.scale-names b { font-size: 13px; font-weight: 600; } .scale-names small { font-size: 11px; color: var(--faint); }
-.scale-names button.on { color: var(--text); } .scale-names button.on small { color: var(--muted); }
-.scale-names em { font-style: normal; font-size: 11px; color: var(--accent); }
-.scale-top { align-items: center; }
-.auto-btn { font: inherit; font-size: 12px; font-weight: 600;
   padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); color: var(--muted); cursor: pointer; }
-.auto-btn:hover { border-color: var(--accent); color: var(--text); }
-.auto-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.scale.auto .scale-track, .scale.auto .scale-names { opacity: .45; }
-.scale-now { font-size: 14px; margin-top: 6px; } .scale-now b { color: var(--text); } .scale-now span { color: var(--muted); }
 .field label { font-size: 13.5px; color: var(--text); }
 .input { width: 100%; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; padding: 11px 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,209,255,.15); }
@@ -190,11 +169,6 @@ header.top h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; white-spa
 @keyframes pulse-red { 50% { box-shadow: 0 0 0 6px rgba(255,93,108,.2); } }
 #send { width: 40px; height: 40px; padding: 0; border-radius: 12px; }
 .composer-wrap { position: relative; }
-#brainBtn { align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
-.brain-pop { position: absolute; bottom: calc(100% - 4px); left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 20px));
-  background: var(--panel); border: 1px solid var(--line2); border-radius: 16px; padding: 14px 16px 6px; box-shadow: 0 16px 50px rgba(0,0,0,.5); z-index: 30; }
-.brain-pop h6 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); } .brain-pop h6 b { color: var(--text); }
-.brain-pop .scale { border: 0; padding: 0; margin: 0; }
 .attachments { max-width: 860px; margin: 0 auto 8px; }
 .attachments .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; }
 .attachments .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -364,12 +338,6 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
   .live-open { position: relative; }
   .live-open .ld { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; }
   .live-open b { position: absolute; top: -4px; right: -4px; }
-  #brainName { display: none; }
-  .scale-track { margin: 8px 18px 4px; }
-  .scale-names { margin: 2px 18px 0; height: 52px; }
-  .scale-names button { white-space: normal; text-align: center; max-width: 76px; line-height: 1.2; }
-  .scale-names b { font-size: 12px; }
-  .scale-names small { display: none; }
   .tab-head small { display: none; }
 }
 
@@ -379,14 +347,7 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
 .hud-open:hover { background: rgba(79,209,255,.16); box-shadow: 0 0 16px var(--glow); }
 @media (max-width: 560px) { .hud-open span:last-child { display: none; } }
 :root { --hud: #4fd1ff; --hud-rgb: 79, 209, 255; }
-:root[data-brain="fable"] { --hud: #ffb547; --hud-rgb: 255, 181, 71; }
-:root[data-brain="sonnet"] { --hud: #b18cff; --hud-rgb: 177, 140, 255; }
-:root[data-brain="haiku"] { --hud: #3ddc97; --hud-rgb: 61, 220, 151; }
-:root[data-brain="gemini"] { --hud: #8ab4ff; --hud-rgb: 138, 180, 255; }
 :root[data-brain="local"] { --hud: #e6edf5; --hud-rgb: 230, 237, 245; }
-:root[data-brain="groq"] { --hud: #ff8a5c; --hud-rgb: 255, 138, 92; }
-:root[data-brain="nvidia"] { --hud: #76b900; --hud-rgb: 118, 185, 0; }
-:root[data-brain="openrouter"] { --hud: #ff6fb5; --hud-rgb: 255, 111, 181; }
 #hud { position: fixed; inset: 0; z-index: 60; color: #dff6ff; font-family: var(--mono); overflow: hidden;
   background: radial-gradient(900px 700px at 50% 45%, rgba(var(--hud-rgb), .10), transparent 60%), #02050b; --lvl: 0; }
 #hud.hidden { display: none; }
@@ -739,11 +700,9 @@ header.top .tools { display: flex; align-items: center; gap: 6px; }
     </div>
     <div class="composer-wrap">
       <div id="attachments" class="chips attachments hidden"></div>
-      <div id="brainPop" class="brain-pop hidden"></div>
       <form id="composer">
         <textarea id="input" rows="1" placeholder="Кажи на Jarvis…" autocomplete="off"></textarea>
         <input type="file" id="fileInput" multiple hidden>
-        <button type="button" class="icon-btn hidden" id="brainBtn" title="Мозък: по-бърз или по-умен"><svg class="i"><use href="#i-gauge"/></svg><span id="brainName"></span></button>
         <button type="button" class="icon-btn" id="attach" title="Прикачи снимка, видео или файл"><svg class="i"><use href="#i-clip"/></svg></button>
         <button type="button" class="icon-btn" id="mic" title="Говори"><svg class="i"><use href="#i-mic"/></svg></button>
         <button class="btn primary" id="send" title="Изпрати"><svg class="i"><use href="#i-send"/></svg></button>
@@ -1016,7 +975,6 @@ async function start() {
   $("memBtn").classList.toggle("hidden", me.user.role !== "owner");  // the memory is the owner's
   $("hudMemBtn").classList.toggle("hidden", me.user.role !== "owner");
   setBrain(me.brain);
-  loadBrainBtn();
   greet();
   await loadChats();
   const last = store.get("jarvis.chat." + me.user.id, null);
@@ -1328,7 +1286,7 @@ function silenceMs() { return (state.silence || 2) * 1000; }
 // When to act: the pause counts from the last sound (interim results come while you speak; the final one comes
 // only after the browser has heard a short pause itself).
 function quietIn(final, last) { return final ? Math.max(150, last + silenceMs() - Date.now()) : silenceMs(); }
-// Whisper (Groq, free) when the browser has no speech service of its own: Avast, Brave and Opera have the API but
+// Whisper on the laptop when the browser has no speech service of its own: Avast, Brave and Opera have the API but
 // fail with "network". Records until a pause (JARVIS_SILENCE) or a second tap, then Jarvis turns it into text.
 let whisperRec = null;
 async function whisperListen() {
@@ -1445,7 +1403,6 @@ function handleEvent(ev) {
     if (hud.open) hudShowConfirm();
   }
   if (ev.kind === "voice") { shortVoices.clear(); toast(`Вече говоря с гласа ${ev.name}.`, "Нов глас"); }
-  if (ev.kind === "brain") { setBrain(ev.brain); toast(`Вече мисля с ${ev.name}.`, "Нов мозък"); hudLog("Мозък: " + ev.name); }
   if (ev.kind === "work") workEvent(ev);
   if (ev.kind === "memory") memEvent(ev);
   if (live.open && (ev.kind === "confirm" || ev.kind === "confirm_closed")) liveRender();
@@ -1504,7 +1461,7 @@ function finishConfirm(holder, text) {
 // ---------- Jarvis mode: full-screen voice HUD ----------
 // Says "Джарвис…" (or anything right after he spoke), answers aloud, takes "да/не" for permissions,
 // sees the shared screen or camera, and glows in the colour of the brain he is running on.
-const BRAINS = { opus: "OPUS 5.5", fable: "FABLE 5.1", sonnet: "SONNET 5.5", haiku: "HAIKU 5.5", gemini: "GEMINI", groq: "GROQ", nvidia: "NVIDIA", openrouter: "OPENROUTER", local: "ЛАПТОП" };
+const BRAINS = { local: "ЛАПТОП" };
 const WAKE = /(?<!\p{L})(?:хей\s+)?(?:джарвис|джарвиз|жарвис|дарвис|чарвис|джервис|джарви|jarvis|jervis)(?!\p{L})[\s,.!?]*/iu;
 const STOP = /(?<!\p{L})(?:стоп|спри|тихо|млъкни|достатъчно|stop)(?!\p{L})/iu;
 const SAY_NO = /(?<!\p{L})(?:не|недей|откажи|отказвам|отказ|спри|no)(?!\p{L})/iu;
@@ -1523,7 +1480,7 @@ const ACKS = ["Заемам се, сър.", "Веднага, сър.", "Запо
 try { hud.look = localStorage.getItem("jarvisLook") || "orb"; } catch (e) {}
 
 function setBrain(key) {
-  state.brain = key || "opus";
+  state.brain = key || "local";
   if (BRAINS[state.brain]) document.documentElement.dataset.brain = state.brain;
   else delete document.documentElement.dataset.brain;
   $("hudBrain").textContent = "НА ЛИНИЯ · " + (BRAINS[state.brain] || "ДРУГ");
@@ -1958,8 +1915,7 @@ async function hudStats() {
   ["1", "2", "3"].forEach((k) => { $("hudL" + k).textContent = levels[k] || 0; });
   const days = u.days.slice(-7), top = Math.max(...days.map((d) => d.requests), 1);
   $("hudSpark").innerHTML = days.map((d) => `<div title="${esc(d.day)}: ${d.requests} заявки" style="height:${Math.max(5, Math.round(100 * d.requests / top))}%"></div>`).join("");
-  const cost = u.today.cost > 0 ? "$" + u.today.cost.toFixed(2) : "$0";
-  $("hudCost").textContent = `Похарчено днес: ${cost} · ${u.week.requests} заявки към AI за 7 дни`;
+  $("hudCost").textContent = `Днес: ${u.today.requests} заявки към мозъка на лаптопа · ${u.week.requests} за 7 дни`;
   $("hudToday").classList.remove("hidden");
 }
 
@@ -2627,14 +2583,13 @@ function closeDrawer() { $("app").classList.remove("drawer"); }
 const TABS = [
   { id: "profile", label: "Профил", icon: "user", group: "Ти", sub: "Името ти, имейлът и паролата за вход" },
   { id: "perms", label: "Разрешения", icon: "shield", group: "Ти", sub: "Какво може да прави Jarvis без да пита" },
-  { id: "brain", label: "Мозък", icon: "pulse", owner: true, group: "Jarvis", sub: "Кой мозък мисли, ключовете и таваните за харчене" },
+  { id: "brain", label: "Мозък", icon: "pulse", owner: true, group: "Jarvis", sub: "Моделите на лаптопа, с които мисли: изтегли, добави от папката, избери" },
   { id: "general", label: "Поведение", icon: "gear", owner: true, group: "Jarvis", sub: "Как се обръща към теб, колко свободно работи, отговори вместо теб" },
   { id: "soul", label: "Личност", icon: "spark", owner: true, group: "Jarvis", sub: "Как говори, какво знае за теб и какво е научил" },
   { id: "voice", label: "Глас", icon: "speaker", owner: true, group: "Jarvis", sub: "Чуй гласовете и избери как да звучи Jarvis" },
   { id: "activity", label: "Задачи", icon: "list", owner: true, group: "Работа", sub: "Какво работи сега и какво е свършил" },
   { id: "routines", label: "Рутини", icon: "clock", owner: true, group: "Работа", sub: "Работа, която прави сам в избран час" },
-  { id: "usage", label: "Разход", icon: "chart", owner: true, group: "Работа", sub: "Колко заявки прави и към кои мозъци" },
-  { id: "models", label: "Модели", icon: "gauge", owner: true, group: "Система", sub: "Мозъци на лаптопа: тегли, добави от Downloads, избери" },
+  { id: "usage", label: "Статистика", icon: "chart", owner: true, group: "Работа", sub: "Колко работа е свършил мозъкът на лаптопа" },
   { id: "connections", label: "Връзки", icon: "plug", owner: true, group: "Система", sub: "Телефон, имейл, Telegram и другите услуги" },
   { id: "accounts", label: "Акаунти", icon: "users", owner: true, group: "Система", sub: "Хората, които ползват Jarvis" },
   { id: "devices", label: "Устройства", icon: "devices", owner: true, group: "Система", sub: "Телефон, телевизор и други компютри" },
@@ -2667,7 +2622,7 @@ async function showTab(id) {
   $("tabSub").textContent = tab.sub || "";
   $("tabBody").scrollTop = 0;
   $("tabBody").innerHTML = `<div class="hint">Зареждам…</div>`;
-  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, voice: tabVoice, models: tabModels, brain: tabBrain, general: tabGeneral, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
+  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, voice: tabVoice, brain: tabBrain, general: tabGeneral, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
   catch (err) { $("tabBody").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
 }
 
@@ -2837,13 +2792,13 @@ async function tabVoice() {
   wireSettings(more, tabVoice);
 }
 
-// The brains on the laptop (Модели): Ollama, the graphics card, the light models to download, a .gguf file already
+// Мозък: the models on the laptop he thinks with: Ollama, the graphics card, the light models to download, a .gguf file already
 // in Downloads to add, and which one Jarvis thinks with. A download shows its progress here.
 let modelsTimer = null;
-async function tabModels(view) {
+async function tabBrain(view) {
   clearTimeout(modelsTimer);
-  const v = view || await api("/api/local-models");
-  if (currentTab !== "models") return;
+  const [v, sections] = await Promise.all([view || api("/api/local-models"), settingsOf("brain")]);
+  if (currentTab !== "brain") return;
   const hw = v.hardware, busy = Object.entries(v.pulls || {});
   const act = (action, model) => `data-act="${action}" data-model="${esc(model || "")}"`;
   const row = (title, about, buttons) => `
@@ -2860,13 +2815,16 @@ async function tabModels(view) {
     : `Първо трябва Ollama (безплатната програма, която пуска моделите). <button class="btn primary small" ${act("install_ollama")}>Инсталирай Ollama</button>`;
   $("tabBody").innerHTML = `
     <div class="note">${icon("info")}<div>${ollama}<br>Компютърът: ${esc(hw.gpu || "няма NVIDIA видеокарта")}${hw.vram ? `, ${hw.vram} GB видеопамет` : ""}, ${hw.ram} GB RAM, ${hw.disk} GB свободно място.
-      <br>Мозък на лаптопа: <b>${esc(v.chosen || "няма")}</b>${v.quick ? ` (лесните отговори на ${esc(v.quick)})` : ""}.
-      ${v.chosen && v.main !== "local" ? ` Сега главният мозък е ${esc(v.main === "auto" ? "Авто" : v.main)}; лаптопът е резервен. <button class="btn ghost small" ${act("main")}>Мисли само на лаптопа</button>` : ""}</div></div>
+      <br>Мисли с: <b>${esc(v.chosen || "още няма модел: изтегли или добави един долу")}</b>${v.quick ? ` (кратките отговори на ${esc(v.quick)})` : ""}.
+      Всичко става на лаптопа: без ключове, без лимит и без интернет.</div></div>
+    <div class="section"><h5>Папката с моделите</h5>
+      <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><code>${esc(v.folder || "")}</code><button class="btn ghost small" ${act("open_folder")}>Отвори папката</button></div>
+      <p class="sub">Тегли .gguf файловете тук (или ги премести от Downloads). Jarvis ги вижда сам и ги добавя с „Добави“.</p></div>
     ${v.files.length ? `<div class="section"><h5>Файлове на компютъра</h5>
       ${v.files.map((f) => row(f.path.split(/[\\/]/).pop(), `${f.gb} GB · ${esc(f.fit)}`,
         (v.pulls[f.name] && !v.pulls[f.name].done) ? `<span class="badge">${esc(v.pulls[f.name].status)}</span>`
           : `<button class="btn primary small" ${act("add_file", f.path)}>Добави</button>`)).join("")}
-      <p class="sub">Моделът, който си изтеглил сам (.gguf), се добавя в Ollama с „Добави“ и после се избира тук.</p></div>` : ""}
+      <p class="sub">Моделът, който си изтеглил сам (.gguf), се добавя в Ollama с „Добави“ и после се избира тук. След „готово“ файлът може да се изтрие: Ollama пази свое копие.</p></div>` : ""}
     <div class="section"><h5>Леки модели</h5>
       ${v.models.map((m) => row(m.name, `${m.gb} GB · ${esc(m.fit)}<br>${esc(m.about)}`, state(m))).join("")}
       ${v.others.map((m) => row(m.id, `${m.gb} GB · ${esc(m.fit)}`, state(Object.assign({ installed: true }, m)))).join("")}
@@ -2874,16 +2832,18 @@ async function tabModels(view) {
     <div class="section"><h5>Друг модел</h5>
       <div class="row"><input class="input" id="otherModel" placeholder="име от ollama.com или hf.co/потребител/модел:Q4_K_M">
       <button class="btn primary small" id="otherPull">Изтегли</button></div></div>
-    ${busy.filter(([, p]) => p.error).map(([n, p]) => `<div class="err">${esc(n)}: ${esc(p.error)}</div>`).join("")}`;
+    ${busy.filter(([, p]) => p.error).map(([n, p]) => `<div class="err">${esc(n)}: ${esc(p.error)}</div>`).join("")}
+    ${sections.map((x, i) => settingsCard(x, i, { badge: false, title: "Още за мозъка" })).join("")}`;
+  wireSettings(sections, () => tabBrain());
   const run = async (action, model, b) => {
     if (action === "delete" && !confirm(`Да изтрия ли ${model} от лаптопа?`)) return;
     if (b) b.disabled = true;
-    try { tabModels(await api("/api/local-models", { action, model })); }
-    catch (err) { if (b) b.disabled = false; toast(err.message, "Модели", "warn"); }
+    try { tabBrain(await api("/api/local-models", { action, model })); }
+    catch (err) { if (b) b.disabled = false; toast(err.message, "Мозък", "warn"); }
   };
   $("tabBody").querySelectorAll("button[data-act]").forEach((b) => b.addEventListener("click", () => run(b.dataset.act, b.dataset.model, b)));
   $("otherPull").onclick = () => { const name = $("otherModel").value.trim(); if (name) run("download", name, $("otherPull")); };
-  if (busy.some(([, p]) => !p.done)) modelsTimer = setTimeout(() => tabModels(), 2000);
+  if (busy.some(([, p]) => !p.done)) modelsTimer = setTimeout(() => tabBrain(), 2000);
 }
 
 async function tabSoul() {
@@ -2971,114 +2931,31 @@ async function tabActivity() {
 
 async function tabUsage() {
   const u = await api("/api/usage");
-  const usd = (v) => v === 0 ? "$0" : v < 0.01 ? "<$0.01" : "$" + v.toFixed(2);
   const num = (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + " млн." : v >= 1e3 ? Math.round(v / 1e3) + " хил." : String(v);
-  const top = Math.max(...u.days.map((d) => d.cost), 0.0001);
-  const anyCost = u.days.some((d) => d.cost > 0), topReq = Math.max(...u.days.map((d) => d.requests), 1);
+  const topReq = Math.max(...u.days.map((d) => d.requests), 1);
   const day = (iso) => new Date(iso + "T12:00").toLocaleDateString("bg-BG", { day: "numeric", month: "short" });
-  const freeToday = u.gemini.reduce((n, g) => n + g.today, 0);
   $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>Jarvis работи на безплатни мозъци (Gemini, Groq, NVIDIA, OpenRouter). Gemini има дневен лимит, който се подновява всеки ден около 10:00. „Пусни…“, „колко е часът“, „времето утре“, „напомни ми в 18:00…“ минават без AI. Платен е само Claude и само ако сам го избереш (таванът е в Мозък → Пестене).</div></div>
+    <div class="note">${icon("info")}<div>Jarvis мисли само на лаптопа, затова не харчи нищо и няма дневен лимит. „Пусни…“, „колко е часът“, „времето утре“, „напомни ми в 18:00…“ минават и без модел, веднага.</div></div>
     <div class="stats">
-      <div class="stat"><small>Заявки днес</small><b>${u.today.requests}</b><small>платено: ${usd(u.today.cost)}</small></div>
-      <div class="stat"><small>Последните 7 дни</small><b>${u.week.requests}</b><small>заявки · платено: ${usd(u.week.cost)}</small></div>
-      <div class="stat"><small>Безплатни днес (Gemini)</small><b>${freeToday}</b><small>заявки от 10:00 насам</small></div>
+      <div class="stat"><small>Заявки днес</small><b>${u.today.requests}</b><small>${num(u.today.tokens)} токена</small></div>
+      <div class="stat"><small>Последните 7 дни</small><b>${u.week.requests}</b><small>${num(u.week.tokens)} токена</small></div>
     </div>
     <div class="stats">
-      <div class="stat"><small>Ниво 1: без AI</small><b>${(u.levels || {})["1"] || 0}</b><small>команди днес, без кредити</small></div>
+      <div class="stat"><small>Ниво 1: без AI</small><b>${(u.levels || {})["1"] || 0}</b><small>команди днес</small></div>
       <div class="stat"><small>Ниво 2: бърз модел</small><b>${(u.levels || {})["2"] || 0}</b><small>кратки въпроси днес</small></div>
       <div class="stat"><small>Ниво 3: пълен агент</small><b>${(u.levels || {})["3"] || 0}</b><small>истинска работа днес</small></div>
     </div>
     <div class="section">
-      <h5>${anyCost ? "Разход по дни" : "Заявки по дни"}</h5>
-      <div class="bars">${u.days.map((d) => `<div class="${anyCost ? "" : "free"}" title="${day(d.day)}: ${usd(d.cost)}, ${d.requests} заявки"
-        style="height:${Math.round(100 * (anyCost ? d.cost / top : d.requests / topReq))}%"></div>`).join("")}</div>
+      <h5>Заявки по дни</h5>
+      <div class="bars">${u.days.map((d) => `<div class="free" title="${day(d.day)}: ${d.requests} заявки"
+        style="height:${Math.round(100 * d.requests / topReq)}%"></div>`).join("")}</div>
       <div class="bars-x"><span>${day(u.days[0].day)}</span><span>днес</span></div>
     </div>
     <div class="section">
-      <h5>Безплатните модели на Gemini днес</h5>
-      ${u.gemini.map((g) => `<div class="mrow"><code>${esc(g.model)}</code><span>${g.today} заявки</span>
-        <span class="badge ${g.used_up ? "warn" : "ok"}">${g.used_up ? "свърши, връща се в " + esc(g.back_at) : "работи"}</span></div>`).join("")}
-      <p class="sub">Когато един свърши за деня, Jarvis сам минава на следващия.</p>
-    </div>
-    <div class="section">
       <h5>По модели (последните 14 дни)</h5>
-      ${u.models.length ? u.models.map((m) => `<div class="mrow"><code>${esc(m.model)}</code><span>${m.requests} заявки · ${num(m.tokens)} токена</span>
-        <b>${m.free ? "безплатно" : usd(m.cost)}</b></div>`).join("") : `<div class="hint">Още няма заявки.</div>`}
+      ${u.models.length ? u.models.map((m) => `<div class="mrow"><code>${esc(m.model)}</code><span>${m.requests} заявки</span>
+        <b>${num(m.tokens)} токена</b></div>`).join("") : `<div class="hint">Още няма заявки.</div>`}
     </div>`;
-}
-
-// The brain slider (Мозък): the brains whose key is in .env, from the fastest to the smartest; letting go saves it.
-function brainSlider(sc) {
-  const n = sc.stops.length, rec = sc.stops.findIndex((x) => x.recommended);
-  const at = sc.at >= 0 ? sc.at : Math.max(rec, 0);
-  const left = (i) => `calc(13px + (100% - 26px) * ${i / (n - 1)})`;
-  return `<div class="scale${sc.auto ? " auto" : ""}">
-    <div class="scale-top"><span>По-бърз</span><button type="button" class="auto-btn${sc.auto ? " on" : ""}" aria-pressed="${sc.auto}">Авто${sc.auto ? ": вкл." : ""}</button><span>По-умен</span></div>
-    <div class="scale-track"><div class="rail"></div>
-      <div class="dots">${sc.stops.map((x, i) => `<i class="${i === rec ? "rec" : ""}"></i>`).join("")}</div>
-      <input type="range" class="scale-range" min="0" max="${n - 1}" step="1" value="${at}" aria-label="Мозък: по-бърз или по-умен"></div>
-    <div class="scale-names">${sc.stops.map((x, i) => `<button type="button" data-stop="${i}" style="left:${left(i)}"
-      class="${i === at && sc.at >= 0 ? "on" : ""}"><b>${esc(x.name)}</b><small>${esc(x.model.split("/").pop())}</small>${i === rec ? "<em>Препоръчан</em>" : ""}</button>`).join("")}</div>
-    <div class="scale-now">${sc.auto ? `<b>Авто</b> <span>· сам избира мозъка за всяка стъпка и го сменя и по средата на задача: бърз за лесното, най-умния за трудното или след грешка. Премести кръгчето, за да го изключиш.</span>`
-      : sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b> <span>(написан ръчно; премести кръгчето, за да избереш от списъка)</span>`}</div>
-  </div>`;
-}
-// Moving the knob shows the brain; letting go (or clicking a name) saves it as JARVIS_MODEL, then ``done`` redraws.
-function wireScale(el, sc, done) {
-  const r = el.querySelector(".scale-range"), now = el.querySelector(".scale-now");
-  r.addEventListener("input", () => { now.innerHTML = scaleText(sc.stops[Number(r.value)]); });
-  el.querySelectorAll("button[data-stop]").forEach((b) => b.addEventListener("click", () => {
-    r.value = b.dataset.stop; r.dispatchEvent(new Event("change"));
-  }));
-  const save = async (value, name) => {
-    try { await api("/api/settings", { values: { JARVIS_MODEL: value } }); toast(`Мозък: ${name}. Важи веднага.`); done(); loadBrainBtn(); }
-    catch (err) { now.textContent = err.message; }
-  };
-  r.addEventListener("change", () => { const x = sc.stops[Number(r.value)]; save(x.value, x.name); });
-  // Авто on: Jarvis picks the brain for every step; off: back to the recommended stop on the slider
-  el.querySelector(".auto-btn").addEventListener("click", () => {
-    const rec = sc.stops.find((x) => x.recommended) || sc.stops[0];
-    if (sc.auto) save(rec.value, rec.name); else save("auto", "Авто");
-  });
-}
-
-// The same slider next to the message box: the button shows the brain in use, a click opens the slider.
-async function loadBrainBtn() {
-  if (!state.me || state.me.role !== "owner") return;
-  let sc;
-  try { sc = await api("/api/brain"); } catch (e) { return; }
-  state.brainScale = sc;
-  $("brainBtn").classList.toggle("hidden", sc.stops.length < 2);
-  $("brainName").textContent = sc.auto ? "Авто" : sc.at >= 0 ? sc.stops[sc.at].name : sc.model;
-  if (!$("brainPop").classList.contains("hidden")) drawBrainPop();
-}
-function drawBrainPop() {
-  const sc = state.brainScale;
-  $("brainPop").innerHTML = `<h6>Мозък: <b>по-бърз или по-умен</b></h6>${brainSlider(sc)}`;
-  wireScale($("brainPop").querySelector(".scale"), sc, () => {});
-}
-$("brainBtn").addEventListener("click", (e) => {
-  e.stopPropagation();
-  const pop = $("brainPop"), open = pop.classList.contains("hidden");
-  pop.classList.toggle("hidden", !open);
-  if (open) drawBrainPop();
-});
-document.addEventListener("click", (e) => {
-  const pop = $("brainPop");
-  if (!pop.classList.contains("hidden") && !pop.contains(e.target) && e.target !== $("brainBtn")) pop.classList.add("hidden");
-});
-
-function scaleText(x) { return `<b>${esc(x.name)}</b> <span>(${esc(x.model)}) · ${esc(x.about)}</span>`; }
-
-// The brain fields (Мозък): a list of the brains, each saying whether .env has its key, plus "another one" to type.
-function pickBrain(f) {
-  const known = !f.value || f.options.some((o) => o.value === f.value);
-  return `<select class="input" data-pick="${esc(f.key)}">
-    <option value=""${!f.value ? " selected" : ""}>Автоматично (най-добрият безплатен с ключ)</option>
-    ${f.options.map((o) => `<option value="${esc(o.value)}"${o.value === f.value ? " selected" : ""}>${esc(o.label)}</option>`).join("")}
-    <option value="__other"${known ? "" : " selected"}>Друг модел или няколко (напиши)…</option>
-  </select>`;
 }
 
 // Settings kept in .env, shown as cards (Мозък, Поведение, Връзки, Глас): a card says what it is and whether it
@@ -3119,17 +2996,14 @@ function settingsFields(s) {
     if (choice) return choice;
     return `
       <div class="field"><label title="${esc(f.key)}">${esc(name)}${hint ? `<span class="fhint">${esc(hint)}</span>` : ""}</label>
-        ${f.options ? pickBrain(f) : ""}
         <input class="input" data-k="${esc(f.key)}" type="${f.secret ? "password" : "text"}" autocomplete="${f.secret ? "new-password" : "off"}" name="jv-${esc(f.key)}"
-          ${f.options && (!f.value || f.options.some((o) => o.value === f.value)) ? `style="display:none"` : ""}
-          value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + "), пиши, за да смениш" : "Не е въведено") : f.options ? "Напиши модел, напр. groq:llama-3.1-8b-instant или groq, openrouter" : ""}"></div>`;
+          value="${f.secret ? "" : esc(f.value)}" placeholder="${f.secret ? (f.set ? "Запазено (" + esc(f.hint) + "), пиши, за да смениш" : "Не е въведено") : ""}"></div>`;
   }).join("");
 }
 function settingsCard(s, i, opts = {}) {
   const state_ = s.ready ? (opts.okText || "свързано") : (opts.noText || "не е настроено");
   const body = `
     ${s.where ? `<p class="sub">${opts.plain ? esc(s.where) : `${opts.whereText || "Откъде:"} ${whereLink(s.where)}`}</p>` : ""}
-    ${s.scale && s.scale.stops.length > 1 ? brainSlider(s.scale) : ""}
     ${settingsFields(s)}
     <div class="row-end"><span class="hint msg"></span><button class="btn primary small" data-save="${i}">Запази</button></div>`;
   if (opts.plain) return `<div class="section" data-i="${i}"><h5>${esc(opts.title || s.title)}</h5>${body}</div>`;
@@ -3153,13 +3027,6 @@ function wireSettings(sections, reload) {
     seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     seg.parentElement.querySelector("input[data-k]").value = b.dataset.v;
   }));
-  body.querySelectorAll(".scale").forEach((el) => wireScale(el, sections[Number(el.closest("[data-i]").dataset.i)].scale, reload));
-  body.querySelectorAll("select[data-pick]").forEach((sel) => sel.addEventListener("change", () => {
-    const inp = sel.parentElement.querySelector("input[data-k]");
-    const other = sel.value === "__other";
-    inp.style.display = other ? "" : "none";
-    if (other) inp.focus(); else inp.value = sel.value;
-  }));
   body.querySelectorAll("button[data-save]").forEach((b) => b.addEventListener("click", async () => {
     const sec = b.closest("[data-i]"), s = sections[Number(b.dataset.save)];
     const values = {};
@@ -3175,23 +3042,6 @@ function wireSettings(sections, reload) {
 async function settingsOf(tab) {
   const all = (await api("/api/settings")).sections;
   return all.filter((s) => s.tab === tab);
-}
-
-// Мозък: the slider and the main/backup brain on top, the brains' keys folded below, the caps and models last.
-async function tabBrain() {
-  const sections = await settingsOf("brain");
-  const main = sections.findIndex((s) => s.title === "Мозък");
-  const keys = sections.map((s, i) => [s, i]).filter(([s]) => s.fields.some((f) => /_API_KEY$/.test(f.key)));
-  const rest = sections.map((s, i) => [s, i]).filter(([s], i) => i !== main && !keys.some(([, k]) => k === i));
-  const ready = keys.filter(([s]) => s.ready).length;
-  $("tabBody").innerHTML = `
-    ${main >= 0 ? settingsCard(sections[main], main, { plain: true, title: "Кой мозък мисли" }) : ""}
-    <h4 class="group">Ключове за мозъците <span class="hint">${ready} от ${keys.length} са сложени</span></h4>
-    ${keys.map(([s, i]) => settingsCard(s, i, { title: s.title.split(": ").pop(), okText: "има ключ", noText: "няма ключ", whereText: "Ключ се взима от" })).join("")}
-    <h4 class="group">Още</h4>
-    ${rest.map(([s, i]) => settingsCard(s, i, { badge: false, title: s.title === "Пестене" ? "Пестене и модели по доставчик" : s.title })).join("")}
-    <p class="sub">Мозъците на лаптопа (Ollama) са в Настройки > Модели.</p>`;
-  wireSettings(sections, tabBrain);
 }
 
 // Поведение: how Jarvis addresses the owner, how freely he works, replies in the owner's name.
@@ -3210,7 +3060,7 @@ async function tabConnections() {
   const items = sections.map((s, i) => [s, i]);
   const on = items.filter(([s]) => s.ready), off = items.filter(([s]) => !s.ready);
   $("tabBody").innerHTML = `
-    <div class="note">${icon("info")}<div>Ключовете се пазят само на този компютър (във файла .env). Свържи само това, което ползваш. Мозъците и техните ключове са в Настройки > Мозък.</div></div>
+    <div class="note">${icon("info")}<div>Ключовете се пазят само на този компютър (във файла .env). Свържи само това, което ползваш. Мозъкът е на лаптопа и няма нужда от ключ (Настройки > Мозък).</div></div>
     ${on.length ? `<h4 class="group">Свързани <span class="hint">${on.length}</span></h4>${on.map(([s, i]) => settingsCard(s, i)).join("")}` : ""}
     <h4 class="group">Може да свържеш <span class="hint">${off.length}</span></h4>
     ${off.map(([s, i]) => settingsCard(s, i)).join("")}

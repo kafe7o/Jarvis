@@ -219,41 +219,6 @@ def test_media_keys_and_locking_work_without_asking(registry, monkeypatch):
     assert asked == ["ИЗКЛЮЧИ компютъра"] and len(ran) == 1
 
 
-def test_jarvis_watches_a_video_with_gemini(tmp_path):
-    pytest.importorskip("google.genai")
-    from google.genai import types
-
-    from jarvis import gemini
-
-    seen = []
-
-    class Files:
-        def upload(self, file):
-            seen.append(("upload", file))
-            return types.File(name="files/v1", state="PROCESSING")
-
-        def get(self, name):
-            return types.File(name=name, state="ACTIVE")
-
-        def delete(self, name):
-            seen.append(("delete", name))
-
-    class Models:
-        def generate_content(self, model, contents, config):
-            seen.append(("ask", model, contents[0]))
-            return types.GenerateContentResponse(candidates=[types.Candidate(
-                content=types.Content(role="model", parts=[types.Part(text="00:03 Jarvis казва „Добро утро“.")]))])
-
-    client = SimpleNamespace(files=Files(), models=Models())
-    video = tmp_path / "jarvis.mp4"
-    video.write_bytes(b"\0")
-    assert "Добро утро" in gemini.watch(str(video), client=client, wait=lambda s: None)
-    assert seen[0] == ("upload", str(video)) and seen[-1] == ("delete", "files/v1")
-    seen.clear()
-    gemini.watch("https://www.youtube.com/watch?v=pAgnJDJN4VA", "Какво свири?", client=client)
-    assert seen[0][2].file_data.file_uri.endswith("pAgnJDJN4VA") and not any(s[0] == "upload" for s in seen)
-
-
 def test_jarvis_answers_in_cyrillic_bulgarian(ctx, registry):
     from conftest import FakeClient
 

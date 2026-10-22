@@ -4,7 +4,7 @@
    opening sites and programs (also on the phone), locking the computer, reminders, greetings, spending and
    switching „отговаряй вместо мен“ on and off.
    Matched by rules here and done at once through the normal tools, so permissions and confirmations apply.
-2. A quick answer: a short question goes to the cheapest model with a short prompt and no tools. If it needs
+2. A quick answer: a short question goes to the small, fast model with a short prompt and no tools. If it needs
    tools after all, the model says ESCALATE and level 3 takes over (see brain.Jarvis.quick_answer).
 3. The full agent with every tool (brain.Jarvis._loop), only for real work.
 
@@ -735,7 +735,7 @@ WEB = rx(r"браузър|браузер|\bсайт|страниц|интерн�
 
 def web_task(text: str) -> bool:
     """"Виж в браузъра…", "отвори сайта на БНБ и…": a task done on web pages. A mission on the web takes it too
-    (with its extra steps and final check): with seventy tools a free brain wandered off to the phone and files."""
+    (with its extra steps and final check): with seventy tools a weak brain wandered off to the phone and files."""
     return bool(WEB.search(clean(text)))
 
 
@@ -745,7 +745,7 @@ def think_harder(text: str) -> bool:
 
 
 # --- Bulgarian typed in Latin letters ("iskam da vidim kak she stane") -------------------------------------
-# Common Bulgarian words as people type them without Cyrillic. The weak models Jarvis runs on for free read
+# Common Bulgarian words as people type them without Cyrillic. The small models Jarvis runs on read
 # them better when a rough Cyrillic version goes along with the message (see brain.Jarvis._messages).
 _STRONG_LATIN = {
     "iskam", "iskash", "iska", "iskame", "moje", "mozhe", "moga", "mojesh", "mozhesh", "moga", "she", "shte", "ste",

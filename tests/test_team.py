@@ -17,9 +17,8 @@ class TeamClient:
         self.scripts = {who: list(r) for who, r in scripts.items()}
         self.requests = []
         self.lock = threading.Lock()
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
-    def _create(self, **kwargs):
+    def create(self, **kwargs):
         with self.lock:
             self.requests.append(kwargs)
             who = next((w for w in self.scripts if w != "Jarvis" and w in system_text(kwargs)), "Jarvis")

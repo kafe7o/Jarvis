@@ -199,7 +199,7 @@ class ReplyWatcher:
                          + "\n".join(f"- {r['reply']}" for r in sent))
         system = REPLY_PROMPT.format(user=s.user_name, style="\n".join(x for x in lines if x)) + jarvis._clock()
         said = f"{message['app']} message from {message['sender']}:\n{message['text']}"
-        response = jarvis._request([{"role": "user", "content": said}], None, system, set(), model=jarvis.fast_model(),
+        response = jarvis._request([{"role": "user", "content": said}], None, system, set(),
                                    effort="low", tools=[], max_tokens=300)
         text = "\n".join(b.text for b in response.content if b.type == "text").strip().strip('"„“').strip()
         return None if not text or SKIP in text[:12].upper() else text[:500]

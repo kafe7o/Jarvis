@@ -2,9 +2,9 @@
 
 "Something breaks? Run the doctor." The owner is not technical, so each finding is one line: what it is,
 whether it works, and what to do about it. The checks are cheap and safe (no key is printed, nothing is
-changed): the brains and their keys, whether each can answer right now (resting, used up for the day), the
+changed): the brain on this computer (Ollama and its models), the
 desktop, voice and browser packages, the phone over adb, the vault and the data folder, free disk space,
-the scheduled jobs (and ones that burn the free requests for nothing), the failures of the last day, and
+the scheduled jobs (and ones that keep the laptop busy for nothing), the failures of the last day, and
 the installed version. ``run_doctor`` is the tool; ``jarvis doctor`` prints the same in PowerShell.
 """
 
@@ -40,71 +40,29 @@ def finding(state: str, what: str, hint: str = "") -> dict:
 
 
 def brains(ctx, network: bool = True) -> list[dict]:
-    """Every brain: is its key set, and (``network``) can it answer right now."""
-    from . import freeapi, gemini, groq, local
+    """The brain on this computer: is Ollama installed and running, which model thinks, which takes the plain
+    answers, and is there one that finds memories by meaning. Ollama is asked even without ``network``: it runs on
+    this computer."""
+    from . import local, localmodels
 
-    jarvis = getattr(ctx, "jarvis", None)
-    out = []
-    if gemini.available():
-        state, hint = OK, "безплатен; първи за работа с инструменти"
-        if network and jarvis is not None:
-            try:
-                ready = jarvis.gemini.models(gemini.DEFAULT_MODEL)
-                agent = gemini.AGENT_MODEL in jarvis.gemini.models(gemini.AGENT_MODEL)
-                if not ready:
-                    state, hint = WARN, "ключът е сложен, но всички модели почиват или дневната квота е свършила; утре се връща"
-                elif not agent:
-                    hint = "Flash е изчерпан за днес; Flash-Lite работи"
-            except Exception as exc:
-                state, hint = BAD, f"не отговаря: {str(exc)[:120]}"
-        out.append(finding(state, "Мозък Gemini", hint))
-    else:
-        out.append(finding(WARN, "Мозък Gemini", "няма ключ; безплатен от aistudio.google.com/apikey (Настройки > Мозък)"))
-    for key, p in freeapi.PROVIDERS.items():
-        if not os.environ.get(p.env):
-            out.append(finding(WARN, f"Мозък {p.name}", f"няма ключ; безплатен от {p.site}"))
-            continue
-        state, hint = OK, "безплатен"
-        if network and jarvis is not None and jarvis.free_apis.get(key) is not None:
-            try:
-                ready = jarvis.free_apis[key].models(key)
-                if not ready:
-                    state, hint = WARN, "ключът е сложен, но почива (бавен или изчерпан); връща се сам до 30 минути"
-                else:
-                    hint = f"{len(ready)} модела готови"
-            except Exception as exc:
-                state, hint = BAD, f"не отговаря: {str(exc)[:120]}"
-        out.append(finding(state, f"Мозък {p.name}", hint))
-    if groq.available():
-        state, hint = OK, "бързата лента (кратки отговори)"
-        if network and jarvis is not None:
-            try:
-                if not jarvis.groq.models(groq.DEFAULT_MODEL):
-                    state, hint = WARN, "ключът е сложен, но моделите почиват (минутната или дневната квота); връща се сам"
-            except Exception as exc:
-                state, hint = BAD, f"не отговаря: {str(exc)[:120]}"
-        out.append(finding(state, "Мозък Groq", hint))
-    else:
-        out.append(finding(WARN, "Мозък Groq", "няма ключ; безплатен от console.groq.com/keys"))
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        out.append(finding(OK, "Мозък Claude", "платен; работи само ако го избереш"))
-    else:
-        out.append(finding(OK, "Мозък Claude", "не е свързан, по твое желание; безплатните мозъци работят вместо него"))
     try:
-        if local.available():
-            chosen = local.pick(getattr(ctx.settings, "local_model", "") or None)
-            out.append(finding(OK, "Местен мозък (Ollama)", f"работи на този компютър; мисли с {chosen}"
-                               + (f", лесните отговори на {local.quick_partner(chosen)}" if local.quick_partner(chosen) else "")))
-        else:
-            out.append(finding(OK, "Местен мозък (Ollama)", "няма модел на лаптопа; изтегли от Настройки > Модели"))
+        running = localmodels.version()
     except Exception:
-        pass
-    model = getattr(ctx.settings, "model", "") or ""
-    if model.startswith("claude") and not os.environ.get("ANTHROPIC_API_KEY"):
-        out.append(finding(WARN, "Избран мозък", f"настройката сочи {model}, а ключ няма: безплатен мозък поема вместо него"))
-    if not any(f["state"] == OK and f["what"].startswith("Мозък") and "Claude" not in f["what"] for f in out):
-        out.append(finding(BAD, "Нито един безплатен мозък не може да отговори сега",
-                           "добави ключ в Настройки > Мозък или изчакай квотите да се върнат"))
+        running = ""
+    if not running:
+        if localmodels.ollama_program():
+            return [finding(BAD, "Мозък (Ollama)", "инсталиран е, но не е пуснат: Настройки > Мозък > „Пусни го“")]
+        return [finding(BAD, "Мозък (Ollama)", "не е инсталиран: Настройки > Мозък > „Инсталирай Ollama“")]
+    chosen = local.pick(getattr(ctx.settings, "local_model", "") or None)
+    if not chosen:
+        return [finding(BAD, "Мозък", f"Ollama {running} работи, но няма модел: изтегли от Настройки > Мозък")]
+    quick = local.quick_partner(chosen)
+    out = [finding(OK, "Мозък", f"мисли с {chosen} на този компютър (Ollama {running})"
+                   + (f"; кратките отговори на {quick}" if quick else ""))]
+    if not quick and local.QWEN35.search(chosen) and "9b" in chosen.lower():
+        out.append(finding(WARN, "Бърз модел", "няма 4B до 9B: с Qwen 3.5 4B кратките отговори стават няколко пъти по-бързо"))
+    if not local.embedder():
+        out.append(finding(WARN, "Памет по смисъл", "няма малкия модел за търсене по смисъл (Настройки > Мозък)"))
     return out
 
 

@@ -105,7 +105,7 @@ def test_member_permissions_limit_tools_and_privacy(settings, ctx, registry):
     maria(f"/api/chats/{chat['id']}/ask", {"text": "Здрасти"})
     request = client.requests[-1]
     names = {t["name"] for t in request["tools"]}
-    assert "web_search" in names and "request_approval" in names
+    assert "google_search" in names and "request_approval" in names
     assert "run_shell" not in names and "remember" not in names
     assert "1234" not in system_text(request) and "Мария" in system_text(request)
 
@@ -164,26 +164,25 @@ def test_confirmations_only_reach_the_right_account(settings, ctx, registry, tmp
 
 def test_connections_settings_mask_secrets(settings, ctx, registry, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-123456\nJARVIS_USER_NAME=сър\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("TELEGRAM_BOT_TOKEN=123:secret-token\nJARVIS_USER_NAME=сър\n", encoding="utf-8")
     hub, owner, _ = make(settings, ctx, registry, [])
     owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     sections = owner("/api/settings")[1]["sections"]
-    assert sections[0]["title"] == "Мозък"  # the brain slider comes first, then the keys
-    brain = next(s for s in sections if s["fields"][0]["key"] == "ANTHROPIC_API_KEY")["fields"][0]
-    assert brain["set"] and brain["value"] == "" and "sk-ant-123456" not in json.dumps(sections)
+    token = next(f for s in sections for f in s["fields"] if f["key"] == "TELEGRAM_BOT_TOKEN")
+    assert token["set"] and token["value"] == "" and "secret-token" not in json.dumps(sections)
+    keys = {f["key"] for s in sections for f in s["fields"]}
+    assert not keys & {"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "JARVIS_BACKUP"}
     owner("/api/settings", {"values": {"STRIPE_API_KEY": "sk_test_1", "BOGUS": "x"}})
     text = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "STRIPE_API_KEY=sk_test_1" in text and "ANTHROPIC_API_KEY=sk-ant-123456" in text and "BOGUS" not in text
+    assert "STRIPE_API_KEY=sk_test_1" in text and "TELEGRAM_BOT_TOKEN=123:secret-token" in text and "BOGUS" not in text
 
 
-def test_friendly_error_when_claude_key_is_missing(settings, ctx, registry):
+def test_friendly_error_when_the_laptop_has_no_brain(settings, ctx, registry):
+    from jarvis.local import NOT_READY
+
     class Broken:
-        def __init__(self):
-            self.beta = self
-            self.messages = self
-
         def create(self, **_kw):
-            raise RuntimeError("Could not resolve authentication method. Expected either api_key or auth_token")
+            raise RuntimeError(NOT_READY)
 
     ctx.jarvis = Jarvis(settings, ctx.store, registry, Approver(False), client=Broken())
     hub = Hub(ctx, "secret", port=0, host="127.0.0.1")
@@ -191,7 +190,7 @@ def test_friendly_error_when_claude_key_is_missing(settings, ctx, registry):
     web("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
     chat = web("/api/chats", {})[1]["chat"]
     data = web(f"/api/chats/{chat['id']}/ask", {"text": "здрасти"})[1]
-    assert data["error"] and "Claude ключът" in data["answer"]
+    assert data["error"] and data["answer"] == NOT_READY
 
 
 def test_last_owner_cannot_be_removed(ctx):
@@ -332,21 +331,6 @@ def test_routine_results_land_in_a_chat_named_after_it(settings, ctx, registry):
     messages = owner(f"/api/chats/{brief['id']}")[1]["messages"]
     assert messages[-1]["content"] == "Добро утро, сър. Днес нямате срещи."
     assert "[routine:" not in client.requests[0]["messages"][0]["content"]
-
-
-def test_switch_brain_by_voice_saves_and_tells_the_app(settings, ctx, registry, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("JARVIS_MODEL", "claude-opus-5-5")
-    hub, owner, client = make(settings, ctx, registry, [
-        response(tool_block("switch_brain", {"brain": "fable"}), stop="tool_use"),
-        response(text_block("Fable 5.1 на ваше разположение, сър.")),
-    ])
-    owner("/api/setup", {"name": "A", "email": "owner@example.com", "password": "123456"})
-    chat = owner("/api/chats", {})[1]["chat"]
-    assert owner(f"/api/chats/{chat['id']}/ask", {"text": "смени мозъка на Fable"})[1]["answer"].startswith("Fable")
-    assert ctx.settings.model == "claude-fable-5-1" and owner("/api/me")[1]["brain"] == "fable"
-    assert "JARVIS_MODEL=claude-fable-5-1" in (tmp_path / ".env").read_text(encoding="utf-8")
-    assert any(e["kind"] == "brain" and e["brain"] == "fable" for e in hub.events.events)
 
 
 def test_screen_and_camera_frames_reach_claude(settings, ctx, registry):

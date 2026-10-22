@@ -67,7 +67,7 @@ TOOL_LABELS = {
     "send_sms": "Праща SMS", "send_email": "Праща имейл", "read_email": "Чете пощата", "gmail_search": "Търси в Gmail",
     "whatsapp_send": "Праща WhatsApp", "viber_send": "Праща Viber", "android": "Работи с телефона",
     "home_control": "Управлява дома", "home_devices": "Преглежда дома", "home_camera": "Гледа камерата",
-    "switch_brain": "Сменя мозъка", "switch_voice": "Сменя гласа", "delegate": "Разпределя работата на екипа", "gmail_draft": "Пише чернова в Gmail",
+    "switch_voice": "Сменя гласа", "delegate": "Разпределя работата на екипа", "gmail_draft": "Пише чернова в Gmail",
     "level:1": "Ниво 1: команда без AI", "level:2": "Ниво 2: бърз модел", "level:3": "Ниво 3: пълен агент",
     "vault_search": "Търси в паметта", "vault_note": "Записва в паметта", "vault_write": "Подрежда паметта",
     "vault_read": "Чете от паметта", "play_youtube": "Пуска от YouTube", "weather": "Гледа времето",
@@ -102,55 +102,19 @@ def lan_ip() -> str:
 
 
 def friendly_error(exc: Exception) -> str:
-    from .brain import BudgetReached
-    from .gemini import Busy, UsedUp, next_reset
-    from .freeapi import PROVIDERS
-    from .freeapi import UsedUp as FreeUsedUp
-    from .groq import UsedUp as GroqUsedUp
+    from .local import NOT_READY
 
     text = f"{type(exc).__name__}: {exc}"
     low = text.lower()
-    if isinstance(exc, UsedUp):
-        back = datetime.fromtimestamp(next_reset()).strftime("%H:%M")
-        return (f"Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. Връщат се в {back}. "
-                "За да не спирам никога, изтегли мозък на лаптопа: Настройки > Модели.")
-    if isinstance(exc, Busy):
-        return ("Gemini е претоварен, а другите безплатни мозъци с ключ също не отговориха този път. Опитай пак след "
-                "минута; резервният мозък се избира в Настройки > Мозък.")
-    if isinstance(exc, GroqUsedUp):
-        return ("Безплатните модели на Groq са заети или изчерпани за момента. Опитай пак след минута, "
-                "или сложи и безплатен Gemini ключ, за да поема той.")
-    if "groq" in low and ("key" in low or "401" in low):
-        return "Groq ключът е грешен или липсва. Вземи нов от console.groq.com/keys и го сложи в Настройки > Мозък."
-    if isinstance(exc, FreeUsedUp):
-        return ("Безплатните модели са заети или изчерпани за момента. Опитай пак след минута, "
-                "или сложи още един безплатен ключ (Mistral, Gemini, Groq, NVIDIA или OpenRouter) в Настройки > Мозък.")
-    for p in PROVIDERS.values():
-        if p.name.lower() in low and ("key" in low or "401" in low):
-            return f"{p.name} ключът е грешен или липсва. Вземи нов от {p.site} и го сложи в Настройки > Мозък."
-    if isinstance(exc, BudgetReached):
-        return ("Днешният таван за Claude е достигнат, а безплатен мозък няма. Сложи безплатен Gemini или Groq ключ "
-                "(Настройки > Мозък) или вдигни тавана в „Пестене“.")
+    if str(exc) == NOT_READY:
+        return NOT_READY
+    if "ollama" in low and ("memory" in low or "cuda" in low or "out of memory" in low):
+        return ("Моделът не се побира в паметта на лаптопа. Затвори тежките програми или избери по-малкия (4B) в "
+                "Настройки > Мозък.")
     if "ollama" in low:
-        return ("Мозъкът на лаптопа (Ollama) не отговаря. Пусни Ollama или в PowerShell напиши: ollama pull qwen3:4b")
-    if type(exc).__module__.startswith("google."):
-        if "perday" in low.replace(" ", "").replace("_", ""):
-            return ("Безплатните заявки към Gemini за днес свършиха на всички безплатни модели. "
-                    "Подновяват се утре около 10:00.")
-        if "resource_exhausted" in low or "429" in low:
-            return "Безплатният лимит на Gemini е изчерпан за момента. Опитай пак след минута."
-        if "api key" in low or "api_key" in low or "permission_denied" in low:
-            return "Gemini ключът е грешен. Вземи нов от aistudio.google.com/apikey и го сложи в Настройки > Мозък."
-        return f"Gemini не отговори: {exc}"
-    if "credit balance" in low or "billing" in low:
-        return ("Няма кредит в Claude акаунта. Безплатно: вземи ключ от aistudio.google.com/apikey и го сложи "
-                "в Настройки > Мозък > Gemini. Jarvis ще мине на Gemini сам.")
-    if "authentication" in low or "api key" in low or "x-api-key" in low or "api_key" in low:
-        return "Claude ключът липсва или е грешен. Сложи го в Настройки > Мозък."
-    if "rate" in low and "limit" in low:
-        return "Claude е претоварен в момента. Опитай пак след малко."
-    if "connection" in low or "timed out" in low or "timeout" in low:
-        return "Няма връзка с Claude. Провери интернета."
+        return f"Мозъкът на лаптопа (Ollama) върна грешка: {exc}. Провери Настройки > Мозък."
+    if "timed out" in low or "timeout" in low:
+        return "Мозъкът на лаптопа не отговори навреме (моделът може още да се зарежда). Опитай пак."
     return f"Нещо се обърка: {text}"
 
 
@@ -398,7 +362,7 @@ def parse_images(items) -> list[tuple[str, str]] | None:
 
 def save_files(items, home: Path) -> list[Path]:
     """Files attached in the app ({"name", "data": data URL}) are saved under ~/.jarvis/uploads/, so Jarvis can
-    read, run or watch them with his normal tools (read_file, run_python, watch_video...)."""
+    read or run them with his normal tools (read_file, run_python...)."""
     import base64
     from datetime import datetime
 
@@ -423,7 +387,7 @@ def with_files(text: str, paths: list[Path]) -> str:
         return text
     lines = "\n".join(f"- {p}" for p in paths)
     return (f"{text}\n\n(Прикачени файлове, запазени на този компютър; отвори ги с инструментите: read_file за "
-            f"текст и код, run_python за таблици и PDF, watch_video за видео:\n{lines})")
+            f"текст и код, run_python за таблици, PDF и видео:\n{lines})")
 
 
 class HTTPError(Exception):
@@ -433,74 +397,12 @@ class HTTPError(Exception):
 
 
 SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "SID")
-# The brains offered in Settings > Мозък: what JARVIS_MODEL / JARVIS_BACKUP say, the name, the key it needs.
-BRAINS = [
-    ("groq", "Groq (безплатен, най-бързият)", "GROQ_API_KEY"),
-    ("gemini", "Gemini (безплатен, вижда снимки)", "GEMINI_API_KEY"),
-    ("auto", "Авто (сам избира и сменя мозъка според стъпката)", ""),
-    ("mistral", "Mistral (платен на дума: Small е евтин, Medium струва колкото Claude Sonnet; бърз и силен)", "MISTRAL_API_KEY"),
-    ("nvidia", "NVIDIA (безплатни силни модели)", "NVIDIA_API_KEY"),
-    ("openrouter", "OpenRouter (безплатни модели)", "OPENROUTER_API_KEY"),
-    ("local", "На лаптопа през Ollama (без лимит, по-бавен)", ""),
-    ("claude-sonnet-5-5", "Claude Sonnet (платен)", "ANTHROPIC_API_KEY"),
-]
-
-
-def brain_choices(items: list[dict], stored: dict) -> str:
-    """Offer the brains in the Мозък fields (whether .env has each one's key) and say which keys are there."""
-    from .gemini import DEFAULT_MODEL
-
-    has = lambda env: not env or bool(stored.get(env) or os.environ.get(env))
-    shown = [(DEFAULT_MODEL if value == "gemini" else value, label, env) for value, label, env in BRAINS
-             if not value.startswith("claude") or has(env)]
-    options = [{"value": value, "label": f"{label}: {'има ключ' if has(env) else 'няма ключ'}"}
-               for value, label, env in shown]
-    for item in items:
-        item["options"] = options
-    ready = [label.split(" (")[0] for value, label, env in shown if env and has(env)]
-    return ("Ключове в .env: " + ", ".join(ready)) if ready else "Няма ключ за безплатен мозък: сложи поне един долу."
-
-
-# The slider in Settings > Мозък, from the fastest brain to the smartest: (what JARVIS_MODEL becomes, name, what it
-# is like, the key it needs). Only the ones whose key is in .env are shown; "gemini" (Gemini's default model) is the
-# recommended one: real work goes to Gemini Flash while it has requests for the day, then to the others with a key.
-SCALE = [
-    ("groq", "Groq", "най-бързият, отговаря за секунда; слаб с дълги задачи", "GROQ_API_KEY"),
-    ("gemini", "Gemini", "Flash за работа, докато има заявки за деня, после другите с ключ", "GEMINI_API_KEY"),
-    ("mistral", "Mistral", "платен на дума, със свой дневен таван; Авто дава всяка стъпка с действие на умния Medium, кратките отговори на евтиния Small", "MISTRAL_API_KEY"),
-    ("openrouter", "OpenRouter", "безплатни модели, които се сменят; средно бърз", "OPENROUTER_API_KEY"),
-    ("nvidia", "NVIDIA", "силни модели, но на безплатния ключ често бавни", "NVIDIA_API_KEY"),
-    ("gemini-3.5-flash", "Gemini Flash", "най-умният безплатен и вижда екрана; около 25 заявки на ден", "GEMINI_API_KEY"),
-    ("claude-sonnet-5-5", "Claude Sonnet", "платен, най-умният; харчи пари", "ANTHROPIC_API_KEY"),
-]
-
-
-def brain_scale(stored: dict) -> dict:
-    """The slider's stops, fastest first, only the brains whose key is in .env, and where the brain in use is on it
-    (-1 when it is one typed by hand). Settings > Мозък."""
-    from .config import default_brain
-    from .gemini import DEFAULT_MODEL
-
-    has = lambda env: bool(stored.get(env) or os.environ.get(env))
-    from .groq import FREE_MODELS
-
-    env = lambda key, default: (stored.get(key) or os.environ.get(key, "")).strip() or default
-    models = {"groq": env("JARVIS_GROQ_MODEL", FREE_MODELS[0]), "gemini": "Flash + Lite",
-              "openrouter": env("JARVIS_OPENROUTER_MODEL", "сам избира"), "mistral": env("JARVIS_MISTRAL_MODEL", "Medium"),
-              "nvidia": env("JARVIS_NVIDIA_MODEL", "сам избира")}
-    stops = [{"value": DEFAULT_MODEL if value == "gemini" else value, "name": name, "about": about,
-              "model": models.get(value, value), "recommended": value == ("mistral" if has("MISTRAL_API_KEY") else "gemini")}
-             for value, name, about, key in SCALE if has(key)]
-    current = (stored.get("JARVIS_MODEL") or os.environ.get("JARVIS_MODEL", "")).strip() or default_brain()
-    current = DEFAULT_MODEL if current == "gemini" else current
-    at = next((i for i, stop in enumerate(stops) if stop["value"] == current), -1)
-    return {"stops": stops, "at": at, "model": current, "auto": current.lower() == "auto"}
-
-
 EXTRA_SETTINGS = [
     ("Мозък", "", [
-        ("JARVIS_MODEL", "Главен мозък: избери от списъка или напиши модел (празно = най-силният безплатен, за който има ключ)"),
-        ("JARVIS_BACKUP", "Резервен мозък, когато главният е претоварен или свършен: избери или напиши, няколко със запетая по ред (напр. groq, openrouter); празно = сам избира от тези с ключ"),
+        ("JARVIS_LOCAL_MODEL", "Моделът, с който мисли (по-лесно: бутона „Избери“ горе; празно = най-добрият изтеглен, напр. Qwen 3.5 9B)"),
+        ("JARVIS_ROUTER", "Простите команди без AI и кратките въпроси на малкия модел (1 = да, 0 = не)"),
+        ("JARVIS_LOCAL_CTX", "Колко текст чете моделът наведнъж, в токени (празно = 32768; по-малко = по-малко памет)"),
+        ("JARVIS_OLLAMA_URL", "Адрес на Ollama (празно = този компютър; друг компютър в мрежата, напр. http://192.168.1.20:11434)"),
     ]),
     ("Поведение", "", [
         ("JARVIS_TRUST_LOCAL", "Да не пита за команди, код и файлове (1 = да, 0 = не)"),
@@ -510,16 +412,6 @@ EXTRA_SETTINGS = [
         ("GITHUB_TOKEN", "GitHub ключ за обновяване, нужен само ако хранилището kafe7o/Jarvis е частно (github.com/settings/personal-access-tokens, само четене на Contents)"),
         ("JARVIS_BROWSER", "Браузърът, в който Jarvis отваря сайтове: avast, chrome, edge, firefox, brave, opera или пълен път до програмата (празно = този по подразбиране на компютъра)"),
         ("JARVIS_CITY", "Твоят град, за времето (празно = по интернет връзката)"),
-    ]),
-    ("Пестене", "https://ollama.com/download", [
-        ("JARVIS_DAILY_BUDGET", "Таван за Claude на ден, в долари (празно = 1; 0 = никога Claude; без = без таван)"),
-        ("JARVIS_MISTRAL_BUDGET", "Таван за Mistral на ден, в долари (празно = 2; 0 = никога Mistral; без = без таван)"),
-        ("JARVIS_ROUTER", "Простите команди без AI и кратките въпроси с бърз модел (1 = да, 0 = не)"),
-        ("JARVIS_FAST_MODEL", "Модел за кратките въпроси (празно = безплатният Groq, ако има ключ, иначе Gemini)"),
-        ("JARVIS_GROQ_MODEL", "Модел в Groq (празно = openai/gpt-oss-120b; другите безплатни се ползват, когато той е зает)"),
-        ("JARVIS_NVIDIA_MODEL", "Модел в NVIDIA (празно = най-силният безплатен, напр. Kimi или DeepSeek)"),
-        ("JARVIS_OPENROUTER_MODEL", "Модел в OpenRouter (празно = най-силният безплатен с „:free“)"),
-        ("JARVIS_LOCAL_MODEL", "Мозък на лаптопа в Ollama, без лимит (по-лесно: Настройки > Модели; празно = най-добрият изтеглен, напр. Qwen 3.5 9B)"),
         ("JARVIS_VAULT", "Папка-памет за бележки (празно = Документи\\Jarvis Vault)"),
     ]),
     ("Съобщения", "", [
@@ -529,21 +421,18 @@ EXTRA_SETTINGS = [
     ("Глас", "https://elevenlabs.io/app/settings/api-keys", [
         ("JARVIS_TTS_VOICE", "Безплатен глас (по-лесно: Настройки > Глас, където чуваш всеки и избираш)"),
         ("JARVIS_SILENCE", "Колко секунди тишина да изчака, преди да започне, за да не те прекъсва (празно = 2)"),
-        ("JARVIS_STT", "Как да те чува в приложението: празно = гласа на браузъра, а където той не работи (Avast, Brave) сам минава на Whisper; whisper = винаги Whisper през безплатния Groq ключ (по-точен български)"),
+        ("JARVIS_STT", "Как да те чува в приложението: празно = гласа на браузъра, а където той не работи (Avast, Brave) сам минава на Whisper на лаптопа; whisper = винаги Whisper на лаптопа (по-точен български, без интернет)"),
         ("ELEVENLABS_API_KEY", "ElevenLabs ключ, за глас като във филма или твой клониран глас (по желание)"),
         ("ELEVENLABS_VOICE_ID", "ElevenLabs глас (празно = George, британски мъжки)"),
     ]),
 ]
 
 
-BRAIN_KEYS = {"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "NVIDIA_API_KEY", "OPENROUTER_API_KEY"}
-
-
 def settings_tab(title: str, keys: list[str]) -> str:
-    """Which Settings tab shows a group of settings: "brain" (Мозък: the slider, the brains' keys, the caps),
-    "general" (Поведение), "voice" (Глас) or "service" (Връзки: calls, mail, Telegram and the rest). They were all
-    one tab 8,500 pixels long."""
-    if title in ("Мозък", "Пестене") or BRAIN_KEYS & set(keys):
+    """Which Settings tab shows a group of settings: "brain" (Мозък, under the models), "general" (Поведение),
+    "voice" (Глас) or "service" (Връзки: calls, mail, Telegram and the rest). They were all one tab 8,500 pixels
+    long."""
+    if title == "Мозък":
         return "brain"
     if title == "Глас":
         return "voice"
@@ -641,7 +530,7 @@ class Hub:
                 return "Не го почнах: каза ми да спра."
             self.busy += 1
             run_id, run = self.track(user.name, text, chat=chat_id, to=None if user.is_owner else user.id)
-            model, ok = self.ctx.settings.model, False
+            ok = False
             try:
                 answer = self.ctx.jarvis.ask(
                     text, conversation=conversation, user=user, on_progress=progress,
@@ -653,14 +542,6 @@ class Hub:
             finally:
                 self.busy -= 1
                 self.board.finish(run_id, ok)
-                now = self.ctx.settings.model
-                if now != model and now.startswith(("gemini", "groq", "nvidia", "openrouter")):
-                    # Claude ran out of credit and a free brain took over: tell the app (colour, toast).
-                    from .plugins.brain_switch import brain_key
-
-                    key = brain_key(now)
-                    names = {"gemini": "Gemini", "groq": "Groq", "nvidia": "NVIDIA", "openrouter": "OpenRouter"}
-                    self.events.add("brain", brain=key, name=f"{names[key]} (безплатно)")
 
     def track(self, who: str, text: str, kind: str = "request", chat: int | None = None,
               to: int | None = None) -> tuple[int, dict]:
@@ -791,14 +672,11 @@ class Hub:
                 secret = is_secret(key)
                 items.append({"key": key, "label": label, "secret": secret, "set": bool(value),
                               "value": "" if secret else value, "hint": (value[:4] + "…") if secret and value else ""})
-            ready = all(i["set"] for i in items) or title == "Глас"  # the voice works with nothing typed; the rest is optional
-            extra = {}
-            if title == "Мозък":
-                where, ready = brain_choices(items, stored), True
-                extra = {"scale": brain_scale(stored)}
+            # the brain and the voice work with nothing typed; the rest is optional
+            ready = all(i["set"] for i in items) or title in ("Глас", "Мозък")
             sections.append({"title": title, "where": where, "fields": items, "ready": ready,
-                             "tab": settings_tab(title, [key for key, _l in fields]), **extra})
-        return sorted(sections, key=lambda section: section["title"] != "Мозък")  # the brain first, then the keys
+                             "tab": settings_tab(title, [key for key, _l in fields])})
+        return sections
 
     def save_settings(self, values: dict) -> None:
         import dataclasses
@@ -813,7 +691,7 @@ class Hub:
         for key, value in values.items():
             if key not in known or not isinstance(value, str) or "\n" in value:
                 continue
-            if (key.endswith("_MODEL") or key == "JARVIS_BACKUP") and "@" in value:
+            if key.endswith("_MODEL") and "@" in value:
                 continue  # the browser filled the login e-mail into a brain field: not a brain
             stored[key] = value.strip()
             if value.strip():
@@ -848,11 +726,11 @@ class Hub:
                     self.save_settings({"JARVIS_LOCAL_MODEL": ""})
             elif action == "use":
                 self.save_settings({"JARVIS_LOCAL_MODEL": model})
-            elif action == "main":  # Jarvis thinks on the laptop only
-                self.save_settings({"JARVIS_MODEL": "local"})
+            elif action == "open_folder":
+                localmodels.open_folder()
         except (ValueError, RuntimeError, OSError) as exc:
             raise HTTPError(400, str(exc))
-        return localmodels.overview(settings.local_model, settings.model)
+        return localmodels.overview(settings.local_model)
 
     def stop(self) -> None:
         """`jarvis stop`: this process ends and the keeper does not start it again."""
@@ -908,10 +786,8 @@ class Hub:
         m, p, b, user = req.method, req.path, req.body, req.user
 
         if p == "/api/me" and m == "GET":
-            from .plugins.brain_switch import brain_key
-
             return 200, {"user": user.public() if user else None, "needs_setup": self.accounts.count() == 0,
-                         "brain": brain_key(self.ctx.settings.model), "silence": silence_seconds(),
+                         "brain": "local", "silence": silence_seconds(),
                          "stt": os.environ.get("JARVIS_STT", "").strip().lower(),
                          "can_setup": req.local or req.via == "token", "restartable": self.restartable,
                          "groups": [{"key": k, "label": l, "desc": d, "sensitive": s} for k, l, d, s in GROUPS]}
@@ -1036,8 +912,8 @@ class Hub:
             except ValueError as exc:
                 raise HTTPError(413, str(exc))
             except RuntimeError as exc:
-                raise HTTPError(503, "Не мога да разпозная говора: сложи безплатния Groq ключ в Настройки > Мозък "
-                                     f"или инсталирай гласа (`pip install faster-whisper`). ({exc})")
+                raise HTTPError(503, "Не мога да разпозная говора на лаптопа. В PowerShell, в папката на Jarvis: "
+                                     f"pip install -e .[voice] ({exc})")
             return 200, {"text": text}
 
         if p == "/api/tts" and m == "POST":
@@ -1114,12 +990,8 @@ class Hub:
                          "eleven": bool(os.environ.get("ELEVENLABS_API_KEY")),
                          "voices": [{"id": v, "name": n, "about": a} for v, n, a in tts.VOICES]}
 
-        if p == "/api/local-models":  # Settings > Модели: Ollama, the hardware, download / add / pick / delete
+        if p == "/api/local-models":  # Settings > Мозък: Ollama, the hardware, download / add / pick / delete
             return 200, self.local_models(b if m == "POST" else {})
-        if p == "/api/brain" and m == "GET":  # the brain slider next to the message box (Мозък)
-            from .setup_wizard import env_path, read_env
-
-            return 200, brain_scale(read_env(env_path()))
         if p == "/api/settings":
             if m == "POST":
                 self.save_settings(b.get("values") or {})
@@ -1153,7 +1025,7 @@ class Hub:
         if p == "/api/usage" and m == "GET":
             from .usage import summary
 
-            return 200, summary(self.ctx.store, getattr(getattr(self.ctx.jarvis, "gemini", None), "spent", None))
+            return 200, summary(self.ctx.store)
         if p == "/api/now" and m == "GET":  # what Jarvis is doing now and what it will do on its own
             from .plugins.tasks import JOB
             from .routines import routine_of, strip_marker

@@ -19,8 +19,6 @@ CRASH: dict = {}  # the file Python writes to if it crashes without a console (k
 def check() -> None:
     """Show which capabilities are ready and which keys are missing."""
     groups = {
-        "Мозък (Claude, платен)": ["ANTHROPIC_API_KEY"],
-        "Мозък (Gemini, безплатен)": ["GEMINI_API_KEY"],
         "Обаждания и SMS (Twilio)": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "JARVIS_OWNER_PHONE"],
         "Разговори по телефона (вх./изх.)": ["JARVIS_PUBLIC_URL"],
         "Плащания (Stripe)": ["STRIPE_API_KEY"],
@@ -34,6 +32,10 @@ def check() -> None:
         "Банкови преводи (Wise)": ["WISE_API_TOKEN"],
         "Известия на телефона (ntfy)": ["NTFY_TOPIC"],
     }
+    from . import local
+
+    brain = local.pick(settings.local_model or None)
+    print(f"✅ Мозък на лаптопа: {brain}" if brain else "❌ Мозък на лаптопа  — няма Ollama или модел: Настройки > Мозък")
     for name, keys in groups.items():
         missing = [k for k in keys if not os.environ.get(k)]
         print(f"{'✅' if not missing else '❌'} {name}" + (f"  — липсва: {', '.join(missing)}" if missing else ""))

@@ -1,4 +1,5 @@
-"""Web search when Gemini is the brain (Claude has its own search built in), and watching videos with Gemini."""
+"""Web search without any AI service: the results page in the owner's own browser, else in Jarvis's browser
+(Google, then Bing), else DuckDuckGo's plain page. The brain on the laptop reads the results."""
 
 from __future__ import annotations
 
@@ -9,13 +10,9 @@ import urllib.parse
 import urllib.request
 from html import unescape
 
-from .. import gemini
 from ..tools import ToolRegistry, obj
 
 log = logging.getLogger("jarvis.websearch")
-# Google search through Gemini with no free quota on this key (429 on every model): not asked again until Google's
-# daily reset; trying it first cost every search four refused requests.
-SEARCH_OFF = {"until": 0.0}
 
 
 def _plain(html: str) -> str:
@@ -108,47 +105,19 @@ def duckduckgo(query: str, fetch=None, limit: int = 8) -> str:
 def register(registry: ToolRegistry, ctx) -> None:
     @registry.tool(
         "Search the web with Google for current facts: news, prices, opening hours, weather, people, "
-        "products. Returns an answer with source links.",
+        "products. Returns the results page (titles, links, snippets); open_page the best one for more.",
         obj({"query": ("string", "What to search for, in any language")}),
     )
     def google_search(query: str):
-        model = ctx.settings.model if ctx.settings.model.startswith("gemini") else gemini.DEFAULT_MODEL
-        try:
-            if time.time() < SEARCH_OFF["until"]:
-                raise RuntimeError("its free searches are used up until Google's daily reset")
-            answer = gemini.search(query, model)
-        except Exception as exc:  # no Gemini key, or its searches are used up: the results page, without AI
-            if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
-                SEARCH_OFF["until"] = gemini.next_reset()
-            log.warning("Google search through Gemini failed (%s: %s); the browser instead", type(exc).__name__,
-                        str(exc)[:200])
-            try:  # the owner's own browser first: it searches as they do
-                return in_owners_browser(query, [r["fact"] for r in ctx.store.query("SELECT fact FROM facts")])
+        try:  # the owner's own browser first: it searches as they do
+            return in_owners_browser(query, [r["fact"] for r in ctx.store.query("SELECT fact FROM facts")])
+        except Exception as exc:
+            log.warning("Google in the owner's browser failed (%s: %s)", type(exc).__name__, str(exc)[:200])
+        browser = getattr(ctx, "browser", None)
+        if browser is not None:
+            try:
+                return in_browser(browser, query)
             except Exception as exc:
-                log.warning("Google in the owner's browser failed (%s: %s)", type(exc).__name__, str(exc)[:200])
-            browser = getattr(ctx, "browser", None)
-            if browser is not None:
-                try:
-                    return in_browser(browser, query)
-                except Exception as exc:
-                    log.warning("Google in the browser failed (%s: %s); DuckDuckGo instead", type(exc).__name__,
-                                str(exc)[:200])
-            return duckduckgo(query)
-        ctx.store.insert("usage", model=model)  # one free request, for the "Разход" tab
-        return answer
-
-    @registry.tool(
-        "Watch a video and answer about it: a video file on this computer or a YouTube link. Uses Google "
-        "Gemini (free, needs GEMINI_API_KEY even when Claude is the brain). Can take a few minutes for big files.",
-        obj({"source": ("string", "Path of the video file, or a YouTube link"),
-             "question?": ("string", "What to find out (default: describe everything in it)")}),
-    )
-    def watch_video(source: str, question: str = ""):
-        if not gemini.available():
-            raise RuntimeError("Watching videos needs a free Gemini key: aistudio.google.com/apikey, "
-                               "then Settings > Connections > Gemini.")
-        if "://" not in source:
-            from .system import allowed_path
-
-            source = str(allowed_path(source, ctx.settings.allowed_roots))
-        return gemini.watch(source, question)
+                log.warning("Google in the browser failed (%s: %s); DuckDuckGo instead", type(exc).__name__,
+                            str(exc)[:200])
+        return duckduckgo(query)

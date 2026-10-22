@@ -69,10 +69,10 @@ def test_brain_runs_tools_and_returns_final_answer(settings, ctx, registry):
     assert ctx.store.query("SELECT title, priority FROM tasks") == [{"title": "Купи мляко", "priority": "high"}]
 
     first = client.requests[0]
-    assert first["model"] == "claude-opus-5-5"
-    assert first["fallbacks"] == "default"
+    assert first["model"] == "local"  # the best model on the laptop
     names = {t["name"] for t in first["tools"]}
-    assert {"web_search", "web_fetch", "make_call", "add_reminder", "run_shell"} <= names
+    assert {"add_task", "add_reminder", "run_shell", "google_search"} <= names
+    assert "make_call" not in names  # only the tools the request is about
     tool_result = client.requests[1]["messages"][2]["content"][0]
     assert tool_result["type"] == "tool_result" and not tool_result["is_error"]
 
@@ -205,36 +205,18 @@ def test_heartbeat_notifies_only_when_useful(settings, ctx, registry):
     assert in_quiet_hours("23-7", datetime(2026, 1, 1, 2)) and not in_quiet_hours("23-7", datetime(2026, 1, 1, 12))
 
 
-def test_system_prompt_is_fixed_for_a_turn_and_bad_thinking_is_dropped(settings, ctx, registry, monkeypatch):
-    import anthropic
-
+def test_system_prompt_is_fixed_for_a_turn(settings, ctx, registry):
     from conftest import FakeClient, response, text_block, tool_block
     from jarvis.brain import Jarvis
-    from types import SimpleNamespace
 
-    thinking = SimpleNamespace(type="thinking", thinking="...", signature="sig")
     client = FakeClient([
-        response(thinking, tool_block("remember", {"topic": "t", "fact": "нов факт"}), stop="tool_use"),
+        response(tool_block("remember", {"topic": "t", "fact": "нов факт"}), stop="tool_use"),
         response(text_block("Запомних.")),
     ])
-    calls = {"n": 0}
-    original = client._create
-
-    def create(**kwargs):
-        calls["n"] += 1
-        if calls["n"] == 2 and any(getattr(b, "type", None) == "thinking" for m in kwargs["messages"]
-                                   if m["role"] == "assistant" and not isinstance(m["content"], str) for b in m["content"]):
-            err = anthropic.BadRequestError.__new__(anthropic.BadRequestError)
-            Exception.__init__(err, "Invalid `signature` in `thinking` block")
-            raise err
-        return original(**kwargs)
-
-    client.beta.messages.create = create
     jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=client)
     assert jarvis.ask("запомни") == "Запомних."
     first, second = client.requests
     assert first["system"] == second["system"]  # the new fact did not change the prompt mid-turn
-    assert all(getattr(b, "type", None) != "thinking" for b in second["messages"][-2]["content"])
 
 
 def test_phone_is_found_over_usb_without_settings(monkeypatch):
@@ -350,37 +332,14 @@ def test_answer_parts_keep_the_voice_of_the_whole_answer(monkeypatch):
     assert used == ["bg-BG-BorislavNeural"]  # a short English part of a Bulgarian answer stays in Bulgarian
 
 
-def test_tools_and_system_prompt_are_cached_but_not_the_clock(settings, ctx, registry):
+def test_the_clock_is_apart_from_the_rest_of_the_prompt(settings, ctx, registry):
     from conftest import FakeClient, response, text_block
     from jarvis.brain import Jarvis
 
     client = FakeClient([response(text_block("Добре."))])
     Jarvis(settings, ctx.store, registry, lambda s: True, client=client).ask("здравей")
-    request = client.requests[0]
-    assert request["cache_control"] == {"type": "ephemeral"}
-    cached, clock = request["system"]
-    assert cached["cache_control"] == {"type": "ephemeral"} and "Current local time" not in cached["text"]
-    assert clock["text"].startswith("Current local time") and "cache_control" not in clock
-
-
-def test_an_answer_never_fails_because_of_caching(settings, ctx, registry):
-    import anthropic
-
-    from conftest import FakeClient, response, text_block
-    from jarvis.brain import Jarvis
-
-    client = FakeClient([response(text_block("Добре."))])
-    original = client._create
-
-    def create(**kwargs):
-        if "cache_control" in kwargs:
-            err = anthropic.BadRequestError.__new__(anthropic.BadRequestError)
-            Exception.__init__(err, "cache_control: not supported here")
-            raise err
-        return original(**kwargs)
-
-    client.beta.messages.create = create
-    assert Jarvis(settings, ctx.store, registry, lambda s: True, client=client).ask("здравей") == "Добре."
+    fixed, clock = client.requests[0]["system"]
+    assert "Current local time" not in fixed["text"] and clock["text"].startswith("Current local time")
 
 
 def test_jarvis_waits_for_a_pause_before_acting(settings, ctx, registry, monkeypatch):
@@ -613,7 +572,7 @@ def test_a_job_on_the_web_gets_the_fast_lane_a_short_brief_and_a_dozen_tools(set
     jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=client)
     jarvis.ask("Отвори сайта на БНБ в браузъра и ми кажи курса на долара днес")
     request = client.requests[0]
-    names = {t["name"] for t in request["tools"]} - {t["name"] for t in brain_module.SERVER_TOOLS}
+    names = {t["name"] for t in request["tools"]}
     assert names <= set(brain_module.WEB_TOOLS) and {"open_page", "click_text", "request_approval"} <= names
     assert "This is a job on the web" in system_text(request) and "team of specialists" not in system_text(request)
 
@@ -656,8 +615,13 @@ def test_an_old_edge_tts_is_updated_once_and_the_voice_retried(monkeypatch):
     assert tts.freshen_edge() is False  # once per run
 
 
-def test_an_email_in_a_brain_field_is_not_a_brain(monkeypatch):
-    from jarvis.brain import backups
+def test_a_cloud_brain_left_in_the_settings_means_the_laptop(monkeypatch):
+    from jarvis import local
+    from jarvis.brain import as_local
+    from jarvis.config import brain_setting
 
-    monkeypatch.setenv("JARVIS_BACKUP", "groq, someone@example.com")
-    assert backups() == ["groq"]
+    assert brain_setting("mistral") == brain_setting("auto") == brain_setting("") == "local"
+    assert brain_setting("local:qwen3.5:4b") == "local:qwen3.5:4b" and brain_setting("local:a@b.c") == "local"
+    monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": ["qwen3.5:4b"]})
+    assert as_local("qwen3.5:4b") == "local:qwen3.5:4b" and as_local("qwen3.5") == "local:qwen3.5"
+    assert as_local("gemini-3.5-flash") == "local" and as_local(None) == "local"

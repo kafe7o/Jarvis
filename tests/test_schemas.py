@@ -6,7 +6,7 @@ from __future__ import annotations
 import inspect
 import time
 
-from jarvis import gemini, router
+from jarvis import router
 from jarvis.brain import DONE_CHECK, VERIFY_CHECK, Jarvis
 from jarvis.tools import JSON_TYPES, Tool, ToolRegistry, fit_args, normalize_schema, obj
 
@@ -42,7 +42,9 @@ def test_python_type_names_become_json_schema_types():
     assert normalize_schema(None) == {"type": "object", "properties": {}, "required": []}
 
 
-def test_a_skill_with_an_int_is_sent_to_gemini_as_integer(settings, ctx, registry, monkeypatch):
+def test_a_skill_with_an_int_is_sent_to_the_brain_as_integer(settings, ctx, registry, monkeypatch):
+    from jarvis import local
+
     from jarvis.plugins.agent import load_skill, skills_dir
 
     (skills_dir(ctx) / "server.py").write_text(
@@ -52,9 +54,9 @@ def test_a_skill_with_an_int_is_sent_to_gemini_as_integer(settings, ctx, registr
         "    def start_server(port: int, host: str = 'localhost'):\n"
         "        return f'{host}:{port} {type(port).__name__}'\n", encoding="utf-8")
     assert load_skill(registry, ctx, skills_dir(ctx) / "server.py") == ["start_server"]
-    declared = {d.name: d.parameters_json_schema for d in gemini.to_declarations(registry.definitions())}
+    declared = {d["function"]["name"]: d["function"]["parameters"] for d in local.to_tools(registry.definitions())}
     assert declared["start_server"]["properties"]["port"]["type"] == "integer"
-    assert types_in([d.parameters_json_schema for d in gemini.to_declarations(registry.definitions())]) <= JSON_TYPES
+    assert types_in(list(declared.values())) <= JSON_TYPES
     # a text "8080" from the model becomes the integer the tool wants
     assert registry.run("start_server", {"port": "8080"}, Approver())[0] == "localhost:8080 int"
 
@@ -207,7 +209,7 @@ def test_files_sent_in_the_app_are_saved_for_jarvis_to_open(tmp_path):
     paths = save_files([{"name": "бележки.txt", "data": data}], tmp_path)
     assert len(paths) == 1 and paths[0].read_text(encoding="utf-8") == "здрасти" and paths[0].parent == tmp_path / "uploads"
     text = with_files("виж това", paths)
-    assert text.startswith("виж това") and str(paths[0]) in text and "watch_video" in text
+    assert text.startswith("виж това") and str(paths[0]) in text and "read_file" in text
     assert with_files("нищо", []) == "нищо"
     try:
         save_files([{"name": "x", "data": "not a data url"}], tmp_path)
@@ -239,44 +241,19 @@ def test_a_filler_start_and_an_ability_question_route_right():
     assert router.quick("можеш ли да ми обясниш какво е ADB")
 
 
-def test_a_picture_goes_to_a_brain_that_sees_it(settings, ctx, registry, monkeypatch):
-    from conftest import Approver, FakeClient
-    from jarvis import brain as brain_mod
-    from jarvis.brain import Jarvis
-
-    monkeypatch.setenv("NVIDIA_API_KEY", "k")
-    monkeypatch.setenv("GEMINI_API_KEY", "g")
-    settings.model = brain_mod.gemini.DEFAULT_MODEL
-    jarvis = Jarvis(settings, ctx.store, registry, Approver(), client=FakeClient([]))
-    seen = {}
-
-    def fake_ask_free(order, system, messages, tools, max_tokens, effort, images=False):
-        seen.update(order=order, images=images)
-        return response(text_block("Виждам екрана."))
-
-    monkeypatch.setattr(jarvis, "_ask_free", fake_ask_free)
-    assert jarvis.ask("какво виждаш", images=[("image/png", "aGk=")]) == "Виждам екрана."
-    assert seen["images"] and brain_mod.brain_kind(seen["order"][0]) == "gemini"
-    assert ctx.store.history("main")[0]["content"].endswith("(с приложена снимка)")
-    jarvis.ask("а какво става тук", images=None)  # no picture: Gemini Flash first while its day lasts, then NVIDIA
-    assert not seen["images"] and seen["order"][0] == brain_mod.gemini.AGENT_MODEL
-    assert brain_mod.brain_kind(seen["order"][1]) == "nvidia"
-    jarvis.gemini.spent[brain_mod.gemini.AGENT_MODEL] = time.time() + 3600  # Flash's free day is over
-    jarvis.ask("а какво става тук", images=None)
-    assert not seen["images"] and brain_mod.brain_kind(seen["order"][0]) == "nvidia"
-
-
-def test_a_screenshot_a_tool_just_took_goes_to_a_brain_that_sees_it():
-    from jarvis.brain import has_images
+def test_a_picture_and_a_screenshot_reach_the_laptop_model():
+    from jarvis import local
 
     shot = {"type": "tool_result", "tool_use_id": "t1", "content": [
         {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}},
         {"type": "text", "text": "Screenshot 1280x720."}]}
-    assert has_images([{"role": "user", "content": "виж екрана"}, {"role": "assistant", "content": []},
-                       {"role": "user", "content": [shot]}])
-    assert not has_images([{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}])
-    assert not has_images([{"role": "user", "content": [shot]}, {"role": "assistant", "content": []},
-                           {"role": "user", "content": "и сега?"}])  # only the newest message counts
+    sent = local.to_messages("s", [
+        {"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                                  "data": "aGk="}}, {"type": "text", "text": "какво виждаш"}]},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "look_at_screen", "input": {}}]},
+        {"role": "user", "content": [shot]}])
+    assert sent[1] == {"role": "user", "content": "какво виждаш", "images": ["aGk="]}
+    assert sent[3]["content"] == "Screenshot 1280x720." and sent[4]["images"] == ["aGk="]
 
 
 def test_told_to_start_jarvis_does_not_stop_to_ask_whether_to_go_on(settings, ctx, registry):

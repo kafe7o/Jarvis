@@ -1,86 +1,16 @@
-"""Switch Jarvis's brain (Claude, Gemini, Groq, NVIDIA, OpenRouter or the one on this computer) by asking:
-"switch to Fable", "use Gemini".
-
-Only the owner can switch; the choice is saved in .env and the app changes colour to match.
+"""The owner's own settings by asking: the voice Jarvis speaks with ("смени гласа") and the models on the laptop
+he thinks with ("изтегли Qwen 9B", "мисли с 4B"). Only the owner can change them; they are saved in .env.
 """
 
 from __future__ import annotations
 
 import os
 
-from .. import freeapi, gemini, groq, local, tts
+from .. import tts
 from ..tools import ToolRegistry, obj
-
-# key: (model id, name, what it is for)
-BRAINS = {
-    "opus": ("claude-opus-5-5", "Opus 5.5", "the default: strong and quick"),
-    "fable": ("claude-fable-5-1", "Fable 5.1", "the most capable, for the hardest problems; slower and pricier"),
-    "sonnet": ("claude-sonnet-5-5", "Sonnet 5.5", "fast everyday work, cheaper"),
-    "haiku": ("claude-haiku-5-5", "Haiku 5.5", "the fastest and cheapest, for simple things"),
-    "gemini": ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Google's model, free within Google's daily limits; needs GEMINI_API_KEY"),
-    "mistral": ("mistral", "Mistral", "paid per token within the daily cap (Small is cheap, Medium costs about what "
-                "Claude Sonnet does), fast and strong with every tool, sees pictures; needs MISTRAL_API_KEY"),
-    "groq": ("groq", "Groq", "free (no card) and the fastest; simpler, with the most useful tools only; needs GROQ_API_KEY"),
-    "nvidia": ("nvidia", "NVIDIA", "free (no card) strong open models such as Kimi and DeepSeek, with every tool; "
-               "slower than Groq; needs NVIDIA_API_KEY"),
-    "openrouter": ("openrouter", "OpenRouter", "free models (about 50 requests a day), with every tool; "
-                   "needs OPENROUTER_API_KEY"),
-    "auto": ("auto", "Авто", "Jarvis picks the free brain for every step himself and switches in the middle of a "
-             "task: quick ones for easy steps, the smartest for hard ones or after a failed step"),
-    "local": ("local", "the brain on this computer (Ollama)", "free with no daily limit and works offline, but slower "
-              "and simpler; needs Ollama installed"),
-}
-
-
-def brain_key(model: str) -> str:
-    if model.startswith("gemini"):
-        return "gemini"
-    if local.is_local(model):
-        return "local"
-    if groq.is_groq(model):
-        return "groq"
-    if freeapi.is_free_api(model):
-        return freeapi.provider_of(model).key
-    return next((key for key, (mid, _n, _d) in BRAINS.items() if mid == model), "custom")
 
 
 def register(registry: ToolRegistry, ctx) -> None:
-    @registry.tool(
-        "Switch your own brain (the model you run on) when the owner asks, e.g. 'switch to Fable', "
-        "'use the fastest brain'. Options: " + "; ".join(f"{k} = {n}: {d}" for k, (_m, n, d) in BRAINS.items()),
-        obj({"brain": ("string", "One of: " + ", ".join(BRAINS))}),
-    )
-    def switch_brain(brain: str):
-        from ..brain import TURN
-
-        user = (TURN.get() or {}).get("user")
-        if user is not None and not user.is_owner:
-            raise PermissionError("Only the owner can switch Jarvis's brain.")
-        key = brain.strip().lower()
-        if key not in BRAINS:
-            raise ValueError(f"Unknown brain '{brain}'. Choose: {', '.join(BRAINS)}")
-        model, name, _desc = BRAINS[key]
-        if key == "gemini" and not gemini.available():
-            raise ValueError("Gemini needs a free key: the owner adds GEMINI_API_KEY in Settings > Connections "
-                             "(get it at aistudio.google.com/apikey).")
-        if key == "groq" and not groq.available():
-            raise ValueError("Groq needs a free key: the owner adds GROQ_API_KEY in Settings > Connections "
-                             "(get it at console.groq.com/keys, no card needed).")
-        if key in freeapi.PROVIDERS and not freeapi.available(key):
-            p = freeapi.PROVIDERS[key]
-            raise ValueError(f"{p.name} needs a free key: the owner adds {p.env} in Settings > Connections "
-                             f"(get it at {p.site}).")
-        if key == "local" and not local.available():
-            raise ValueError("Ollama is not running on this computer, or has no model yet. Use local_models "
-                             "(install_ollama, then download or add_file), or the owner opens Settings > Модели.")
-        hub = getattr(ctx, "hub", None)
-        if hub is not None:
-            hub.save_settings({"JARVIS_MODEL": model})
-            hub.events.add("brain", brain=key, name=name)
-        os.environ["JARVIS_MODEL"] = model
-        ctx.settings.model = model
-        return f"Switched to {name} ({model}). Your next answer comes from it; say so in one short line, in character."
-
     @registry.tool(
         "Change the voice Jarvis speaks with in the app, when the owner asks: 'смени гласа', 'сложи женски глас', "
         "'гласа на Калина'. Pass the voice's name, or 'друг' for the next one, or 'мъжки'/'женски'. Voices: "
@@ -109,12 +39,12 @@ def register(registry: ToolRegistry, ctx) -> None:
         return f"Вече говоря с гласа {name} ({about}).{note} Всички гласове можеш да чуеш в Настройки > Глас."
 
     @registry.tool(
-        "The brains on this laptop (Ollama), as in Settings > Модели. Actions: list (installed models, downloads in "
-        "progress, .gguf files in Downloads, the graphics card and RAM); download (the owner's Qwen 3.5 9B "
-        "Abliterated, its fast 4B, or any Ollama or Hugging Face name such as hf.co/user/repo:Q4_K_M); add_file (a "
-        ".gguf file already on the computer, e.g. in Downloads; empty = the biggest one there); use (make it the "
-        "laptop brain); delete; install_ollama. A download runs in the background: say it started, and list shows "
-        "its progress. To run on it, switch_brain to local afterwards.",
+        "The models you think with, on this laptop (Ollama), as in Settings > Мозък. Actions: list (installed "
+        "models, downloads in progress, .gguf files in the models folder Documents\\Jarvis Models and in Downloads, "
+        "the graphics card and RAM); download (the owner's Qwen 3.5 9B Abliterated, its fast 4B, or any Ollama or "
+        "Hugging Face name such as hf.co/user/repo:Q4_K_M); add_file (a .gguf file already on the computer; empty = "
+        "the biggest one found); use (think with it from the next step on); delete; install_ollama. A download runs "
+        "in the background: say it started, and list shows its progress.",
         obj({"action": ("string", "list, download, add_file, use, delete or install_ollama"),
              "model?": ("string", "A model name or words like 'qwen 9b', '4b', 'памет'; for add_file a file path")}),
     )
@@ -133,7 +63,7 @@ def register(registry: ToolRegistry, ctx) -> None:
             files = localmodels.gguf_files()
             path = model.strip() or (files[0]["path"] if files else "")
             if not path:
-                return "There is no .gguf file in Downloads, on the desktop or in Documents."
+                return "There is no .gguf file in Documents\\Jarvis Models, Downloads, the desktop or Documents."
             return localmodels.import_gguf(path)
         if action in ("download", "use", "delete"):
             name = localmodels.resolve(model)
@@ -150,12 +80,12 @@ def register(registry: ToolRegistry, ctx) -> None:
                 return f"{model} is not on the laptop yet: download it (or add_file) first."
             save_settings(ctx, {"JARVIS_LOCAL_MODEL": name})
             ctx.settings.local_model = name
-            return f"The laptop brain is now {name}."
-        view = localmodels.overview(ctx.settings.local_model, ctx.settings.model)
+            return f"From the next step on you think with {name}."
+        view = localmodels.overview(ctx.settings.local_model)
         hw = view["hardware"]
         lines = [f"Ollama: {view['ollama'] or ('installed, not running' if view['installed_ollama'] else 'not installed')}",
                  f"Hardware: {hw['gpu'] or 'no NVIDIA card found'} {hw['vram']} GB, RAM {hw['ram']} GB, free disk {hw['disk']} GB",
-                 f"Laptop brain: {view['chosen'] or 'none'}" + (f" (easy steps on {view['quick']})" if view["quick"] else "")]
+                 f"Thinking with: {view['chosen'] or 'none'}" + (f" (easy steps on {view['quick']})" if view["quick"] else "")]
         lines += [f"{'✅' if m['installed'] else '⬇'} {m['name']} — {m['id']}, {m['gb']} GB, {m['fit']}" for m in view["models"]]
         lines += [f"✅ {m['id']}, {m['gb']} GB" for m in view["others"]]
         lines += [f"📄 {f['path']} ({f['gb']} GB) — not added yet (add_file)" for f in view["files"]]

@@ -105,7 +105,7 @@ def test_a_new_message_gets_a_reply_sent_only_after_yes(setup, ctx, monkeypatch)
     phone.dump = DUMP  # Мария writes
     assert watcher.tick() == 1
     draft = client.requests[0]
-    assert draft["model"] == "claude-haiku-5-5" and not draft.get("tools")
+    assert draft["effort"] == "low" and not draft.get("tools")  # tools=[]: the quick model
     assert "кратко, на ти" in system_text(draft) and "Мария" in draft["messages"][0]["content"]
     assert approver.asked == ["ОТГОВОР в WhatsApp до Мария\nПиса: „Ще дойдеш ли довечера? :)“\n"
                               "Отговор: „Ще ти пиша малко по-късно.“"]

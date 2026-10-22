@@ -4,7 +4,7 @@ Claude (or anything else the owner lets write to that folder, such as a synced f
 while the owner is away and see how fast he started on it. Each ``*.txt`` is asked in a chat of its own
 („Задачи отдалеч: <name>“) (with the same confirmations as the app) and gets an answer file next to it:
 ``<name>.answer.txt`` with when the task was picked up, when the first step started, which brains answered and
-what Jarvis said. A first line „модел: groq“ (any JARVIS_MODEL value) runs that task on that brain.
+what Jarvis said. A first line „модел: qwen3.5:4b“ (any model installed in Ollama) runs that task on that model.
 A task cut off by a restart (an update) is asked again once. JARVIS_REMOTE_FOLDER=0 switches it off.
 """
 from __future__ import annotations
@@ -61,7 +61,7 @@ def run_one(hub, task: Path) -> Path:
     text = working.read_text(encoding="utf-8", errors="replace").strip()[:4000]
     model = None
     first_line, _, rest = text.partition("\n")
-    if re.fullmatch(r"(модел|model)\s*:\s*\S+", first_line.strip(), re.I):  # "модел: groq" tries one brain
+    if re.fullmatch(r"(модел|model)\s*:\s*\S+", first_line.strip(), re.I):  # "модел: qwen3.5:4b" tries one model
         model, text = first_line.split(":", 1)[1].strip(), rest.strip()
     owner = hub.accounts.owner()
     picked = time.time()

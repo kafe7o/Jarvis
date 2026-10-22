@@ -39,53 +39,29 @@ def silence_seconds() -> float:
     return min(max(seconds, 0.5), 10.0)
 
 
-def _cap(value: str, default: float) -> float | None:
-    value = (value or "").strip().lower() or str(default)
-    if value in ("без", "няма", "none", "no", "off", "-1"):
-        return None
-    try:
-        return max(0.0, float(value.replace(",", ".").lstrip("$").rstrip("$")))
-    except ValueError:
-        return default
-
-
-def default_brain() -> str:
-    """No brain chosen (JARVIS_MODEL empty): the strongest one that is set up: Mistral (fast, strong; paid per
-    token within the daily cap), NVIDIA (Kimi, DeepSeek), OpenRouter, then Gemini, then Groq (fast, but weak with
-    tools); Claude (paid) only when there is none."""
-    if _env("MISTRAL_API_KEY"):
-        return "mistral"
-    if _env("NVIDIA_API_KEY"):
-        return "nvidia"
-    if _env("OPENROUTER_API_KEY"):
-        return "openrouter"
-    if _env("GEMINI_API_KEY"):
-        return "gemini-3.5-flash-lite"
-    if _env("GROQ_API_KEY"):
-        return "groq"
-    return "claude-opus-5-5"
+def brain_setting(value: str | None) -> str:
+    """JARVIS_MODEL: "local" (the best model on this computer) or "local:<name>". A cloud brain's name left in .env
+    from before (Mistral, Gemini, "auto") means the local one: Jarvis thinks only on the laptop now."""
+    value = (value or "").strip()
+    return value if value.startswith("local:") and "@" not in value else "local"
 
 
 @dataclass
 class Settings:
     # Brain
-    model: str = field(default_factory=lambda: (lambda m: m if m and "@" not in m else default_brain())(_env("JARVIS_MODEL")))
+    model: str = field(default_factory=lambda: brain_setting(_env("JARVIS_MODEL")))
     effort: str = field(default_factory=lambda: _env("JARVIS_EFFORT", "xhigh"))
     max_tokens: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOKENS", "16000")))
-    refusal_fallback: bool = field(default_factory=lambda: _flag("JARVIS_REFUSAL_FALLBACK", True))
     heartbeat_minutes: int = field(default_factory=lambda: int(_env("JARVIS_HEARTBEAT_MINUTES", "60")))
     quiet_hours: str = field(default_factory=lambda: _env("JARVIS_QUIET_HOURS", "23-7"))
     max_tool_rounds: int = field(default_factory=lambda: int(_env("JARVIS_MAX_TOOL_ROUNDS", "80")))
 
-    # Saving (see router.py): commands without AI and a quick lane for short questions, the model for that lane
-    # (empty = the cheapest one), a daily cap in US dollars for paid brains, and the model on this computer.
+    # Speed (see router.py): commands without AI and a quick lane for short questions; the model on this computer
+    # (empty = the best one installed, see local.pick).
     router: bool = field(default_factory=lambda: _flag("JARVIS_ROUTER", True))
     # an answer to a request for action with no tool used gets one more look (brain.ACT_CHECK)
     act_check: bool = field(default_factory=lambda: _flag("JARVIS_ACT_CHECK", True))
     learn: bool = field(default_factory=lambda: _flag("JARVIS_LEARN", True))  # lessons from failed or corrected tasks
-    fast_model: str = field(default_factory=lambda: _env("JARVIS_FAST_MODEL", ""))
-    daily_budget: str = field(default_factory=lambda: _env("JARVIS_DAILY_BUDGET", "1"))
-    mistral_budget: str = field(default_factory=lambda: _env("JARVIS_MISTRAL_BUDGET", "2"))
     local_model: str = field(default_factory=lambda: _env("JARVIS_LOCAL_MODEL", ""))
 
     # Identity
@@ -129,15 +105,6 @@ class Settings:
     wake_word: str = field(default_factory=lambda: _env("JARVIS_WAKE_WORD", "jarvis"))
     whisper_model: str = field(default_factory=lambda: _env("JARVIS_WHISPER_MODEL", "small"))
     tts_voice: str = field(default_factory=lambda: _env("JARVIS_TTS_VOICE", "bg-BG-BorislavNeural"))
-
-    def budget(self) -> float | None:
-        """Most US dollars a day for Claude; None means no cap, 0 means never Claude (only the other brains)."""
-        return _cap(self.daily_budget, 1.0)
-
-    def mistral_cap(self) -> float | None:
-        """Most US dollars a day for Mistral (paid per token), its own cap: the owner's "0" for Claude, set when he
-        refused to pay for it, must not silence the brain he then paid for. None = no cap, 0 = never Mistral."""
-        return _cap(self.mistral_budget, 2.0)
 
     @property
     def db_path(self) -> Path:

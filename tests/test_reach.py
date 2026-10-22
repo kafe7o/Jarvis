@@ -71,7 +71,7 @@ def test_a_job_that_asks_the_owner_stops_and_the_question_is_kept(settings, ctx,
     kinds = [r["kind"] for r in notices.unseen(ctx.store)]
     assert kinds == ["question", "job"]
     assert any(t.startswith("❓ Да откажа ли абонамента?") for t in told)
-    assert "ask_owner once" in ctx.jarvis.client.requests[0]["messages"][0]["content"]
+    assert "ask_owner once" in ctx.jarvis.local.requests[0]["messages"][0]["content"]
 
 
 def test_a_guest_cannot_page_the_owner(settings, ctx, registry):

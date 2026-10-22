@@ -1,5 +1,5 @@
-"""The brain: a tool-use loop over every registered plugin, thinking with Claude, Google Gemini or a model on
-this computer. Simple requests never reach it: see router.py for the three levels."""
+"""The brain: a tool-use loop over every registered plugin, thinking with a model on this computer (Ollama, see
+local.py). Simple requests never reach it: see router.py for the three levels."""
 
 from __future__ import annotations
 
@@ -15,9 +15,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Callable
 
-import anthropic
-
-from . import core_files, freeapi, gemini, groq, local, notices, recipes, router, usage, work
+from . import core_files, local, notices, recipes, router, usage, work
 from .config import Settings
 from .store import Store
 from .tools import Confirmer, ToolRegistry
@@ -108,7 +106,7 @@ or click my own J.A.R.V.I.S. window. When a step fails, read the error, change o
 keyboard instead of the mouse, web_browser instead of the screen) and try again; two failures the same way \
 mean a different way, not a third try.
 - Keys, passwords and tokens never appear in your answers: save them with save_setting (the owner sees them in \
-Settings: Мозък for the brains' keys, Връзки for the services) and say that it is saved. Say only what is true about them: a key is "active" only when \
+Settings > Връзки) and say that it is saved. Say only what is true about them: a key is "active" only when \
 connections shows it set.
 - Once told to start, start, and keep going on your own: build the plan yourself, take the next step from what \
 you see on the screen or the page, and when a step fails try another way before you ask. Between steps say \
@@ -242,7 +240,6 @@ GO_AHEAD_HINT = ("\n\n(This is a go-ahead: do now, with your tools, exactly what
 # Added to a message typed in Bulgarian with Latin letters, so a weak brain reads it right.
 LATIN_HINT = "\n\n(Написано на латиница. Приблизително на кирилица: {cyrillic})"
 IMAGE_MARK = "\n\n(с приложена снимка)"  # kept in the saved conversation, so later turns know a picture was shown
-BLIND = {"groq", "nvidia", "openrouter"}  # free brains that cannot see pictures (Gemini, Mistral, Claude and Ollama can)
 ACT_CHECK = ("(Check before you answer: you have not used a single tool in this turn. If I asked you to do something, "
              "do it now with your tools instead of describing it; if no tool fits, find a way: the browser, the screen, "
              "run_python or run_shell, a new skill. Don't say anything is done, started or scheduled unless a tool did it. "
@@ -288,7 +285,7 @@ HIDDEN = "•••• (скрито; записано е в настройки�
 
 
 def redact_secrets(text: str) -> str:
-    """An answer with a key, password or token in it shows dots instead: the value belongs in Settings (Мозък or Връзки)."""
+    """An answer with a key, password or token in it shows dots instead: the value belongs in Settings > Връзки."""
     return SECRETS.sub(HIDDEN, text or "")
 
 
@@ -327,26 +324,9 @@ def echoes_check(text: str) -> bool:
     return any(mark in text for mark in CHECK_MARKS)
 
 
-SERVER_TOOLS = [
-    {"type": "web_search_20260209", "name": "web_search"},
-    {"type": "web_fetch_20260209", "name": "web_fetch"},
-]
-
-
-def claude_unusable(exc: Exception) -> bool:
-    """True when Claude cannot answer at all: no credit left, or no or a wrong API key."""
-    text = str(exc).lower()
-    return (isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError))
-            or "credit balance" in text or "authentication" in text or "api_key" in text)
-
-
-class BudgetReached(RuntimeError):
-    """The daily spending cap for paid brains (JARVIS_DAILY_BUDGET) is reached and no free brain is set up."""
-
-
-# Which tools a free brain gets for one request. Claude takes all of them (they are cached); the free brains do
-# worse with a hundred tools than with the thirty that matter here, so the groups below join only when the
-# recent messages are about them. The owner's permissions still apply on top.
+# Which tools the brain gets for one request: a laptop model does worse with a hundred tools than with the ones that
+# matter here (and all of them would fill half its context), so the groups below join only when the recent messages
+# are about them. The owner's permissions still apply on top.
 ALWAYS_GROUPS = {"core", "system", "browser", "memory", "tasks", "web"}
 GROUP_WORDS = {
     "android": r"телефон|phone|sms|смс|обад|звънн|позвън|телевиз|\btv\b|android|контакт|приложени",
@@ -364,7 +344,7 @@ GROUP_RX = {g: re.compile(router.bg(words), re.I) for g, words in GROUP_WORDS.it
 
 
 # The fast lane for a job on the web (router.web_task): a short brief and a dozen tools, about a quarter of the
-# usual prompt, so a free brain answers each step in seconds instead of half a minute, in fewer steps (open_page
+# usual prompt, so the laptop brain answers each step in seconds instead of half a minute, in fewer steps (open_page
 # brings the page's text with it, so there is no "look at the screen again" after every action).
 WEB_TOOLS = ("open_page", "read_window", "click_text", "look_at_screen", "control_input", "google_search", "weather",
              "translate_text", "emag_cheapest", "play_youtube", "web_browser", "remember", "recall", "request_approval")
@@ -392,9 +372,6 @@ Keys and passwords never appear in your answers.
 - Between steps say nothing; the answer comes with the result: one to three sentences with what was asked."""
 
 
-AUTO = "auto"  # JARVIS_MODEL=auto (Settings > Мозък > Авто): Jarvis picks the brain for every step himself
-
-
 def last_round_failed(messages: list) -> bool:
     """True when a tool in the newest round of results failed (not a "no" from the owner)."""
     content = messages[-1].get("content") if messages and messages[-1].get("role") == "user" else None
@@ -416,7 +393,7 @@ def task_rounds(messages: list) -> int:
     return rounds
 
 
-LONG_TASK = 4  # Авто: after this many rounds a quick brain has not finished, the smartest one takes over
+LONG_TASK = 4  # after this many rounds a task has not finished, its steps think fully
 
 
 FACTS_ALL = 40  # up to this many remembered facts, all of them go into every prompt
@@ -437,8 +414,8 @@ def relevant_facts(facts: list[dict], about: str) -> list[dict]:
 
 
 def hard_step(messages: list) -> bool:
-    """Авто: the step right after a failed one, or a task still going after LONG_TASK rounds, gets the smartest
-    brain thinking fully; every other step (a mission's too) a quick brain thinking briefly."""
+    """The step right after a failed one, or a task still going after LONG_TASK rounds, thinks fully; every other
+    step (a mission's too) briefly, which is several times faster on the laptop."""
     return last_round_failed(messages) or task_rounds(messages) >= LONG_TASK
 
 
@@ -467,34 +444,13 @@ def recent_text(messages: list, turns: int = 2) -> str:
 
 
 def select_tools(tools: list[dict], groups: dict[str, str], text: str) -> list[dict]:
-    """The tools worth sending to a free brain for this request: the always-on groups, plus the groups the recent
-    messages talk about. A mission (a long job) keeps every tool."""
-    if router.is_mission(text):
-        return tools
+    """The tools worth sending to the brain for this request: the always-on groups, plus the groups the recent
+    messages talk about. A mission (a long job) also gets Jarvis's own tools (skills, settings, connections)."""
     wanted = set(ALWAYS_GROUPS) | {g for g, rx in GROUP_RX.items() if rx.search(text)}
+    if router.is_mission(text):
+        wanted.add("agent")
     chosen = [t for t in tools if groups.get(t["name"], "agent") in wanted]
     return chosen or tools
-
-
-def has_images(messages: list) -> bool:
-    """True when the newest user message carries a picture: a photo sent in the app, a screen frame, or a
-    screenshot a tool just took (look_at_screen, the phone's screen), which is inside a tool result."""
-    for m in reversed(messages):
-        if m.get("role") != "user":
-            continue
-        content = m.get("content")
-        if not isinstance(content, list):
-            return False
-        for b in content:
-            if not isinstance(b, dict):
-                continue
-            if b.get("type") == "image":
-                return True
-            inner = b.get("content") if b.get("type") == "tool_result" else None
-            if isinstance(inner, list) and any(isinstance(x, dict) and x.get("type") == "image" for x in inner):
-                return True
-        return False
-    return False
 
 
 def is_background(messages: list) -> bool:
@@ -502,69 +458,13 @@ def is_background(messages: list) -> bool:
     return recent_text(messages, turns=1).lstrip().startswith("(Scheduled job")
 
 
-def brain_kind(model: str) -> str:
-    """Which free brain a model belongs to: gemini, groq, local, mistral, nvidia or openrouter."""
-    if groq.is_groq(model) or local.is_local(model) or freeapi.is_free_api(model):
-        return model.partition(":")[0]
-    return "gemini"
-
-
-def keep_brain(model: str) -> None:
-    """Save the brain as JARVIS_MODEL in .env, so the next start begins on it (and does not try Claude first)."""
-    from .setup_wizard import env_path, read_env, write_env
-
-    os.environ["JARVIS_MODEL"] = model
-    try:
-        path = env_path()
-        values = read_env(path)
-        values["JARVIS_MODEL"] = model
-        write_env(path, values)
-    except OSError as exc:
-        log.warning("could not save the brain in .env: %s", exc)
-
-
-def free_brain(paid: bool = True) -> str | None:
-    """The strongest brain that is set up besides Claude: Mistral (paid per token, unless ``paid`` is False),
-    NVIDIA, OpenRouter, Gemini, Groq (None when there is none)."""
-    strong = next((key for key in freeapi.PROVIDERS if freeapi.available(key) and (paid or key not in freeapi.PAID)), None)
-    if strong:
-        return strong
-    if gemini.available():
-        return gemini.DEFAULT_MODEL
-    if groq.available():
-        return groq.DEFAULT_MODEL
-    return None
-
-
-ALIASES = {"gemini": gemini.DEFAULT_MODEL, "ollama": "local"}
-
-
-def backups() -> list[str]:
-    """JARVIS_BACKUP (Settings > Мозък): the brains asked, in this order, as soon as the main one is overloaded,
-    used up or broken, before the automatic order ("groq", "openrouter", "nvidia:<model>", "gemini", "local").
-    One without its key in .env is passed over."""
-    names = re.split(r"[,;\s]+", os.environ.get("JARVIS_BACKUP", ""))
-    return [ALIASES.get(n.lower(), n) for n in names if model_name(n) and n.lower() != AUTO]
-
-
-def model_name(name: str) -> bool:
-    """A brain's name, not something else a browser typed into the field (once the owner's e-mail landed there and
-    every backup turn failed with "models/<e-mail> is not found")."""
-    return bool(re.fullmatch(r"[\w.:/\-]+", name.strip())) and "@" not in name
-
-
-def strip_thinking(messages: list) -> bool:
-    """Remove thinking blocks from assistant turns in place. Returns True if any were removed."""
-    removed = False
-    for message in messages:
-        if message["role"] != "assistant" or isinstance(message["content"], str):
-            continue
-        kept = [b for b in message["content"]
-                if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) not in ("thinking", "redacted_thinking")]
-        if len(kept) != len(message["content"]):
-            message["content"] = kept
-            removed = True
-    return removed
+def as_local(model: str | None) -> str:
+    """Every brain is on this computer: "local", "local:<name>" and an installed model's name are kept; anything
+    else (a cloud brain's name left in .env from before, such as "auto" or "mistral") means the best local model."""
+    if not model or local.is_local(model):
+        return model or "local"
+    installed = local.models()
+    return f"local:{model}" if any(n == model or n.split(":")[0] == model for n in installed) else "local"
 
 
 class Jarvis:
@@ -574,24 +474,16 @@ class Jarvis:
         store: Store,
         registry: ToolRegistry,
         confirmer: Confirmer,
-        client: anthropic.Anthropic | None = None,
+        client=None,
         on_progress: Callable[[str], None] | None = None,
-        gemini_brain: gemini.GeminiBrain | None = None,
         local_brain: local.LocalBrain | None = None,
-        groq_brain: groq.GroqBrain | None = None,
-        free_brains: dict[str, freeapi.FreeBrain] | None = None,
     ):
         self.settings = settings
         self.store = store
         self.registry = registry
         self.confirmer = confirmer
-        self.client = client or anthropic.Anthropic()
-        self.gemini = gemini_brain or gemini.GeminiBrain()
-        self.local = local_brain or local.LocalBrain()
-        self.groq = groq_brain or groq.GroqBrain()
-        self.free_apis = {key: (free_brains or {}).get(key)
-                          or freeapi.FreeBrain(key, state=settings.home / f"resting-{key}.json")
-                          for key in freeapi.PROVIDERS}
+        # The brain: Ollama on this computer, or what is handed in (``client``: the tests' scripted answers).
+        self.local = local_brain or client or local.LocalBrain()
         self.on_progress = on_progress or (lambda _msg: None)
         self._step_ids = itertools.count(1)
         self._last_level = 0  # which cheap lane answered last (cheap_answer), for ask()
@@ -652,247 +544,29 @@ class Jarvis:
     def _request(self, messages: list, user=None, system: str | list | None = None, allowed: set | None = None, *,
                  model: str | None = None, effort: str | None = None, tools: list | None = None,
                  max_tokens: int | None = None) -> object:
-        """One request to the brain. ``model``, ``effort`` and ``tools`` default to the settings and every tool
-        this person may use; the quick lane passes the cheapest model, low effort and no tools."""
+        """One request to the brain on this computer. ``model``, ``effort`` and ``tools`` default to the settings
+        and the tools this person may use that the request is about; the quick lane passes low effort and no tools."""
         s = self.settings
-        model = model or CHOSEN.get() or s.model
-        model = ALIASES.get(model.lower(), model)
+        model = as_local(model or CHOSEN.get() or s.model)
         effort = effort or (TURN.get() or {}).get("effort") or s.effort
         max_tokens = max_tokens or s.max_tokens
         if allowed is None and user is not None:
             allowed = user.allowed_groups()
         if tools is None:
             tools = self.registry.definitions(allowed)
-            if tools and not model.startswith("claude"):  # a free brain: the tools this request is about
+            if tools:
                 groups = {name: (tool.group or "agent") for name, tool in self.registry.tools.items()}
                 tools = select_tools(tools, groups, recent_text(messages))
         system = system if system is not None else self.system_prompt(user, recent_text(messages))
-        again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
-        if model == AUTO:  # a quick step thinks briefly; a hard one (hard_step) thinks as set
-            return self._ask_free(self.auto_order(messages, tools), system, messages, tools, max_tokens,
-                                  effort if hard_step(messages) else "low", images=has_images(messages))
-        if local.is_local(model):
-            return self._ask_local(model, system, messages, tools, max_tokens, effort)
-        providers = self.affordable()  # Mistral (while under the daily cap), NVIDIA, OpenRouter
-        strong = [k for k in providers if freeapi.available(k)]  # the ones with a key: the strongest free ones
-        sees = has_images(messages)  # a picture in the message: Gemini sees it, NVIDIA/OpenRouter/Groq do not
-        if groq.is_groq(model):
-            order = [model, *strong, gemini.DEFAULT_MODEL, *providers, "local"]
-        elif model.startswith("gemini"):
-            order = [model, *providers, groq.DEFAULT_MODEL, "local"]
-            if tools and len(tools) > len(WEB_TOOLS) and model == gemini.DEFAULT_MODEL and not sees:
-                # Real work on the default brain: Gemini Flash first while its free requests last (it sees the
-                # screen and carries a task), then the strong free models of NVIDIA or OpenRouter, then Flash-Lite,
-                # which is weak with dozens of tools, and Groq. A scheduled job nobody is watching does not spend
-                # Flash. A Gemini model the owner chose by name stays first. The web lane's dozen tools stay on
-                # Gemini (2-7 s a step on the laptop, where NVIDIA took 20 s even for the short prompt).
-                order = [*strong, *order]
-                if self.flash_ready() and not is_background(messages):
-                    order = [gemini.AGENT_MODEL, *order]
-        elif freeapi.is_free_api(model):
-            first = [model] if brain_kind(model) in providers else []  # a paid brain past the cap: a free one answers
-            if not first:
-                log.info("the daily cap is reached; a free brain answers instead of %s", model)
-            order = [*first, *strong, gemini.DEFAULT_MODEL, *providers, groq.DEFAULT_MODEL, "local"]
-        else:
-            order = None
-        if order is not None:
-            order = [order[0], *backups(), *order[1:]]
-            if sees:
-                order = [gemini.DEFAULT_MODEL, *order]
-            return self._ask_free(order, system, messages, tools, max_tokens, effort, images=sees)
-        free = self.free_instead()
-        if free:
-            log.info("the daily cap is reached; %s answers instead of Claude", free)
-            return self._request(messages, user, system, allowed, model=free, **again)
-        claude_tools = [t for t in tools if t["name"] not in gemini.ONLY_FOR_GEMINI]
-        if claude_tools and (allowed is None or "web" in allowed):
-            claude_tools += SERVER_TOOLS
-        try:
-            answer = self._ask_claude(messages, system, claude_tools, model, effort, max_tokens)
-            usage.record(self.store, answer, model)
-            return answer
-        except Exception as exc:
-            takeover = free_brain()
-            if takeover is None or not claude_unusable(exc):
-                raise
-            # No credit or no key for Claude: a free brain (Gemini, Groq, NVIDIA, OpenRouter) takes over, for good
-            # (Settings > JARVIS_MODEL brings Claude back).
-            log.warning("Claude is unavailable, switching to %s for good: %s", takeover, exc)
-            s.model = takeover
-            keep_brain(takeover)
-            return self._request(messages, user, system, allowed, model=s.model, **again)
-
-    def auto_order(self, messages: list, tools: list) -> list[str]:
-        """Авто: the brain for this step, chosen again at every step (only to be faster and smarter), so it changes
-        in the middle of a task too.
-        A picture goes to Gemini (it sees), then Mistral (sees too); a short answer with no tools to Groq (the
-        fastest), then Mistral Small; every step with tools to Mistral Medium (the smartest paid-by-the-word brain
-        the owner has: Small, Flash-Lite and Groq printed commands instead of running them, drifted to older tasks
-        and claimed things not done), and after it Gemini Flash while its day lasts, then Flash-Lite thinking fully.
-        Without Mistral's key or past its daily cap the free brains do it. The others follow when one is overloaded
-        or used up. Only the brains with a key in .env are asked."""
-        strong = [k for k in self.affordable() if freeapi.available(k)]
-        cheap = [freeapi.MISTRAL_CHEAP] if "mistral" in strong else []
-        best = [freeapi.MISTRAL_BEST] if "mistral" in strong else []
-        slow = [k for k in strong if k not in freeapi.QUICK]  # NVIDIA and OpenRouter come last: 20-45 s a step
-        flash = [gemini.AGENT_MODEL] if self.flash_ready() and not is_background(messages) else []
-        lite, fast = gemini.QUICK_MODEL, groq.DEFAULT_MODEL
-        if has_images(messages):
-            order = [lite, *flash, *best, fast, *slow]
-        elif not tools:
-            order = [fast, *cheap, lite, *slow]
-        elif hard_step(messages):
-            order = [*best, *flash, gemini.DEFAULT_MODEL, fast, *slow]
-        else:
-            order = [*best, lite, fast, *slow]
-        order = [m for m in [*order, *backups()] if self._ready(m)] or ["local"]
-        log.info("auto brain: %s", order[0])
-        return list(dict.fromkeys(order))
-
-    def _ready(self, model: str) -> bool:
-        kind = brain_kind(model)
-        return (groq.available() if kind == "groq" else local.available() if kind == "local"
-                else freeapi.available(model) and kind in self.affordable() if kind in self.free_apis
-                else gemini.available())
-
-    def under_cap(self, brain: str = "claude") -> bool:
-        """Whether today's spending on that paid brain is still under its daily cap (JARVIS_DAILY_BUDGET for
-        Claude, JARVIS_MISTRAL_BUDGET for Mistral)."""
-        cap = self.settings.mistral_cap() if brain == "mistral" else self.settings.budget()
-        return cap is None or usage.spent_today(self.store, brain) < cap
-
-    def affordable(self) -> list[str]:
-        """The API providers Jarvis may ask now: the free ones always, the paid ones (Mistral) under their cap."""
-        return [k for k in freeapi.PROVIDERS if k not in freeapi.PAID or self.under_cap(k)]
-
-    def flash_ready(self) -> bool:
-        """True while Gemini's agent model (Flash) still has free requests today and is not resting."""
-        try:
-            return gemini.available() and gemini.AGENT_MODEL in self.gemini.models(gemini.AGENT_MODEL)
-        except Exception:
-            return False
-
-    def free_instead(self) -> str | None:
-        """A free brain to use instead of Claude once today's spending reached the cap (JARVIS_DAILY_BUDGET)."""
-        if self.under_cap():
-            return None
-        free = free_brain(paid=False) or ("local" if local.available() else None)
-        if free:
-            return free
-        raise BudgetReached(f"Claude's daily cap of ${self.settings.budget():g} is reached and no free brain is set up.")
-
-    def _ask_free(self, order: list[str], system, messages: list, tools: list, max_tokens: int, effort: str,
-                  images: bool = False) -> object:
-        """The free brains in ``order``: the first one asked for, then the others that are set up, each taking
-        over when the one before has used up its free requests (Gemini for the day, Groq for the minute or day).
-        ``images``: the message shows a picture, so the brains that cannot see one are asked only when no other
-        brain can answer (they get a note in place of the picture)."""
-        broken = None
-        for again in (False, True):
-            used_up, asked, pauses = None, set(), []
-            for i, model in enumerate(order):
-                kind = brain_kind(model)
-                if images and kind in BLIND:
-                    continue
-                if kind in asked or (i and not self._ready(model)):
-                    continue
-                if kind in self.free_apis and not self.free_apis[kind].models(model):
-                    continue  # every model of this provider rests (too slow or used up today): quietly the next one
-                asked.add(kind)
-                if kind == "local":
-                    return self._ask_local(model, system, messages, tools, max_tokens, effort)
-                brain = self.groq if kind == "groq" else self.free_apis.get(kind) or self.gemini
-                try:
-                    answer = brain.create(model=model, system=system, messages=messages, tools=tools,
-                                          max_tokens=max_tokens, effort=effort)
-                except (groq.UsedUp, gemini.UsedUp, gemini.Busy, freeapi.UsedUp) as exc:
-                    log.warning("%s; the next free brain answers", exc)
-                    used_up = exc
-                    pauses.append(getattr(exc, "retry_in", 0))
-                    continue
-                except Exception as exc:  # an odd error from one brain (a dropped call, a bad reply) must not end
-                    # the whole task when another brain can carry on; it is raised only when none can
-                    log.warning("%s failed (%s: %s); the next free brain answers", kind, type(exc).__name__,
-                                str(exc)[:200])
-                    broken = broken or exc
-                    continue
-                usage.record(self.store, answer, answer.model or model)
-                return answer
-            soonest = min([p for p in pauses if p > 0], default=0)
-            if images and (again or not 0 < soonest <= 60):
-                log.warning("no brain that sees pictures can answer; a text brain answers with a note instead")
-                return self._ask_free(order, system, messages, tools, max_tokens, effort)
-            if again or not 0 < soonest <= 60:
-                raise used_up or broken
-            # Nobody can answer this minute (Gemini's share for the minute is used up): wait for it, then again.
-            log.warning("every free brain is busy; waiting %.0f s", soonest)
-            self.wait(soonest + 1)
-
-    def _ask_local(self, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> object:
-        name = local.pick(model.partition(":")[2] or self.settings.local_model)
-        if not name:
-            raise RuntimeError("The brain on this computer (Ollama) is not installed or not running.")
-        # Like Авто, on the laptop: a plain answer goes to the small model beside it (4B beside 9B, much faster),
-        # every step with tools to the chosen one, and only a hard step (after a failed one, or a long task) thinks.
-        if not tools:
-            name = local.quick_partner(name) or name
-        if not hard_step(messages):
+        # Only a hard step (after a failed one, or a long task) or "помисли добре" thinks: thinking makes a laptop
+        # model much slower. A plain answer goes to the small model beside the main one (local.choose).
+        if not hard_step(messages) and effort != "max":
             effort = "low"
-        answer = self.local.create(model=name, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
-                                   effort=effort)
-        usage.record(self.store, answer, "local:" + name)
+        wanted = model.partition(":")[2] or s.local_model
+        answer = self.local.create(model=f"local:{wanted}" if wanted else "local", system=system, messages=list(messages),
+                                   tools=tools, max_tokens=max_tokens, effort=effort)
+        usage.record(self.store, answer, getattr(answer, "model", None) or "local")
         return answer
-
-    def fast_model(self) -> str:
-        """The model for the quick lane: the owner's choice (JARVIS_FAST_MODEL), else free Groq (the fastest),
-        else free Gemini, else NVIDIA or OpenRouter, else the brain on this computer, else Claude's cheapest."""
-        s = self.settings
-        if s.fast_model:
-            return s.fast_model
-        if local.is_local(s.model):
-            return s.model
-        if groq.is_groq(s.model) or groq.available():
-            return groq.DEFAULT_MODEL
-        if s.model.startswith("gemini") or gemini.available():
-            return gemini.DEFAULT_MODEL
-        if freeapi.is_free_api(s.model):
-            return s.model
-        return free_brain() or "claude-haiku-5-5"
-
-    def _ask_claude(self, messages: list, system, tools: list, model: str | None = None, effort: str | None = None,
-                    max_tokens: int | None = None) -> object:
-        s = self.settings
-        model = model or s.model
-        kwargs = dict(
-            model=model,
-            max_tokens=max_tokens or s.max_tokens,
-            system=system,
-            messages=gemini.for_claude(messages),
-            tools=tools,
-            output_config={"effort": effort or s.effort},
-            # Tools and the system prompt are the same on every step, so the API reads them from its
-            # cache instead of processing them again; automatic caching also covers the growing conversation.
-            cache_control={"type": "ephemeral"},
-        )
-        if not tools:  # the quick lane has none
-            kwargs.pop("tools")
-        if s.refusal_fallback and not model.startswith("claude-haiku"):  # Haiku has no server-side fallback
-            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
-            kwargs["fallbacks"] = "default"
-        try:
-            return self.client.beta.messages.create(**kwargs)
-        except anthropic.BadRequestError as exc:
-            if "cache_control" in str(exc) and kwargs.pop("cache_control", None):
-                log.warning("retrying without automatic caching: %s", exc)  # caching only saves time
-                return self.client.beta.messages.create(**kwargs)
-            # Thinking blocks are signed against the exact request they came from. If the API
-            # refuses one (e.g. after a fallback model answered), drop them and try once more.
-            if "thinking" not in str(exc) or not strip_thinking(messages):
-                raise
-            log.warning("retrying without earlier thinking blocks: %s", exc)
-            kwargs["messages"] = gemini.for_claude(messages)
-            return self.client.beta.messages.create(**kwargs)
 
     def ask(
         self,
@@ -994,7 +668,7 @@ class Jarvis:
                                 lessons=core_files.read(self.settings.home, "LESSONS.md") or "(none yet)")
         try:
             response = self._request([{"role": "user", "content": prompt}], None, "You are Jarvis, learning from "
-                                     "your own work.", set(), model=self.fast_model(), effort="low", tools=[],
+                                     "your own work.", set(), effort="low", tools=[],
                                      max_tokens=400)
         except Exception:
             log.warning("could not look back at the task", exc_info=True)
@@ -1019,7 +693,7 @@ class Jarvis:
         prompt = recipes.PROMPT.format(request=request[:1500], steps=recipes.describe(steps)[:6000], answer=answer[:1000])
         try:
             response = self._request([{"role": "user", "content": prompt}], None, "You are Jarvis, learning from "
-                                     "your own work.", set(), model=self.fast_model(), effort="low", tools=[],
+                                     "your own work.", set(), effort="low", tools=[],
                                      max_tokens=600)
         except Exception:
             log.warning("could not write a recipe for the task", exc_info=True)
@@ -1141,15 +815,8 @@ class Jarvis:
         guest = user is not None and not user.is_owner
         system = (QUICK_PROMPT.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
                   + self._about(user, text) + self._clock())
-        model = self.fast_model()
-        try:
-            response = self._request(self._messages(conversation, text, limit=12, hint=hint), user, system, set(), model=model,
-                                     effort="low", tools=[], max_tokens=1500)
-        except Exception:
-            if model == s.model:
-                raise
-            log.warning("the quick lane failed; the full agent answers", exc_info=True)
-            return None
+        response = self._request(self._messages(conversation, text, limit=12, hint=hint), user, system, set(),
+                                 effort="low", tools=[], max_tokens=1500)
         answer = "\n\n".join(b.text for b in response.content if b.type == "text" and b.text.strip()).strip()
         if response.stop_reason not in ("end_turn", "max_tokens") or not answer or ESCALATE in answer[:60].upper():
             return None
