@@ -641,3 +641,24 @@ def test_every_tool_is_in_a_group_an_account_can_be_given(registry):
 
     groups = {g[0] for g in accounts.GROUPS} | {"core"}
     assert {n: t.group for n, t in registry.tools.items() if t.group not in groups} == {}
+
+
+def test_the_newest_video_of_a_channel_comes_from_its_own_feed(monkeypatch):
+    from jarvis.plugins import daily
+
+    pages = {"results": '"channelRenderer":{"channelId":"UCabcdefghijklmnopqrstuv","title"',
+             "feeds": "<entry><yt:videoId>NEWVIDEO123</yt:videoId><title>Ново &amp; свежо</title></entry>"
+                      "<entry><yt:videoId>OLDVIDEO123</yt:videoId><title>Старо</title></entry>"}
+    monkeypatch.setattr(daily, "fetch", lambda url, *a, **k: next(v for key, v in pages.items() if key in url))
+    assert daily.newest_video("Хараламби Добрев") == ("NEWVIDEO123", "Ново & свежо")
+
+
+def test_a_video_for_a_phone_that_is_not_connected_plays_on_the_laptop(registry, monkeypatch):
+    from jarvis.plugins import daily
+
+    opened = []
+    monkeypatch.setattr(daily, "find_video", lambda q: ("abcdefghijk", "Песен"))
+    monkeypatch.setattr(daily.browsers, "open_url", lambda url: opened.append(url) or "Brave")
+    monkeypatch.delenv("JARVIS_ADB_DEVICES", raising=False)
+    out, err = registry.run("play_youtube", {"query": "песен", "device": "phone"}, Approver())
+    assert not err and opened == ["https://www.youtube.com/watch?v=abcdefghijk"] and "this computer" in out
