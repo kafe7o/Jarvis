@@ -934,7 +934,7 @@ class Jarvis:
         s = self.settings
         guest = user is not None and not user.is_owner
         system = (QUICK_PROMPT.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
-                  + self._about(user, text) + self._clock())
+                  + self._about(user, text) + ("" if guest else self.memory_status()) + self._clock())
         shown = STREAM.get()
         stream = (lambda t: shown(t) if ESCALATE not in t[:60].upper() else None) if shown else None
         response = self._request(self._messages(conversation, text, limit=12, hint=hint), user, system, set(),
@@ -943,6 +943,24 @@ class Jarvis:
         if response.stop_reason not in ("end_turn", "max_tokens") or not answer or ESCALATE in answer[:60].upper():
             return None
         return answer
+
+    def memory_status(self) -> str:
+        """How much Jarvis knows and can do, in numbers, for "как си с паметта" (answered without tools)."""
+        def safe(count):
+            try:
+                return count()
+            except Exception:
+                return 0
+        facts = safe(lambda: self.store.query("SELECT COUNT(*) AS n FROM facts")[0]["n"])
+        recipes_kept = safe(lambda: self.store.query("SELECT COUNT(*) AS n FROM recipes")[0]["n"])
+        notes = safe(lambda: sum(1 for p in Path(self.settings.vault).rglob("*.md")))
+        days = safe(lambda: sum(1 for _ in (Path(self.settings.vault) / journal.DAILY).glob("*.md")))
+        lessons = safe(lambda: sum(1 for line in (core_files.read(self.settings.home, "LESSONS.md") or "").splitlines()
+                                   if line.strip().startswith("-")))
+        skills = safe(lambda: sum(1 for _ in (Path(self.settings.home) / "skills").glob("*.py")))
+        return (f"\n\nYour memory and skills right now: {facts} remembered facts, {notes} notes in the vault ({days} "
+                f"days of talks), {lessons} lessons, {recipes_kept} ways of doing tasks (recipes), {skills} skills you "
+                f"wrote yourself, {len(self.registry.tools)} tools. Facts not listed above: ESCALATE to search them.")
 
     def count(self, level: int) -> None:
         """Which level answered, for the app's "Статистика" tab."""
