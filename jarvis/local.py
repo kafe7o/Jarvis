@@ -123,7 +123,7 @@ def embedder() -> str | None:
     return next((n for n in models() if "embed" in n.lower()), None)
 
 
-def similar(query: str, texts: list[str], top: int = 8, post=None) -> list[int]:
+def similar(query: str, texts: list[str], top: int = 8, post=None, floor: float = 0.45) -> list[int]:
     """The indexes of the ``texts`` closest in meaning to ``query``, best first ([] without an embedding model, or
     when Ollama does not answer): "колата ми" finds "карам синя Тойота", which shares no word with it."""
     model = embedder()
@@ -148,7 +148,7 @@ def similar(query: str, texts: list[str], top: int = 8, post=None) -> list[int]:
 
     q = _vectors[query]
     scored = sorted(((cosine(q, _vectors[t]), i) for i, t in enumerate(texts) if t in _vectors), reverse=True)
-    return [i for score, i in scored[:top] if score > 0.45]
+    return [i for score, i in scored[:top] if score > floor]
 
 
 def to_messages(system: str, messages: list) -> list[dict]:
