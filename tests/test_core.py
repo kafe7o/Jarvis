@@ -662,3 +662,34 @@ def test_a_video_for_a_phone_that_is_not_connected_plays_on_the_laptop(registry,
     monkeypatch.delenv("JARVIS_ADB_DEVICES", raising=False)
     out, err = registry.run("play_youtube", {"query": "песен", "device": "phone"}, Approver())
     assert not err and opened == ["https://www.youtube.com/watch?v=abcdefghijk"] and "this computer" in out
+
+
+def test_jarvis_remembers_what_the_owner_says_about_his_life_without_being_told(settings, ctx, registry):
+    from conftest import FakeClient, response, text_block
+    from jarvis import brain
+    from jarvis.brain import Jarvis
+
+    settings.learn = True
+    client = FakeClient([response(text_block("семейство: Сестра му се казва Мария\nкола: Кара синя Тойота"))])
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=client)
+    kept = jarvis.notice("сестра ми се казва Мария, а аз карам синя тойота", "Разбрах, сър.")
+    assert kept == ["семейство: Сестра му се казва Мария", "кола: Кара синя Тойота"]
+    client.responses.append(response(text_block("семейство: Сестрата му се казва Мария\nNONE")))
+    assert jarvis.notice("сестра ми Мария пак", "Да.") == []  # already known, in other words
+    assert len(ctx.store.query("SELECT id FROM facts")) == 2
+    assert not brain.PERSONAL.search("пусни ми Back in Black") and brain.PERSONAL.search("obicham kafe bez zahar")
+
+
+def test_with_the_memory_model_the_brain_gets_the_tools_closest_to_the_request(registry, monkeypatch):
+    from jarvis import brain, local
+
+    tools = registry.definitions(None)
+    groups = {n: (t.group or "agent") for n, t in registry.tools.items()}
+    monkeypatch.setattr(local, "similar", lambda q, texts, top=8, post=None, floor=0.45:
+                        [i for i, t in enumerate(texts) if t.startswith(("weather:", "set_volume:"))][:top])
+    picked = {t["name"] for t in brain.select_tools(tools, groups, "какво е времето утре")}
+    assert len(picked) <= brain.TOOLS_MAX and {"weather", "set_volume", "remember", "open_page"} <= picked
+    assert "build_website" not in picked
+    assert brain.CORE_TOOLS <= set(registry.tools)  # every core tool exists
+    monkeypatch.setattr(local, "similar", lambda *a, **k: [])
+    assert len(brain.select_tools(tools, groups, "какво е времето утре")) > brain.TOOLS_MAX  # no memory model: all

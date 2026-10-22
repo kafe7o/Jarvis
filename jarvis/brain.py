@@ -203,6 +203,27 @@ Lessons you already keep:
 Is there one concrete lesson for next time: what to do differently, what worked in the end, or how the owner \
 wants things done? Write it as ONE short line in Bulgarian that you can follow later (e.g. "Когато ..., ..."). \
 Not about this one task only, not already in your lessons. If there is none, write exactly: NONE"""
+# Jarvis notices what is worth remembering in what the owner says, without being told „запомни“: the brain on the
+# laptop rarely called remember by itself, so the memory stayed nearly empty. Asked only when the message is about
+# the owner's own life (PERSONAL), after the answer, in the background.
+NOTICE = """The owner just wrote: {text}
+You answered: {answer}
+
+Already remembered:
+{known}
+
+Which NEW facts from the owner's message are worth remembering for months: who someone is, what he likes or \
+dislikes, his plans with dates, places, devices and accounts he uses (never a password, key or code), how he wants \
+you to work? Write each as one line "topic: fact" in Bulgarian (e.g. "семейство: Сестра му се казва Мария"). \
+Nothing passing (a command, today's weather), nothing already remembered. If there is none, write exactly: NONE"""
+PERSONAL = re.compile(router.bg(
+    r"(?<!\w)(?:аз|мен|моят|моята|моето|моите|мой|казвам се|обичам|мразя|харесвам|предпочитам|живея|работя|уча|"
+    r"роден|рожден|съпруг|жена ми|мъжът ми|гадже|приятел|майка|баща|мама|татко|брат|сестра|дете|деца|син ми|"
+    r"дъщеря|винаги|никога|занапред|от сега нататък|запомни|колата ми|кучето ми|котката ми|шефът ми|фирмата ми)(?!\w)"),
+    re.I)
+NOTICE_EVERY = 20  # seconds: at most one look a while, so the laptop's model stays free for the owner
+
+
 # Said to the agent when it claims something is done although its last step(s) failed.
 DONE_CHECK = ("(Check before you answer: your last step(s) failed: {failed}. Nothing after them succeeded, so do not "
               "say that it is done, sent, started or saved. Either make it work now, another way if needed, or tell me "
@@ -414,8 +435,10 @@ def relevant_facts(facts: list[dict], about: str) -> list[dict]:
     older, newest = facts[:-FACTS_NEWEST], facts[-FACTS_NEWEST:]
     asked = recipes.words(about) - recipes.GENERIC
     scored = [(recipes.overlap(asked, recipes.words(f"{f['topic']} {f['fact']}")), i) for i, f in enumerate(older)]
-    picked = sorted(i for score, i in sorted(scored, reverse=True)[:FACTS_NEWEST] if score)
-    return [older[i] for i in picked] + newest
+    picked = {i for score, i in sorted(scored, reverse=True)[:FACTS_NEWEST] if score}
+    # and the ones closest in meaning (with the memory model): "колата" finds "кара синя Тойота"
+    picked |= set(local.similar(about, [f"{f['topic']}: {f['fact']}" for f in older], top=FACTS_NEWEST // 2))
+    return [older[i] for i in sorted(picked)] + newest
 
 
 def hard_step(messages: list) -> bool:
@@ -448,14 +471,39 @@ def recent_text(messages: list, turns: int = 2) -> str:
     return "\n".join(out)
 
 
+# The tools every request keeps, whatever it is about; with the memory model on the laptop the rest of the always-on
+# ones are picked by meaning (TOOLS_MAX in all): 70 tools were ~11,000 words the laptop brain read before its first
+# step, and it chose worse among so many.
+CORE_TOOLS = {"remember", "recall", "search_history", "request_approval", "ask_owner", "make_plan", "update_plan_step",
+              "open_target", "open_page", "google_search", "read_window", "click_text", "look_at_screen",
+              "control_input", "run_shell", "run_python", "read_file", "write_file", "list_dir", "find_files",
+              "play_youtube", "add_reminder"}
+TOOLS_MAX = 32
+
+
 def select_tools(tools: list[dict], groups: dict[str, str], text: str) -> list[dict]:
     """The tools worth sending to the brain for this request: the always-on groups, plus the groups the recent
-    messages talk about. A mission (a long job) also gets Jarvis's own tools (skills, settings, connections)."""
-    wanted = set(ALWAYS_GROUPS) | {g for g, rx in GROUP_RX.items() if rx.search(text)}
+    messages talk about. A mission (a long job) also gets Jarvis's own tools (skills, settings, connections). Past
+    TOOLS_MAX, the always-on tools beyond CORE_TOOLS are the ones closest in meaning to the request (kept in their
+    usual order, so the prompt stays the same from step to step and Ollama reuses its work)."""
+    named = {g for g, rx in GROUP_RX.items() if rx.search(text)}
+    wanted = set(ALWAYS_GROUPS) | named
     if router.is_mission(text):
         wanted.add("agent")
-    chosen = [t for t in tools if groups.get(t["name"], "agent") in wanted]
-    return chosen or tools
+        named.add("agent")
+    chosen = [t for t in tools if groups.get(t["name"], "agent") in wanted] or tools
+    if len(chosen) <= TOOLS_MAX or not text.strip():
+        return chosen
+    keep = {t["name"] for t in chosen if t["name"] in CORE_TOOLS or groups.get(t["name"], "agent") in named}
+    rest = [t for t in chosen if t["name"] not in keep]
+    room = TOOLS_MAX - len(keep)
+    if room <= 0 or not rest:
+        return chosen
+    close = local.similar(text, [f"{t['name']}: {t.get('description', '')[:300]}" for t in rest], top=room, floor=0.0)
+    if not close:
+        return chosen  # no memory model: all of them, as before
+    keep |= {rest[i]["name"] for i in close}
+    return [t for t in chosen if t["name"] in keep]
 
 
 def is_background(messages: list) -> bool:
@@ -497,6 +545,7 @@ class Jarvis:
         self._reflected = 0.0  # when reflect last looked back at a task
         self._last_task: tuple | None = None  # (request, steps, answer) of the last task with steps, for a praise
         self._recipe_at = 0.0  # when a recipe was last written
+        self._noticed = 0.0  # when the owner's words were last looked at for something to remember
 
     def system_prompt(self, user=None, about: str = "") -> str:
         return self._base_prompt(user, about) + self._clock()
@@ -574,7 +623,55 @@ class Jarvis:
         usage.record(self.store, answer, getattr(answer, "model", None) or "local")
         return answer
 
-    def ask(
+    def ask(self, text: str, conversation: str = "main", confirmer: Confirmer | None = None, user=None,
+            on_progress: Callable[[str], None] | None = None, images: list[tuple[str, str]] | None = None,
+            route: bool | None = None, on_step: Callable[[dict], None] | None = None, insist: bool | None = None,
+            on_text: Callable[[str], None] | None = None) -> str:
+        """Handle one user message end to end and return Jarvis's final answer (see _answer); then, in the
+        background, keep what the owner said about his life (notice)."""
+        answer = self._answer(text, conversation, confirmer, user, on_progress, images, route, on_step, insist, on_text)
+        if self.settings.learn and route is not False and (user is None or user.is_owner):
+            self.notice_later(text, answer)
+        return answer
+
+    def notice_later(self, text: str, answer: str) -> None:
+        if not PERSONAL.search(text or "") or len(text.split()) < 3 or time.time() - self._noticed < NOTICE_EVERY:
+            return
+        if is_background([{"role": "user", "content": text}]):
+            return
+        self._noticed = time.time()
+        threading.Thread(target=self.notice, args=(text, answer), name="jarvis-notice", daemon=True).start()
+
+    def notice(self, text: str, answer: str) -> list[str]:
+        """Remember the new lasting facts in what the owner said; the facts kept."""
+        known = self.store.query("SELECT topic, fact FROM facts ORDER BY id DESC LIMIT 60")
+        prompt = NOTICE.format(text=text[:1500], answer=answer[:600],
+                               known="\n".join(f"- {f['topic']}: {f['fact']}" for f in known) or "(nothing yet)")
+        try:
+            response = self._request([{"role": "user", "content": prompt}], None, "You are Jarvis, keeping your "
+                                     "memory of the owner.", set(), effort="low", tools=[], max_tokens=300)
+        except Exception:
+            log.warning("could not look for something to remember", exc_info=True)
+            return []
+        said = " ".join(b.text for b in response.content if b.type == "text").strip()
+        kept = []
+        for line in said.splitlines()[:5]:
+            topic, colon, fact = line.strip(" -*•\"").partition(":")
+            topic, fact = topic.strip()[:40], fact.strip()
+            if not colon or not topic or len(fact) < 4 or topic.upper().startswith("NONE") or redact_secrets(fact) != fact:
+                continue
+            new = recipes.words(fact)
+            if any(new and recipes.overlap(new, recipes.words(f"{f['topic']} {f['fact']}")) >= 0.7 * len(new)
+                   for f in known):
+                continue  # already remembered, in other words
+            self.store.insert("facts", topic=topic, fact=fact)
+            known.append({"topic": topic, "fact": fact})
+            kept.append(f"{topic}: {fact}")
+        if kept:
+            log.info("noticed: %s", "; ".join(kept))
+        return kept
+
+    def _answer(
         self,
         text: str,
         conversation: str = "main",
