@@ -2612,6 +2612,7 @@ const TABS = [
   { id: "soul", label: "Личност", icon: "spark", owner: true, group: "Jarvis", sub: "Как говори, какво знае за теб и какво е научил" },
   { id: "voice", label: "Глас", icon: "speaker", owner: true, group: "Jarvis", sub: "Чуй гласовете и избери как да звучи Jarvis" },
   { id: "usage", label: "Разход", icon: "chart", owner: true, group: "Jarvis", sub: "Колко заявки прави и към кои мозъци" },
+  { id: "models", label: "Модели", icon: "gauge", owner: true, group: "Система", sub: "Мозъци на лаптопа: тегли, добави от Downloads, избери" },
   { id: "connections", label: "Връзки", icon: "plug", owner: true, group: "Система", sub: "Мозъкът, ключовете и услугите" },
   { id: "accounts", label: "Акаунти", icon: "users", owner: true, group: "Система", sub: "Хората, които ползват Jarvis" },
   { id: "devices", label: "Устройства", icon: "devices", owner: true, group: "Система", sub: "Телефон, телевизор и други компютри" },
@@ -2644,7 +2645,7 @@ async function showTab(id) {
   $("tabSub").textContent = tab.sub || "";
   $("tabBody").scrollTop = 0;
   $("tabBody").innerHTML = `<div class="hint">Зареждам…</div>`;
-  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, voice: tabVoice, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
+  try { await ({ profile: tabProfile, accounts: tabAccounts, perms: tabPerms, soul: tabSoul, voice: tabVoice, models: tabModels, routines: tabRoutines, activity: tabActivity, usage: tabUsage, connections: tabConnections, devices: tabDevices })[tab.id](); }
   catch (err) { $("tabBody").innerHTML = `<div class="err">${esc(err.message)}</div>`; }
 }
 
@@ -2808,6 +2809,55 @@ async function tabVoice() {
       tabVoice();
     } catch (err) { b.disabled = false; toast(err.message, "Глас", "warn"); }
   }));
+}
+
+// The brains on the laptop (Модели): Ollama, the graphics card, the light models to download, a .gguf file already
+// in Downloads to add, and which one Jarvis thinks with. A download shows its progress here.
+let modelsTimer = null;
+async function tabModels(view) {
+  clearTimeout(modelsTimer);
+  const v = view || await api("/api/local-models");
+  if (currentTab !== "models") return;
+  const hw = v.hardware, busy = Object.entries(v.pulls || {});
+  const act = (action, model) => `data-act="${action}" data-model="${esc(model || "")}"`;
+  const row = (title, about, buttons) => `
+    <div class="voice-row"><div><b>${esc(title)}</b> <span class="hint">${about}</span></div><div class="row">${buttons}</div></div>`;
+  const state = (m) => {
+    const p = (v.pulls || {})[m.id || m.name];
+    if (p && !p.done) return `<span class="badge">${esc(p.status)} ${p.percent}%</span>`;
+    if (!m.installed) return `<button class="btn primary small" ${act("download", m.id)}>Изтегли</button>`;
+    return (v.chosen === m.id ? `<span class="badge ok">Мисли с него</span>` : `<button class="btn primary small" ${act("use", m.id)}>Избери</button>`)
+      + `<button class="btn ghost small" ${act("delete", m.id)}>${icon("trash")}</button>`;
+  };
+  const ollama = v.ollama ? `Ollama ${esc(v.ollama)} работи.`
+    : v.installed_ollama ? `Ollama е инсталиран, но не е пуснат. <button class="btn primary small" ${act("start")}>Пусни го</button>`
+    : `Първо трябва Ollama (безплатната програма, която пуска моделите). <button class="btn primary small" ${act("install_ollama")}>Инсталирай Ollama</button>`;
+  $("tabBody").innerHTML = `
+    <div class="note">${icon("info")}<div>${ollama}<br>Компютърът: ${esc(hw.gpu || "няма NVIDIA видеокарта")}${hw.vram ? `, ${hw.vram} GB видеопамет` : ""}, ${hw.ram} GB RAM, ${hw.disk} GB свободно място.
+      <br>Мозък на лаптопа: <b>${esc(v.chosen || "няма")}</b>${v.quick ? ` (лесните отговори на ${esc(v.quick)})` : ""}.
+      ${v.chosen && v.main !== "local" ? ` Сега главният мозък е ${esc(v.main === "auto" ? "Авто" : v.main)}; лаптопът е резервен. <button class="btn ghost small" ${act("main")}>Мисли само на лаптопа</button>` : ""}</div></div>
+    ${v.files.length ? `<div class="section"><h5>Файлове на компютъра</h5>
+      ${v.files.map((f) => row(f.path.split(/[\\/]/).pop(), `${f.gb} GB · ${esc(f.fit)}`,
+        (v.pulls[f.name] && !v.pulls[f.name].done) ? `<span class="badge">${esc(v.pulls[f.name].status)}</span>`
+          : `<button class="btn primary small" ${act("add_file", f.path)}>Добави</button>`)).join("")}
+      <p class="sub">Моделът, който си изтеглил сам (.gguf), се добавя в Ollama с „Добави“ и после се избира тук.</p></div>` : ""}
+    <div class="section"><h5>Леки модели</h5>
+      ${v.models.map((m) => row(m.name, `${m.gb} GB · ${esc(m.fit)}<br>${esc(m.about)}`, state(m))).join("")}
+      ${v.others.map((m) => row(m.id, `${m.gb} GB · ${esc(m.fit)}`, state(Object.assign({ installed: true }, m)))).join("")}
+    </div>
+    <div class="section"><h5>Друг модел</h5>
+      <div class="row"><input class="input" id="otherModel" placeholder="име от ollama.com или hf.co/потребител/модел:Q4_K_M">
+      <button class="btn primary small" id="otherPull">Изтегли</button></div></div>
+    ${busy.filter(([, p]) => p.error).map(([n, p]) => `<div class="err">${esc(n)}: ${esc(p.error)}</div>`).join("")}`;
+  const run = async (action, model, b) => {
+    if (action === "delete" && !confirm(`Да изтрия ли ${model} от лаптопа?`)) return;
+    if (b) b.disabled = true;
+    try { tabModels(await api("/api/local-models", { action, model })); }
+    catch (err) { if (b) b.disabled = false; toast(err.message, "Модели", "warn"); }
+  };
+  $("tabBody").querySelectorAll("button[data-act]").forEach((b) => b.addEventListener("click", () => run(b.dataset.act, b.dataset.model, b)));
+  $("otherPull").onclick = () => { const name = $("otherModel").value.trim(); if (name) run("download", name, $("otherPull")); };
+  if (busy.some(([, p]) => !p.done)) modelsTimer = setTimeout(() => tabModels(), 2000);
 }
 
 async function tabSoul() {

@@ -419,6 +419,23 @@ def task_rounds(messages: list) -> int:
 LONG_TASK = 4  # Авто: after this many rounds a quick brain has not finished, the smartest one takes over
 
 
+FACTS_ALL = 40  # up to this many remembered facts, all of them go into every prompt
+FACTS_NEWEST = 20  # past it: the newest ones and the ones about this request, so the prompt stays small and sharp
+
+
+def relevant_facts(facts: list[dict], about: str) -> list[dict]:
+    """The remembered facts for this request: all of them while they are few; past FACTS_ALL the newest
+    FACTS_NEWEST plus up to as many older ones that share a word with what is asked (the stems, as recipes match,
+    Cyrillic or Latin). Hundreds of facts in every prompt made a laptop brain lose the task and every brain slower."""
+    if len(facts) <= FACTS_ALL:
+        return facts
+    older, newest = facts[:-FACTS_NEWEST], facts[-FACTS_NEWEST:]
+    asked = recipes.words(about) - recipes.GENERIC
+    scored = [(recipes.overlap(asked, recipes.words(f"{f['topic']} {f['fact']}")), i) for i, f in enumerate(older)]
+    picked = sorted(i for score, i in sorted(scored, reverse=True)[:FACTS_NEWEST] if score)
+    return [older[i] for i in picked] + newest
+
+
 def hard_step(messages: list) -> bool:
     """Авто: the step right after a failed one, or a task still going after LONG_TASK rounds, gets the smartest
     brain thinking fully; every other step (a mission's too) a quick brain thinking briefly."""
@@ -584,14 +601,14 @@ class Jarvis:
         self._last_task: tuple | None = None  # (request, steps, answer) of the last task with steps, for a praise
         self._recipe_at = 0.0  # when a recipe was last written
 
-    def system_prompt(self, user=None) -> str:
-        return self._base_prompt(user) + self._clock()
+    def system_prompt(self, user=None, about: str = "") -> str:
+        return self._base_prompt(user, about) + self._clock()
 
     def _clock(self) -> str:
         now = datetime.now().strftime("%A %Y-%m-%d %H:%M")
         return f"\n\nCurrent local time: {now} ({self.settings.timezone})."
 
-    def _base_prompt(self, user=None) -> str:
+    def _base_prompt(self, user=None, about: str = "") -> str:
         """Everything in the system prompt except the clock, which changes every minute."""
         s = self.settings
         guest = user is not None and not user.is_owner
@@ -601,9 +618,9 @@ class Jarvis:
                        "the inbox, wiki/ the organised knowledge with wiki/_master-index.md, output/ finished reports. "
                        "When the owner asks about something they saved, search it (vault_search); save finished "
                        "reports and research to output/ (vault_note).")
-        return prompt + self._about(user)
+        return prompt + self._about(user, about)
 
-    def _about(self, user=None) -> str:
+    def _about(self, user=None, about: str = "") -> str:
         """SOUL.md, USER.md and the remembered facts, for every level that talks to a model."""
         s = self.settings
         guest = user is not None and not user.is_owner
@@ -625,7 +642,11 @@ class Jarvis:
             prompt += "\n\nLessons you learned from experience (LESSONS.md, your own notes; apply them):\n" + lessons
         facts = [] if guest else self.store.query("SELECT topic, fact FROM facts ORDER BY id")
         if facts:
-            prompt += "\n\nWhat you remember about the user:\n" + "\n".join(f"- [{f['topic']}] {f['fact']}" for f in facts)
+            shown = relevant_facts(facts, about)
+            prompt += "\n\nWhat you remember about the user:\n" + "\n".join(f"- [{f['topic']}] {f['fact']}" for f in shown)
+            if len(shown) < len(facts):
+                prompt += (f"\n({len(facts) - len(shown)} older facts not shown here: about anything else, search them "
+                           "with recall before saying you do not know.)")
         return prompt
 
     def _request(self, messages: list, user=None, system: str | list | None = None, allowed: set | None = None, *,
@@ -645,7 +666,7 @@ class Jarvis:
             if tools and not model.startswith("claude"):  # a free brain: the tools this request is about
                 groups = {name: (tool.group or "agent") for name, tool in self.registry.tools.items()}
                 tools = select_tools(tools, groups, recent_text(messages))
-        system = system if system is not None else self.system_prompt(user)
+        system = system if system is not None else self.system_prompt(user, recent_text(messages))
         again = dict(effort=effort, tools=tools, max_tokens=max_tokens)
         if model == AUTO:  # a quick step thinks briefly; a hard one (hard_step) thinks as set
             return self._ask_free(self.auto_order(messages, tools), system, messages, tools, max_tokens,
@@ -812,6 +833,12 @@ class Jarvis:
         name = local.pick(model.partition(":")[2] or self.settings.local_model)
         if not name:
             raise RuntimeError("The brain on this computer (Ollama) is not installed or not running.")
+        # Like Авто, on the laptop: a plain answer goes to the small model beside it (4B beside 9B, much faster),
+        # every step with tools to the chosen one, and only a hard step (after a failed one, or a long task) thinks.
+        if not tools:
+            name = local.quick_partner(name) or name
+        if not hard_step(messages):
+            effort = "low"
         answer = self.local.create(model=name, system=system, messages=messages, tools=tools, max_tokens=max_tokens,
                                    effort=effort)
         usage.record(self.store, answer, "local:" + name)
@@ -1113,7 +1140,7 @@ class Jarvis:
         s = self.settings
         guest = user is not None and not user.is_owner
         system = (QUICK_PROMPT.format(user=user.name if guest else s.user_name, language_rule=language_rule(s.language))
-                  + self._about(user) + self._clock())
+                  + self._about(user, text) + self._clock())
         model = self.fast_model()
         try:
             response = self._request(self._messages(conversation, text, limit=12, hint=hint), user, system, set(), model=model,
@@ -1198,12 +1225,13 @@ class Jarvis:
         # Fixed for the whole turn (thinking blocks are bound to it). The cache breakpoint sits before the
         # clock, so tools, personality and memories are cached from one message to the next.
         tools = None  # every tool this person may use (a free brain gets the ones the request is about)
-        brief = self._base_prompt(user)
+        asked = recent_text(messages)  # the memories about this request go in (relevant_facts)
+        brief = self._base_prompt(user, asked)
         if web:
             tools = [t for t in self.registry.definitions(allowed) if t["name"] in WEB_TOOLS] or None
             guest = user is not None and not user.is_owner
             brief = WEB_PERSONA.format(user=user.name if guest else self.settings.user_name,
-                                       language_rule=language_rule(self.settings.language)) + self._about(user)
+                                       language_rule=language_rule(self.settings.language)) + self._about(user, asked)
         system = [{"type": "text", "text": brief + persona, "cache_control": {"type": "ephemeral"}},
                   {"type": "text", "text": self._clock().strip()}]
         TURN.set({"user": user, "confirmer": confirmer, "on_progress": on_progress, "on_step": on_step, "depth": depth,

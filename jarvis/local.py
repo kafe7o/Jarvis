@@ -1,7 +1,7 @@
 """A brain on this computer (Ollama): free, with no daily limit, and it works without internet.
 
-Install it once (Windows PowerShell):  winget install Ollama.Ollama   then   ollama pull qwen3:4b
-Jarvis finds it by itself and uses it when the free Gemini requests for the day are used up, when Claude's
+Settings > Модели installs Ollama and downloads the models (localmodels.py); a .gguf file already in Downloads is
+added with one button. Jarvis finds it by itself and uses it when the free Gemini requests for the day are used up, when Claude's
 daily spending cap is reached, or always with JARVIS_MODEL=local. It is slower and simpler than the cloud
 brains, so it gets the most useful tools only (LOCAL_TOOLS) to keep its prompt small.
 """
@@ -23,13 +23,28 @@ from .tools import normalize_schema
 log = logging.getLogger("jarvis.local")
 
 # Models that answer well in Bulgarian and can use tools, best first; any other installed model also works.
-PREFERRED = ["qwen3", "gemma3", "llama3.2", "llama3.1", "mistral", "phi4"]
+PREFERRED = ["huihui_ai/qwen3.5-abliterated", "qwen3.5", "qwen3", "gemma3", "llama3.2", "llama3.1", "mistral", "phi4"]
 LOCAL_TOOLS = {
     "remember", "recall", "find_contact", "add_task", "list_tasks", "complete_task", "add_reminder",
     "list_reminders", "list_events", "open_target", "list_dir", "read_file", "find_files", "system_status",
     "media_control", "set_volume", "lock_computer", "play_youtube", "weather", "android", "phone_call", "phone_sms",
-    "request_approval", "run_shell", "vault_search", "vault_note",
+    "request_approval", "run_shell", "vault_search", "vault_note", "open_page", "google_search", "read_window",
+    "click_text", "look_at_screen", "control_input", "translate_text", "web_browser", "local_models",
 }
+# Told to a laptop model on top of Jarvis's prompt: a small model keeps to these better than to long prose.
+SMALL_RULES = """
+
+Rules for you, the brain running on this laptop (follow them exactly):
+1. To do something, CALL a tool. Never write a tool call, JSON or code as your answer, and never say you did \
+something you did not call a tool for.
+2. One step at a time: call the tool, read its result, then decide the next step. If a tool fails, read the error \
+and try a different way; do not repeat the same call.
+3. When the task is done, check the result (read it back or look at the screen) before you say it is done.
+4. Answer briefly in the owner's language. If you do not know, say so; do not invent facts, names or numbers."""
+# Qwen's own settings for agent work (thinking or not); a longer context than Ollama's default, which silently cut
+# Jarvis's prompt and tools, so the model forgot the task. Qwen 3.5 keeps most of its context cheaply.
+OPTIONS = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0}
+KEEP_LOADED = "30m"  # loading a 9B model into the graphics card takes seconds: it stays there between steps
 _seen: dict = {"at": 0.0, "models": []}
 
 
@@ -59,17 +74,69 @@ def available() -> bool:
 
 
 def pick(wanted: str | None = None) -> str | None:
-    """The installed model to use: the one asked for (JARVIS_LOCAL_MODEL), else the best known one."""
-    names = models()
+    """The installed model to use: the one asked for (JARVIS_LOCAL_MODEL), else the best known one (Qwen 3.5 9B,
+    the owner's, before the others; never the small model that only finds memories by meaning)."""
+    names = [n for n in models() if "embed" not in n.lower()]
     if not names:
         return None
     if wanted:
         return next((n for n in names if n == wanted or n.split(":")[0] == wanted), wanted)
-    for family in PREFERRED:
-        found = next((n for n in names if n.split(":")[0] == family), None)
-        if found:
-            return found
-    return names[0]
+    rank = lambda n: (not QWEN35.search(n), not re.search(r"(?<![\d.])9b", n, re.I),
+                      next((i for i, f in enumerate(PREFERRED) if n.split(":")[0].endswith(f)), len(PREFERRED)))
+    return min(names, key=rank)
+
+
+QWEN35 = re.compile(r"qwen[-_]?3[._]?5", re.I)
+
+
+def quick_partner(name: str | None) -> str | None:
+    """The smaller model of the same family installed next to ``name`` (4B beside 9B), for the easy steps; None
+    when there is none."""
+    if not name or not re.search(r"(?<![\d.])9b", name, re.I):
+        return None
+    wanted = re.sub(r"(?<![\d.])9b", "4b", name, flags=re.I).lower()
+    names = models()
+    sibling = next((n for n in names if n.lower() in (wanted, wanted + ":latest")), None)
+    if sibling or not QWEN35.search(name):
+        return sibling
+    # the 9B file the owner added himself beside the 4B downloaded from Ollama: any Qwen 3.5 4B will do
+    return next((n for n in names if QWEN35.search(n) and re.search(r"(?<![\d.])4b", n, re.I)), None)
+
+
+_vectors: dict[str, list[float]] = {}  # text -> its meaning as numbers, kept while Jarvis runs
+
+
+def embedder() -> str | None:
+    """The installed model that turns text into meaning (Settings > Модели > „Памет по смисъл“), if any."""
+    return next((n for n in models() if "embed" in n.lower()), None)
+
+
+def similar(query: str, texts: list[str], top: int = 8, post=None) -> list[int]:
+    """The indexes of the ``texts`` closest in meaning to ``query``, best first ([] without an embedding model, or
+    when Ollama does not answer): "колата ми" finds "карам синя Тойота", which shares no word with it."""
+    model = embedder()
+    if not model or not texts or not query.strip():
+        return []
+    missing = [t for t in dict.fromkeys([query, *texts]) if t not in _vectors]
+    try:
+        for start in range(0, len(missing), 128):
+            batch = missing[start:start + 128]
+            out = (post or _post)("/api/embed", {"model": model, "input": batch, "keep_alive": KEEP_LOADED})
+            _vectors.update(zip(batch, out.get("embeddings") or []))
+    except Exception as exc:
+        log.warning("embedding failed: %s", exc)
+        return []
+    if query not in _vectors:
+        return []
+
+    def cosine(a, b):
+        dot = sum(x * y for x, y in zip(a, b))
+        size = (sum(x * x for x in a) * sum(y * y for y in b)) ** 0.5
+        return dot / size if size else 0.0
+
+    q = _vectors[query]
+    scored = sorted(((cosine(q, _vectors[t]), i) for i, t in enumerate(texts) if t in _vectors), reverse=True)
+    return [i for score, i in scored[:top] if score > 0.45]
 
 
 def to_messages(system: str, messages: list) -> list[dict]:
@@ -157,15 +224,16 @@ class LocalBrain:
         if not isinstance(system, str):
             system = "\n\n".join(_get(b, "text", "") for b in system)
         body = {
-            "model": model, "stream": False, "messages": to_messages(system, messages),
-            # The default context is too short for Jarvis's prompt and tools; this fits them on an ordinary laptop.
-            "options": {"num_predict": min(max_tokens, 4096), "num_ctx": 8192 if tools else 4096},
-            "think": effort == "max",  # thinking makes a laptop model much slower
+            "model": model, "stream": False, "messages": to_messages(system + SMALL_RULES, messages),
+            "options": {**OPTIONS, "num_predict": min(max_tokens, 4096), "num_ctx": 16384 if tools else 8192},
+            "keep_alive": KEEP_LOADED,
+            # Thinking makes a laptop model slower but much smarter: on the hard steps only (brain._ask_local).
+            "think": effort in ("high", "xhigh", "max"),
         }
         declared = to_tools(tools)
         if declared:
             body["tools"] = declared
-        for _ in range(3):
+        for _ in range(4):
             try:
                 return from_reply(self._post("/api/chat", body), model)
             except urllib.error.HTTPError as exc:
@@ -173,6 +241,10 @@ class LocalBrain:
                 # Not every model can think or use tools: ask again without what it can't do.
                 if "think" in detail and "think" in body:
                     body.pop("think")
+                elif "image" in detail and any("images" in m for m in body["messages"]):
+                    for m in body["messages"]:  # a model added from a file without its vision part: words only
+                        if m.pop("images", None):
+                            m["content"] += "\n(A picture was attached; this brain cannot see pictures.)"
                 elif "tools" in detail and "tools" in body:
                     body.pop("tools")
                 else:

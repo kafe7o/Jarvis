@@ -71,8 +71,8 @@ def register(registry: ToolRegistry, ctx) -> None:
             raise ValueError(f"{p.name} needs a free key: the owner adds {p.env} in Settings > Connections "
                              f"(get it at {p.site}).")
         if key == "local" and not local.available():
-            raise ValueError("Ollama is not running on this computer. The owner installs it once in PowerShell: "
-                             "winget install Ollama.Ollama, then: ollama pull qwen3:4b")
+            raise ValueError("Ollama is not running on this computer, or has no model yet. Use local_models "
+                             "(install_ollama, then download or add_file), or the owner opens Settings > Модели.")
         hub = getattr(ctx, "hub", None)
         if hub is not None:
             hub.save_settings({"JARVIS_MODEL": model})
@@ -107,3 +107,57 @@ def register(registry: ToolRegistry, ctx) -> None:
             hub.events.add("voice", voice=vid, name=name)
         note = " Докато има ElevenLabs ключ, говори ElevenLabs." if os.environ.get("ELEVENLABS_API_KEY") else ""
         return f"Вече говоря с гласа {name} ({about}).{note} Всички гласове можеш да чуеш в Настройки > Глас."
+
+    @registry.tool(
+        "The brains on this laptop (Ollama), as in Settings > Модели. Actions: list (installed models, downloads in "
+        "progress, .gguf files in Downloads, the graphics card and RAM); download (the owner's Qwen 3.5 9B "
+        "Abliterated, its fast 4B, or any Ollama or Hugging Face name such as hf.co/user/repo:Q4_K_M); add_file (a "
+        ".gguf file already on the computer, e.g. in Downloads; empty = the biggest one there); use (make it the "
+        "laptop brain); delete; install_ollama. A download runs in the background: say it started, and list shows "
+        "its progress. To run on it, switch_brain to local afterwards.",
+        obj({"action": ("string", "list, download, add_file, use, delete or install_ollama"),
+             "model?": ("string", "A model name or words like 'qwen 9b', '4b', 'памет'; for add_file a file path")}),
+    )
+    def local_models(action: str = "list", model: str = ""):
+        from .. import localmodels
+        from ..brain import TURN
+        from . import save_settings
+
+        user = (TURN.get() or {}).get("user")
+        if user is not None and not user.is_owner:
+            raise PermissionError("Only the owner manages the brains on the laptop.")
+        action = (action or "list").strip().lower()
+        if action == "install_ollama":
+            return localmodels.install_ollama()
+        if action == "add_file":
+            files = localmodels.gguf_files()
+            path = model.strip() or (files[0]["path"] if files else "")
+            if not path:
+                return "There is no .gguf file in Downloads, on the desktop or in Documents."
+            return localmodels.import_gguf(path)
+        if action in ("download", "use", "delete"):
+            name = localmodels.resolve(model)
+            if not name:
+                return ("Which model? The light ones: " + "; ".join(f"{m['name']} ({m['id']}, {m['gb']} GB)"
+                                                                      for m in localmodels.CATALOG))
+            if action == "download":
+                return localmodels.pull(name)
+            if action == "delete":
+                return localmodels.delete(name)
+            installed = [m["id"] for m in localmodels.installed()]
+            name = next((n for n in installed if n == name or n.split(":")[0] == name.split(":")[0]), None)
+            if not name:
+                return f"{model} is not on the laptop yet: download it (or add_file) first."
+            save_settings(ctx, {"JARVIS_LOCAL_MODEL": name})
+            ctx.settings.local_model = name
+            return f"The laptop brain is now {name}."
+        view = localmodels.overview(ctx.settings.local_model, ctx.settings.model)
+        hw = view["hardware"]
+        lines = [f"Ollama: {view['ollama'] or ('installed, not running' if view['installed_ollama'] else 'not installed')}",
+                 f"Hardware: {hw['gpu'] or 'no NVIDIA card found'} {hw['vram']} GB, RAM {hw['ram']} GB, free disk {hw['disk']} GB",
+                 f"Laptop brain: {view['chosen'] or 'none'}" + (f" (easy steps on {view['quick']})" if view["quick"] else "")]
+        lines += [f"{'✅' if m['installed'] else '⬇'} {m['name']} — {m['id']}, {m['gb']} GB, {m['fit']}" for m in view["models"]]
+        lines += [f"✅ {m['id']}, {m['gb']} GB" for m in view["others"]]
+        lines += [f"📄 {f['path']} ({f['gb']} GB) — not added yet (add_file)" for f in view["files"]]
+        lines += [f"… {n}: {st['error'] or st['status']} ({st['percent']}%)" for n, st in view["pulls"].items()]
+        return "\n".join(lines)
