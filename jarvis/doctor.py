@@ -92,7 +92,11 @@ def brains(ctx, network: bool = True) -> list[dict]:
         out.append(finding(OK, "Мозък Claude", "не е свързан, по твое желание; безплатните мозъци работят вместо него"))
     try:
         if local.available():
-            out.append(finding(OK, "Местен мозък (Ollama)", "работи на този компютър"))
+            chosen = local.pick(getattr(ctx.settings, "local_model", "") or None)
+            out.append(finding(OK, "Местен мозък (Ollama)", f"работи на този компютър; мисли с {chosen}"
+                               + (f", лесните отговори на {local.quick_partner(chosen)}" if local.quick_partner(chosen) else "")))
+        else:
+            out.append(finding(OK, "Местен мозък (Ollama)", "няма модел на лаптопа; изтегли от Настройки > Модели"))
     except Exception:
         pass
     model = getattr(ctx.settings, "model", "") or ""
