@@ -92,7 +92,8 @@ def run(home: Path, popen=subprocess.Popen, sleep=time.sleep, rounds: int | None
         _note(log, "Jarvis starts")
         began = time.time()
         with open(log, "a", encoding="utf-8") as out:
-            child = popen([str(exe), "-m", "jarvis", "app", "--no-window"], env={**os.environ, KEPT: "1"},
+            child = popen([str(exe), "-m", "jarvis", "app", "--no-window"],
+                          env={**os.environ, KEPT: "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
                           stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, creationflags=flags)
             code = child.wait()
         if code == STOP:

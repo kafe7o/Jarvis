@@ -262,7 +262,19 @@ def owner() -> None:
     print(f"Готово. Влизаш с {user.username} и тази парола.")
 
 
+def utf8_console() -> None:
+    """Cyrillic in a print must never stop Jarvis. The Jarvis the keeper runs writes to a log file through a pipe,
+    which Windows opens in the system code page (cp1252 on an English Windows: the owner's new laptop), and
+    "Jarvis работи" then died with UnicodeEncodeError on every start, a minute apart."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> None:
+    utf8_console()
     parser = argparse.ArgumentParser(prog="jarvis", description="J.A.R.V.I.S. — личен AI асистент")
     parser.add_argument("mode", nargs="?", default="chat", choices=["app", "stop", "keeper", "owner", "shortcut", "update", "undo", "chat", "voice", "telegram", "web", "node", "ask", "serve", "daemon", "check", "setup",
                                  "enroll-voice", "google-login", "doctor"])
