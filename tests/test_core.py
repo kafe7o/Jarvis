@@ -693,3 +693,26 @@ def test_with_the_memory_model_the_brain_gets_the_tools_closest_to_the_request(r
     assert brain.CORE_TOOLS <= set(registry.tools)  # every core tool exists
     monkeypatch.setattr(local, "similar", lambda *a, **k: [])
     assert len(brain.select_tools(tools, groups, "какво е времето утре")) > brain.TOOLS_MAX  # no memory model: all
+
+
+def test_the_vault_keeps_each_day_and_what_jarvis_knows_and_reads_it_back(settings, ctx, registry):
+    from conftest import FakeClient, response, system_text, text_block
+    from jarvis import journal
+    from jarvis.brain import Jarvis
+
+    client = FakeClient([response(text_block("Записах, сър.")), response(text_block("Мария, сър."))])
+    jarvis = Jarvis(settings, ctx.store, registry, lambda s: True, client=client)
+    jarvis.ask("сестра ми Мария има рожден ден на 5 май", route=None)
+    daily = list((settings.vault / "daily").glob("*.md"))
+    assert len(daily) == 1 and "сестра ми Мария" in daily[0].read_text(encoding="utf-8")
+    journal.file_fact(settings.vault, "семейство", "Сестра му Мария има рожден ден на 5 май")
+    note = (settings.vault / "wiki" / "Семейство.md").read_text(encoding="utf-8")
+    assert "5 май" in note and "[[_master-index]]" in note
+    assert "[[Семейство]]" in (settings.vault / "wiki" / "_master-index.md").read_text(encoding="utf-8")
+    jarvis.ask("кога е рожденият ден на Мария", route=False)
+    assert "Мария има рожден ден на 5 май" in system_text(client.requests[-1])  # read back from the vault
+
+
+def test_what_jarvis_remembers_lands_in_the_vault_too(registry, settings):
+    out, err = registry.run("remember", {"topic": "кола", "fact": "Кара синя Тойота"}, Approver())
+    assert not err and "синя Тойота" in (settings.vault / "wiki" / "Кола.md").read_text(encoding="utf-8")

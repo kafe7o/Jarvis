@@ -15,6 +15,14 @@ def register(registry: ToolRegistry, ctx) -> None:
     )
     def remember(topic: str, fact: str):
         fid = store.insert("facts", topic=topic, fact=fact)
+        try:  # also in the vault's note for the topic, which the owner sees in Obsidian
+            from pathlib import Path
+
+            from .. import journal
+
+            journal.file_fact(Path(ctx.settings.vault), topic, fact)
+        except OSError:
+            pass
         return f"Remembered (id {fid})."
 
     @registry.tool(
