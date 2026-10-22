@@ -62,6 +62,8 @@ def models(timeout: float = 0.8) -> list[str]:
             names = [m["name"] for m in json.loads(resp.read()).get("models", [])]
     except Exception:
         names = []
+    if names != _seen["models"]:
+        _abilities.clear()  # a model added again under the same name may be able to do other things
     _seen.update(at=time.time(), models=names)
     return names
 
@@ -221,12 +223,61 @@ def from_reply(data: dict, model: str) -> Answer:
     return Answer(blocks, stop, "local:" + model, usage)
 
 
-def choose(model: str, tools: list) -> str | None:
-    """The installed model for one step: ``model`` is "local", "local:<name>" or a name. A plain answer (no tools)
-    goes to the small model beside it (4B beside 9B, much faster)."""
+_abilities: dict[str, list[str] | None] = {}  # model -> what Ollama says it can do ("tools", "vision", "thinking")
+_loaded: dict = {"at": 0.0, "models": []}
+
+
+def abilities(name: str) -> list[str] | None:
+    """What an installed model can do, as Ollama reports it; None when it cannot be asked (then: assume it can)."""
+    if name not in _abilities:
+        try:
+            _abilities[name] = list(_post("/api/show", {"model": name}, timeout=3).get("capabilities") or []) or None
+        except Exception:
+            return None
+    return _abilities[name]
+
+
+def can(name: str, ability: str) -> bool:
+    found = abilities(name)
+    return found is None or ability in found
+
+
+def loaded() -> list[str]:
+    """The models Ollama holds in memory right now (asked at most every 5 s)."""
+    if time.time() - _loaded["at"] > 5:
+        try:
+            with urllib.request.urlopen(url() + "/api/ps", timeout=0.8) as resp:
+                _loaded["models"] = [m["name"] for m in json.loads(resp.read()).get("models", [])]
+        except Exception:
+            _loaded["models"] = []
+        _loaded["at"] = time.time()
+    return _loaded["models"]
+
+
+def choose(model: str, tools: list, images: bool = False) -> str | None:
+    """The installed model for one step: ``model`` is "local", "local:<name>" or a name.
+    - A step with a picture goes to a model that can see (the chosen one if it can, else any installed one that can).
+    - A plain answer (no tools) goes to the small model beside it (4B beside 9B, much faster), unless only the big
+      one is in memory: on a 6 GB card the two do not fit together, and swapping them costs more than it saves.
+    - A model added from a file that cannot use tools gives way to one that can."""
     name = pick((model.partition(":")[2] if is_local(model) else model) or None)
-    if name and not tools:
-        name = quick_partner(name) or name
+    if not name:
+        return None
+    others = [n for n in models() if n != name and "embed" not in n.lower()]
+    if images and not can(name, "vision"):
+        seeing = [n for n in others if abilities(n) and "vision" in abilities(n)]
+        if seeing:
+            return min(seeing, key=lambda n: (tools and not can(n, "tools"), not re.search(r"(?<![\d.])9b", n, re.I)))
+        return name
+    if not tools:
+        partner = quick_partner(name)
+        in_memory = loaded()
+        if partner and not (name in in_memory and partner not in in_memory) and (not images or can(partner, "vision")):
+            return partner
+        return name
+    if not can(name, "tools"):
+        return next((n for n in sorted(others, key=lambda n: not re.search(r"(?<![\d.])9b", n, re.I))
+                     if abilities(n) and "tools" in abilities(n)), name)
     return name
 
 
@@ -238,16 +289,18 @@ class LocalBrain:
         self._start = start
 
     def create(self, *, model: str, system, messages: list, tools: list, max_tokens: int, effort: str) -> Answer:
-        name = choose(model, tools)
+        if not isinstance(system, str):
+            system = "\n\n".join(_get(b, "text", "") for b in system)
+        chat = to_messages(system + SMALL_RULES, messages)
+        images = any("images" in m for m in chat)
+        name = choose(model, tools, images)
         if not name and self._wake():
-            name = choose(model, tools)
+            name = choose(model, tools, images)
         if not name:
             raise RuntimeError(NOT_READY)
         model = name
-        if not isinstance(system, str):
-            system = "\n\n".join(_get(b, "text", "") for b in system)
         body = {
-            "model": model, "stream": False, "messages": to_messages(system + SMALL_RULES, messages),
+            "model": model, "stream": False, "messages": chat,
             "options": {**OPTIONS, "num_predict": min(max_tokens, 4096), "num_ctx": NUM_CTX},
             "keep_alive": KEEP_LOADED,
             # Thinking makes a laptop model slower but much smarter: on the hard steps only (brain._ask_local).

@@ -60,6 +60,8 @@ def settings(tmp_path, monkeypatch):
     s.learn = False  # no look back in the background taking scripted answers; test_core.py covers it
     s.vault = tmp_path / "vault"
     monkeypatch.setattr(local, "_seen", {"at": float("inf"), "models": []})  # no Ollama unless a test adds one
+    monkeypatch.setattr(local, "_loaded", {"at": float("inf"), "models": []})
+    monkeypatch.setattr(local, "_abilities", {})
     return s
 
 
