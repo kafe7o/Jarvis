@@ -67,6 +67,38 @@ def test_a_qwen_35_file_gets_ollamas_own_prompt_and_tool_reading():
     assert "RENDERER" not in localmodels.modelfile("/x/Qwen3.5-9B.gguf", renderer=False)
 
 
+def gguf(path, arch):
+    name = b"general.architecture"
+    path.write_bytes(b"GGUF" + (3).to_bytes(4, "little") + bytes(16) + len(name).to_bytes(8, "little") + name
+                     + (8).to_bytes(4, "little") + len(arch).to_bytes(8, "little") + arch.encode())
+    return path
+
+
+def test_a_qwen_35_under_another_name_is_known_by_what_is_inside_the_file(tmp_path):
+    ornith = gguf(tmp_path / "Ornith-1.5-9B-Q4_K_M.gguf", "qwen35")
+    assert localmodels.architecture(ornith) == "qwen35" and "RENDERER qwen3.5" in localmodels.modelfile(str(ornith))
+    gemma = gguf(tmp_path / "gemma-4-E4B-it-Q4_K_M.gguf", "gemma4")
+    assert "RENDERER" not in localmodels.modelfile(str(gemma))
+    assert localmodels.architecture(tmp_path / "missing.gguf") == ""
+
+
+def test_a_file_too_big_for_the_laptop_is_not_added(tmp_path, monkeypatch):
+    file = tmp_path / "Qwen3.5-9B-abliterated-F16.gguf"
+    with open(file, "wb") as f:
+        f.truncate(17_500_000_000)
+    monkeypatch.setattr(localmodels, "hardware", lambda: {"gpu": "RTX 4050", "vram": 6, "ram": 16, "disk": 300})
+    with pytest.raises(ValueError, match="Q4_K_M"):
+        localmodels.import_gguf(str(file))
+
+
+def test_a_models_folder_made_inside_jarvis_is_the_one_used(tmp_path, monkeypatch):
+    monkeypatch.delenv("JARVIS_MODELS_DIR", raising=False)
+    monkeypatch.setattr(localmodels.Path, "home", lambda: tmp_path)
+    (tmp_path / "Documents" / "Jarvis" / "Jarvis Models").mkdir(parents=True)
+    assert localmodels.models_folder() == tmp_path / "Documents" / "Jarvis" / "Jarvis Models"
+    assert not (tmp_path / "Documents" / "Jarvis Models").exists()
+
+
 def test_adding_a_file_falls_back_to_its_own_template_on_an_older_ollama(tmp_path, monkeypatch):
     file = tmp_path / "Qwen3.5-9B-abliterated-Q4_K_M.gguf"
     file.write_bytes(b"GGUF")
@@ -255,3 +287,9 @@ def test_the_memory_moves_to_the_new_laptop_with_its_keys(tmp_path):
     env = read_env(new_env)
     assert env["GEMINI_API_KEY"] == "g-new" and env["MISTRAL_API_KEY"] == "m-old"  # the new laptop's key stays
     assert (new / "skills" / "mine.py").exists()
+
+
+def test_a_9b_added_from_a_file_thinks_and_the_qwen_4b_takes_the_plain_answers(monkeypatch):
+    ollama_has(monkeypatch, "qwen3.5-4b-q4_k_m:latest", "ornith-1.5-9b-q4_k_m:latest", "gemma-4-e4b-it-q4_k_m:latest")
+    assert local.pick() == "ornith-1.5-9b-q4_k_m:latest"
+    assert local.choose("local", []) == "qwen3.5-4b-q4_k_m:latest"

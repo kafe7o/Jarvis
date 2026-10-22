@@ -264,6 +264,9 @@ def models_folder(make: bool = True) -> Path:
     """The owner's own folder for model files (Documents\\Jarvis Models, or JARVIS_MODELS_DIR): a downloaded .gguf
     goes here, so the models are in one place instead of mixed with everything else in Downloads."""
     folder = Path(os.environ.get("JARVIS_MODELS_DIR") or Path.home() / "Documents" / "Jarvis Models").expanduser()
+    inside = Path.home() / "Documents" / "Jarvis" / "Jarvis Models"  # made by hand inside Jarvis's own folder
+    if not os.environ.get("JARVIS_MODELS_DIR") and not folder.is_dir() and inside.is_dir():
+        return inside
     if make:
         try:
             folder.mkdir(parents=True, exist_ok=True)
@@ -306,13 +309,28 @@ def model_tag(filename: str) -> str:
     return re.sub(r"[^a-z0-9._-]+", "-", stem).strip("-._")[:80] or "model"
 
 
-def is_qwen35(name: str) -> bool:
-    return bool(re.search(r"qwen[-_ ]?3[._]?5", name, re.I))
+def architecture(path) -> str:
+    """The model family written inside a .gguf file ("qwen35", "gemma3", ...), "" if it cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(1 << 16)
+    except OSError:
+        return ""
+    found = re.search(rb"general\.architecture\x08\x00\x00\x00(.{8})", head, re.S)
+    if not head.startswith(b"GGUF") or not found:
+        return ""
+    size = int.from_bytes(found.group(1), "little")
+    return head[found.end():found.end() + size].decode("utf-8", "replace") if size < 64 else ""
+
+
+def is_qwen35(path) -> bool:
+    """A Qwen 3.5 model, by its file name or by the family inside the file (Ornith 1.5 is one under another name)."""
+    return bool(re.search(r"qwen[-_ ]?3[._]?5", Path(path).name, re.I)) or architecture(path).startswith("qwen35")
 
 
 def modelfile(path: str, renderer: bool = True) -> str:
     head = f"FROM {path}\n"
-    return head + (QWEN35 if renderer and is_qwen35(Path(path).name) else "") + SETTINGS
+    return head + (QWEN35 if renderer and is_qwen35(path) else "") + SETTINGS
 
 
 def import_gguf(path: str, run=None) -> str:
@@ -321,6 +339,10 @@ def import_gguf(path: str, run=None) -> str:
     file = Path(path)
     if not file.is_file() or file.suffix.lower() != ".gguf":
         raise ValueError(f"Няма такъв .gguf файл: {path}")
+    gb, hw = round(file.stat().st_size / 1e9, 1), hardware()
+    if hw.get("ram") and fit(gb, hw) == "твърде голям за този компютър":
+        raise ValueError(f"{file.name} е {gb} GB: не се побира в паметта на този компютър. Изтегли го като Q4_K_M "
+                         "(около 5-6 GB за 9B), F16/BF16 файловете са за много по-големи видеокарти.")
     exe = ollama_program()
     if not exe or (not version() and not start_ollama()):
         raise RuntimeError("Ollama не е инсталиран или не е пуснат. Натисни „Инсталирай Ollama“ в Настройки > Мозък.")
@@ -343,7 +365,7 @@ def import_gguf(path: str, run=None) -> str:
                 if done.returncode == 0:
                     break
                 error = (done.stderr or done.stdout or "").strip()[-400:]
-                if not (renderer and is_qwen35(file.name)):
+                if not (renderer and is_qwen35(file)):
                     raise RuntimeError(error or "ollama create failed")
             else:
                 raise RuntimeError(error or "ollama create failed")

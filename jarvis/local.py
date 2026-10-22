@@ -75,14 +75,14 @@ NOT_READY = ("Мозъкът на лаптопа (Ollama) не работи ил
 
 
 def pick(wanted: str | None = None) -> str | None:
-    """The installed model to use: the one asked for (JARVIS_LOCAL_MODEL), else the best known one (Qwen 3.5 9B,
-    the owner's, before the others; never the small model that only finds memories by meaning)."""
+    """The installed model to use: the one asked for (JARVIS_LOCAL_MODEL), else the best known one (a 9B, Qwen 3.5
+    first, before the 4B and the others; never the small model that only finds memories by meaning)."""
     names = [n for n in models() if "embed" not in n.lower()]
     if not names:
         return None
     if wanted:
         return next((n for n in names if n == wanted or n.split(":")[0] == wanted), wanted)
-    rank = lambda n: (not QWEN35.search(n), not re.search(r"(?<![\d.])9b", n, re.I),
+    rank = lambda n: (not re.search(r"(?<![\d.])9b", n, re.I), not QWEN35.search(n),
                       next((i for i, f in enumerate(PREFERRED) if n.split(":")[0].endswith(f)), len(PREFERRED)))
     return min(names, key=rank)
 
@@ -98,9 +98,9 @@ def quick_partner(name: str | None) -> str | None:
     wanted = re.sub(r"(?<![\d.])9b", "4b", name, flags=re.I).lower()
     names = models()
     sibling = next((n for n in names if n.lower() in (wanted, wanted + ":latest")), None)
-    if sibling or not QWEN35.search(name):
+    if sibling:
         return sibling
-    # the 9B file the owner added himself beside the 4B downloaded from Ollama: any Qwen 3.5 4B will do
+    # a 9B file the owner added himself (Qwen 3.5, or one built on it such as Ornith): any Qwen 3.5 4B will do
     return next((n for n in names if QWEN35.search(n) and re.search(r"(?<![\d.])4b", n, re.I)), None)
 
 
