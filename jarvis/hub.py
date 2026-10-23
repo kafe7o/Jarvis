@@ -509,7 +509,8 @@ class Hub:
             raise HTTPError(429, "Твърде много грешни опити. Опитай пак след 15 минути.")
 
     # actions
-    def ask(self, text: str, user: User | None = None, chat_id: int | None = None, images=None) -> str:
+    def ask(self, text: str, user: User | None = None, chat_id: int | None = None, images=None,
+            spoken: bool = False) -> str:
         user = user or self.token_user()
         conversation = conversation_id(chat_id) if chat_id else ("web" if user.is_owner else f"web:{user.id}")
         to = user.id or None
@@ -535,6 +536,7 @@ class Hub:
                     text, conversation=conversation, user=user, on_progress=progress,
                     confirmer=lambda summary: self.confirmer(summary, user, chat_id), images=images,
                     on_step=self.board.reporter(run_id), on_text=lambda words: self.partial(to, chat_id, words),
+                    **({"spoken": True} if spoken else {}),
                 )
                 ok = True
                 return answer
@@ -894,7 +896,7 @@ class Hub:
 
                 def answer() -> dict:
                     try:
-                        said, error = self.ask(text, user, chat_id, images), False
+                        said, error = self.ask(text, user, chat_id, images, spoken=bool(b.get("spoken"))), False
                     except Exception as exc:
                         log.exception("ask failed")
                         said, error = friendly_error(exc), True
