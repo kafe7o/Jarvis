@@ -2927,13 +2927,21 @@ function wireScale(el, sc, done) {
     if (sc.auto) save({ action: "use", model: rec.value }, rec.name); else save({ action: "auto" }, "Авто");
   });
 }
-// The same slider next to the message box: the button shows the model in use, a click opens the slider.
+// The same slider next to the message box: the button shows the model in use, a click opens the slider. It is
+// always there for the owner: while Ollama is still starting (no models yet) it says „Мозък“ and looks again.
+let brainRetry = null;
 async function loadBrainBtn() {
   if (!state.me || state.me.role !== "owner") return;
+  clearTimeout(brainRetry);
+  $("brainBtn").classList.remove("hidden");
   let sc;
-  try { sc = await api("/api/brain"); } catch (e) { return; }
+  try { sc = await api("/api/brain"); } catch (e) { sc = null; }
+  if (!sc || !sc.stops.length) {
+    state.brainScale = null; $("brainName").textContent = "Мозък";
+    brainRetry = setTimeout(loadBrainBtn, 10000);
+    return;
+  }
   state.brainScale = sc;
-  $("brainBtn").classList.toggle("hidden", !sc.stops.length);
   $("brainName").textContent = sc.auto ? "Авто" : sc.at >= 0 ? sc.stops[sc.at].name : sc.model;
   if (!$("brainPop").classList.contains("hidden")) drawBrainPop();
 }
@@ -2943,6 +2951,7 @@ function drawBrainPop() {
 }
 $("brainBtn").addEventListener("click", (e) => {
   e.stopPropagation();
+  if (!state.brainScale) { openSettings("brain"); return; }  // no models seen yet: Settings > Мозък shows why
   const pop = $("brainPop"), open = pop.classList.contains("hidden");
   pop.classList.toggle("hidden", !open);
   if (open) drawBrainPop();
