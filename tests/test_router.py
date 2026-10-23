@@ -157,6 +157,15 @@ def test_the_quick_model_hands_over_to_the_agent_when_it_needs_tools(routed, ctx
     assert levels(ctx) == {"1": 0, "2": 0, "3": 1}
 
 
+def test_a_spoken_request_is_answered_short_and_the_next_typed_one_is_not(routed, ctx, registry):
+    client = FakeClient([response(text_block("Дупка в пространството, сър.")), response(text_block("Дълго обяснение."))])
+    jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=client)
+    jarvis.ask("какво е черна дупка", spoken=True)
+    jarvis.ask("какво е черна дупка")
+    said, typed = (str(r["system"]) for r in client.requests)
+    assert "by voice" in said and "by voice" not in typed
+
+
 def test_think_harder_raises_the_effort_for_one_request(routed, ctx, registry):
     client = FakeClient([response(text_block("План."))])
     jarvis = Jarvis(routed, ctx.store, registry, Approver(), client=client)

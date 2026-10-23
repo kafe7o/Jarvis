@@ -1179,12 +1179,13 @@ input.addEventListener("paste", (e) => {
 for (const ev of ["dragenter", "dragover"]) $("composer").addEventListener(ev, (e) => { e.preventDefault(); $("composer").classList.add("drop"); });
 for (const ev of ["dragleave", "drop"]) $("composer").addEventListener(ev, (e) => { e.preventDefault(); $("composer").classList.remove("drop"); if (ev === "drop") addFiles(e.dataTransfer.files); });
 
-async function send() {
+async function send(spoken) {  // spoken === true: said into the microphone
   const text = input.value.trim();
   const files = state.files.splice(0);
   renderAttachments();
   if (!text && !files.length) return;
   const body = { text: text || "Виж какво ти пращам." };
+  if (spoken === true && state.speak) body.spoken = true;  // he hears the answer read: it comes short and fast
   if (files.some((f) => f.isImage)) body.images = files.filter((f) => f.isImage).slice(0, 4).map((f) => f.data);
   if (files.some((f) => !f.isImage)) body.files = files.filter((f) => !f.isImage).map((f) => ({ name: f.name, data: f.data }));
   const shown = (text || body.text) + (files.length ? "\n📎 " + files.map((f) => f.name).join(", ") : "");
@@ -1365,7 +1366,7 @@ async function whisperListen() {
     const placeholder = input.placeholder; input.placeholder = "Разпознавам…";
     try {
       const { text } = await api("/api/stt", { audio, lang: "bg" });
-      if (text) { input.value = (before ? before + " " : "") + text; send(); }
+      if (text) { input.value = (before ? before + " " : "") + text; send(true); }
     } catch (e) { toast(e.message, "Глас", "warn"); }
     finally { input.placeholder = placeholder; }
   };
@@ -1389,7 +1390,7 @@ $("mic").addEventListener("click", () => {
   };
   rec.onend = () => {
     clearTimeout(quiet); rec = null; $("mic").classList.remove("rec");
-    if (input.value.trim() && input.value !== before) send();
+    if (input.value.trim() && input.value !== before) send(true);
   };
   rec.onerror = (e) => {
     if (e.error === "not-allowed") toast("Разреши микрофона в браузъра.", "Глас", "warn");
@@ -1446,6 +1447,7 @@ function handleEvent(ev) {
     state.pending.el.querySelector(".draft").textContent = ev.text;
     scrollDown();
   }
+  if (ev.kind === "partial") hudEarly(ev);
   if (ev.kind === "listen" && document.hasFocus() && !$("mic").classList.contains("rec")) $("mic").click();  // Ctrl+Alt+J
   if (ev.kind === "notify") { toast(ev.text, "Jarvis"); systemNotify("Jarvis", ev.text); }
   if (ev.kind === "chats") loadChats();
@@ -1812,8 +1814,10 @@ async function hudAsk(text) {
     if (hud.screen) hudLog("Гледам екрана");
     if (hud.cam) hudLog("Гледам камерата");
     let data;
-    try { data = await askJarvis(chatId, images.length ? { text, images } : { text }); }
+    const early = hud.early = { chat: chatId, text: "", said: 0, chain: Promise.resolve(), token: hud.speech };
+    try { data = await askJarvis(chatId, images.length ? { text, images, spoken: true } : { text, spoken: true }); }
     catch (err) { data = { answer: err.message, error: true }; }
+    if (hud.early === early) hud.early = null;
     hud.jobs.delete(chatId);
     hud.dirty = true;
     if (job.background) return hudFinished(job, data);
@@ -1822,7 +1826,10 @@ async function hudAsk(text) {
     $("hudAnswer").scrollTop = 0;
     hud.busy = false; hud.pendingChat = null;
     hudStats();
-    await hudSpeak(data.answer);
+    if (early.said) {  // he has been saying it while it was written: only the rest is left
+      await early.chain;
+      if (early.token === hud.speech) await hudSpeak(restOf(data.answer, early));
+    } else await hudSpeak(data.answer);
     if (hud.open && !data.error) { hud.awake = true; hud.awakeUntil = Date.now() + 7000; }
   } catch (err) {
     toast(err.message, "Грешка", "err");
@@ -1833,12 +1840,52 @@ async function hudAsk(text) {
   }
 }
 
+// The quick answer is said while it is still being written: each finished sentence is fetched as a voice at once
+// and played in turn, so he starts talking long before the last word exists. "стоп" (hudHush) ends it all.
+function sentenceEnd(text) {
+  let end = 0;
+  for (const m of text.matchAll(/[.!?…]+["“”»)]*\s+|\n+/g)) end = m.index + m[0].length;
+  return end;
+}
+function hudEarly(ev) {
+  const e = hud.early;
+  if (!hud.open || !e || e.chat !== ev.chat || hud.pendingChat !== ev.chat || e.token !== hud.speech) return;
+  if (!ev.text.startsWith(e.text.slice(0, e.said))) return;  // rewritten from the start: wait for the answer
+  const end = sentenceEnd(ev.text);
+  e.text = ev.text;
+  if (end <= e.said) return;
+  const part = ev.text.slice(e.said, end).trim();
+  e.said = end;
+  if (!part) return;
+  const voice = fetchVoiceNow(part, part);
+  e.chain = e.chain.then(() => hudPlay(voice, e, part));
+}
+async function hudPlay(voice, e, part) {
+  const blob = await voice;
+  if (!hud.open || e.token !== hud.speech) return;
+  if (!blob) { e.token = -1; e.said = 0; return; }  // no voice of his own now: the whole answer is said at the end
+  hud.speaking = true; hud.saying = e.text; hudIdle();
+  const audio = hud.audio = new Audio(URL.createObjectURL(blob));
+  if (hud.ctx) { try { hud.ctx.resume(); hud.ctx.createMediaElementSource(audio).connect(hud.speechAnalyser); } catch (err) {} }
+  await new Promise((done) => { audio.onended = audio.onerror = audio.onpause = done; audio.play().catch(done); });
+  URL.revokeObjectURL(audio.src);
+  if (e.token === hud.speech) { hud.speaking = false; hud.audio = null; hud.deafUntil = Date.now() + 700; flushRec(); hudIdle(); }
+}
+// What is left of the answer after the part already said.
+function restOf(answer, e) {
+  const said = e.text.slice(0, e.said);
+  if (answer.startsWith(said)) return answer.slice(said.length);
+  const last = said.trim().split(/(?<=[.!?…])\s+/).pop();
+  const at = last ? answer.indexOf(last) : -1;
+  return at >= 0 ? answer.slice(at + last.length) : answer.slice(said.length);
+}
+
 // The full agent takes a while: he says so at once and the request goes on in the background, so you can
 // ask for something else meanwhile; the answer is said when it comes (see hudFinished).
 function hudToBackground() {
   const job = hud.jobs.get(hud.pendingChat);
   if (!job || job.background) return;
-  job.background = true; hud.toldLater = true;
+  job.background = true; hud.toldLater = true; hud.early = null;
   hud.busy = false; hud.pendingChat = null;
   hudSpeak(hud.ack || ACKS[0]);
   hudIdle(); hudRenderLog();

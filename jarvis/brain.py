@@ -29,6 +29,12 @@ TURN: contextvars.ContextVar[dict | None] = contextvars.ContextVar("jarvis_turn"
 CHOSEN: contextvars.ContextVar[str | None] = contextvars.ContextVar("jarvis_model", default=None)
 # Hears the answer being written, for the app to show it growing (hub.ask); None when nobody is watching.
 STREAM: contextvars.ContextVar[Callable[[str], None] | None] = contextvars.ContextVar("jarvis_stream", default=None)
+# The owner said it out loud (Jarvis режим) and hears the answer read: it is kept short, so it is written and
+# said in seconds instead of a minute (SPOKEN_RULE, in the clock block so the rest of the prompt stays cached).
+SPOKEN: contextvars.ContextVar[bool] = contextvars.ContextVar("jarvis_spoken", default=False)
+SPOKEN_RULE = ("\n\nThe owner is talking to you by voice and hears your answer read aloud: give the final answer in one "
+               "to three short spoken sentences, with no lists, headings, tables, links or code, and offer more only if "
+               "asked. The work itself (tools, checks) stays as thorough as the request needs.")
 
 PERSONA = """You are J.A.R.V.I.S., the personal AI assistant of {user}. You run on their own computer \
 and act for them in the real world through your tools: phone calls and SMS, e-mail, payments, tasks, \
@@ -553,7 +559,7 @@ class Jarvis:
 
     def _clock(self) -> str:
         now = datetime.now().strftime("%A %Y-%m-%d %H:%M")
-        return f"\n\nCurrent local time: {now} ({self.settings.timezone})."
+        return f"\n\nCurrent local time: {now} ({self.settings.timezone})." + (SPOKEN_RULE if SPOKEN.get() else "")
 
     def _base_prompt(self, user=None, about: str = "") -> str:
         """Everything in the system prompt except the clock, which changes every minute."""
@@ -631,9 +637,10 @@ class Jarvis:
     def ask(self, text: str, conversation: str = "main", confirmer: Confirmer | None = None, user=None,
             on_progress: Callable[[str], None] | None = None, images: list[tuple[str, str]] | None = None,
             route: bool | None = None, on_step: Callable[[dict], None] | None = None, insist: bool | None = None,
-            on_text: Callable[[str], None] | None = None) -> str:
+            on_text: Callable[[str], None] | None = None, spoken: bool = False) -> str:
         """Handle one user message end to end and return Jarvis's final answer (see _answer); then, in the
-        background, keep what the owner said about his life (notice)."""
+        background, keep what the owner said about his life (notice). ``spoken``: said out loud, answered short."""
+        SPOKEN.set(spoken)
         answer = self._answer(text, conversation, confirmer, user, on_progress, images, route, on_step, insist, on_text)
         if route is not False and (user is None or user.is_owner) and not is_background([{"role": "user", "content": text}]):
             if journal.on():
