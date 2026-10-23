@@ -31,9 +31,8 @@ irm https://raw.githubusercontent.com/kafe7o/Jarvis/main/How%20to%20start%20Jarv
 След инсталацията, в същия PowerShell:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-jarvis shortcut
-jarvis app
+.\.venv\Scripts\jarvis.exe shortcut
+.\.venv\Scripts\jarvis.exe app
 ```
 
 - `jarvis shortcut` слага икона **Jarvis** на работния плот и в менюто Start; после го пускаш от нея.
@@ -41,9 +40,9 @@ jarvis app
 
 ## После
 
-- Jarvis се обновява сам от GitHub: поглежда на всеки 5 минути и сваля само когато засече нова версия, когато не работи по твоя заявка; веднага: Настройки → Връзки → „Обнови сега“ или `jarvis update` в PowerShell.
+- Jarvis се обновява сам от GitHub: поглежда на всеки 5 минути и сваля само когато засече нова версия, когато не работи по твоя заявка; веднага: Настройки → Връзки → „Обнови сега“ или `.\.venv\Scripts\jarvis.exe update` в PowerShell, в папката на Jarvis.
 - Личните неща (ключове, памет, акаунти, разговори) са в `C:\Users\<име>\.jarvis` и остават при обновяване.
-- Спиране: `jarvis stop`. Какво е ставало: `C:\Users\<име>\.jarvis\jarvis.log`.
+- Спиране: `.\.venv\Scripts\jarvis.exe stop`. Какво е ставало: `C:\Users\<име>\.jarvis\jarvis.log`.
 - Пълното описание на всичко, което може: [README.md](../README.md) в главната папка.
 
 ## Ръчно, без скрипта
