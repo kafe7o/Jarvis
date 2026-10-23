@@ -459,3 +459,18 @@ def test_a_photo_the_owner_sends_with_a_question_goes_to_the_model_with_eyes(mon
     local.LocalBrain(post).create(model="local", system="s", messages=[{"role": "user", "content": photo}],
                                   tools=[{"name": "x", "input_schema": {}}], max_tokens=100, effort="low")
     assert [b["model"] for b in asked] == ["gemma-4-e4b:latest"]
+
+
+def test_auto_does_routine_work_on_the_model_that_fits_the_card_and_hard_steps_on_the_big_one(monkeypatch):
+    ollama_has(monkeypatch, "ornith-1.5-9b-q4_k_m:latest", "qwen3.5-4b-q4_k_m:latest")
+    monkeypatch.setattr(local, "_abilities", {"ornith-1.5-9b-q4_k_m:latest": ["completion", "tools", "thinking"],
+                                               "qwen3.5-4b-q4_k_m:latest": ["completion", "tools", "thinking"]})
+    monkeypatch.setattr(localmodels, "hardware", lambda: {"vram": 6.0, "ram": 16.0})
+    monkeypatch.setattr(localmodels, "installed", lambda: [{"id": "ornith-1.5-9b-q4_k_m:latest", "gb": 5.8},
+                                                          {"id": "qwen3.5-4b-q4_k_m:latest", "gb": 2.7}])
+    work = [{"name": "x"}]
+    assert local.choose("local", work) == "qwen3.5-4b-q4_k_m:latest"  # the 9B spills into RAM on 6 GB
+    assert local.choose("local", work, hard=True) == "ornith-1.5-9b-q4_k_m:latest"
+    assert local.choose("local:ornith-1.5-9b-q4_k_m:latest", work) == "ornith-1.5-9b-q4_k_m:latest"  # fixed
+    monkeypatch.setattr(localmodels, "hardware", lambda: {"vram": 12.0, "ram": 32.0})
+    assert local.choose("local", work) == "ornith-1.5-9b-q4_k_m:latest"  # a card it fits in: the big one throughout

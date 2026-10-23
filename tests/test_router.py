@@ -427,3 +427,10 @@ def test_change_the_voice_by_saying_so(routed, ctx, registry, tmp_path, monkeypa
     assert jarvis.ask("сложи женски глас").startswith("Вече говоря с гласа Ava")
     assert tts.find_voice("глупост", "bg-BG-BorislavNeural") is None
     assert tts.find_voice("андрю", "")[0] == "en-US-AndrewMultilingualNeural"
+
+
+def test_a_question_by_its_grammar_goes_to_the_quick_model():
+    assert router.quick("е вече става ли да се работи с тебе")
+    assert router.quick("добре ли си?")
+    assert not router.quick("ще пуснеш ли музика")  # something to do stays with the agent
+    assert not router.quick("става ли да ми провериш пощата")

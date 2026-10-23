@@ -2905,7 +2905,7 @@ function brainSlider(sc) {
       <div class="dots">${sc.stops.map((x, i) => `<i class="${i === rec ? "rec" : ""}"></i>`).join("")}</div>
       <input type="range" class="scale-range" min="0" max="${Math.max(n - 1, 0)}" step="1" value="${at}" aria-label="Мозък: по-бърз или по-умен"></div>
     ${row((i) => !split || i % 2 === 1, "")}
-    <div class="scale-now">${sc.auto ? `<b>Авто</b> <span>· сам избира модела за всяка стъпка: малкия за кратките отговори, умния за работата, модел с очи за снимките. Премести кръгчето, за да мисли само с един.</span>`
+    <div class="scale-now">${sc.auto ? `<b>Авто</b> <span>· сам избира модела за всяка стъпка: бързия за отговорите и лесните стъпки, умния за трудните, модел с очи за снимките. Премести кръгчето, за да мисли само с един.</span>`
       : sc.at >= 0 ? scaleText(sc.stops[at]) : `<b>Сега: ${esc(sc.model)}</b>`}</div>
   </div>`;
 }

@@ -263,11 +263,24 @@ def loaded() -> list[str]:
     return _loaded["models"]
 
 
-def choose(model: str, tools: list, images: bool = False) -> str | None:
+def spills(name: str) -> bool:
+    """True when ``name`` does not fit in the graphics card whole, so part of it runs from the slower RAM (a 9B on a
+    6 GB card: every step several times slower). False when the card or the size cannot be told."""
+    from . import localmodels
+
+    vram = localmodels.hardware().get("vram") or 0
+    gb = next((m["gb"] for m in localmodels.installed() if m["id"] == name), 0)
+    return bool(vram and gb and gb + 0.7 > vram)
+
+
+def choose(model: str, tools: list, images: bool = False, hard: bool = False) -> str | None:
     """The installed model for one step: ``model`` is "local", "local:<name>" or a name.
     - A step with a picture goes to a model that can see (the chosen one if it can, else any installed one that can).
     - A plain answer (no tools) goes to the small model beside it (4B beside 9B, much faster), unless only the big
       one is in memory: on a 6 GB card the two do not fit together, and swapping them costs more than it saves.
+    - Авто, a step with tools: when the big model does not fit in the graphics card, the routine steps go to the
+      small one beside it, which does, and only the hard ones (``hard``: after a failed step, a long task, „помисли
+      добре“) to the big one. A whole task on the big model spilling into RAM took minutes for a few steps.
     - A model added from a file that cannot use tools gives way to one that can.
     A model fixed by the owner ("local:<name>", the brain slider off Авто) takes every step but the pictures it
     cannot see."""
@@ -292,6 +305,10 @@ def choose(model: str, tools: list, images: bool = False) -> str | None:
     if not can(name, "tools"):
         return next((n for n in sorted(others, key=lambda n: not re.search(r"(?<![\d.])9b", n, re.I))
                      if abilities(n) and "tools" in abilities(n)), name)
+    if not hard:
+        partner = quick_partner(name)
+        if partner and can(partner, "tools") and spills(name):
+            return partner
     return name
 
 
@@ -315,13 +332,16 @@ class LocalBrain:
         if tail:
             chat[-1] = {**chat[-1], "content": (chat[-1].get("content") or "") + "\n\n" + tail}
         images = any("images" in m for m in chat)
-        name = choose(model, tools, images)
+        # Thinking makes a laptop model slower but much smarter: on the hard steps only (Jarvis._request). Its
+        # thoughts count towards the words it may write, so a thinking step gets room for both.
+        think = effort in ("high", "xhigh", "max")
+        name = choose(model, tools, images, hard=think)
         if not name and self._wake():
-            name = choose(model, tools, images)
+            name = choose(model, tools, images, hard=think)
         if not name:
             raise RuntimeError(NOT_READY)
         shot = images and not next(m for m in reversed(chat) if m.get("images")).get("content")
-        thinker = choose(model, tools, False) if shot and tools else name
+        thinker = choose(model, tools, False, hard=think) if shot and tools else name
         if thinker and thinker != name:
             # A screenshot (it comes with no words) and the model that thinks can't see: the one with eyes says what
             # it shows, and the thinking model keeps every step (a screenshot used to hand the next four steps of a
@@ -330,9 +350,6 @@ class LocalBrain:
             chat = self._described(chat, name)
             name = thinker
         model = name
-        # Thinking makes a laptop model slower but much smarter: on the hard steps only (Jarvis._request). Its
-        # thoughts count towards the words it may write, so a thinking step gets room for both.
-        think = effort in ("high", "xhigh", "max")
         body = {
             "model": model, "stream": False, "messages": chat,
             "options": {**OPTIONS, "num_predict": min(max_tokens, 16384 if think else 4096), "num_ctx": num_ctx()},

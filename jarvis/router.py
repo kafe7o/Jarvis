@@ -634,6 +634,9 @@ DONE_Q = rx(r"(?:^|\s)(?:направи|стана|готов[оаи]?|гото�
             r"намери|пусна|включи|работи|върви|мина|има)(?: го| я| ги)? ли(?=\s|$|[?,.!])")
 
 
+LI = rx(r"(?:^|\s)ли(?=\s|$|[?,.!])")
+
+
 def quick(text: str) -> bool:
     """True when a question can go to the quick level (level 2): it asks something to know, not to do."""
     said = clean(text)
@@ -641,7 +644,11 @@ def quick(text: str) -> bool:
         return False
     if said and words(said) <= 12 and CHAT.search(said) and not NEEDS_TOOLS.search(TIME_WORDS.sub(" ", said)):
         return True
-    return bool(said) and words(said) <= 40 and bool(QUESTION.match(said)) and not NEEDS_TOOLS.search(said)
+    if not said or words(said) > 40 or NEEDS_TOOLS.search(said):
+        return False
+    # A question by its grammar too, not only by its first word: the particle „ли“ ("става ли да се работи с теб")
+    # or a question mark, when it names nothing to do ("ще пуснеш ли" stays with the agent).
+    return bool(QUESTION.match(said)) or (bool(LI.search(said) or text.rstrip().endswith("?")) and not DEED.search(said))
 
 
 # Imperatives that ask Jarvis to do something ("пусни", "провери ми", "обади се").
