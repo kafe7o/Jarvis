@@ -60,6 +60,5 @@ python -m playwright install chromium
 
 jarvis setup
 Write-Host ""
-Write-Host "Готово. Пускаш го с:"
-Write-Host "  .\.venv\Scripts\Activate.ps1"
-Write-Host "  jarvis app      (прозорецът на Jarvis; само 'jarvis' е конзолата)"
+Write-Host "Готово. Пускаш го от иконата Jarvis или, в тази папка, с:"
+Write-Host "  .\.venv\Scripts\jarvis.exe app      (прозорецът на Jarvis; работи и когато Windows спира скриптовете)"
